@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Katabatak — DM Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">Katabatak</span>
+    <div class="flex">
+      <span id="game-name" class="muted"></span>
+      <span class="badge badge-dm">DM</span>
+      <a href="/landing" class="btn btn-ghost btn-sm">← Games</a>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('players')">Players</div>
+      <div class="tab" onclick="switchTab('skills')">Skill Tree</div>
+      <div class="tab" onclick="switchTab('settings')">Settings</div>
+    </div>
+
+    <!-- Players tab -->
+    <div id="tab-players" class="tab-panel active">
+      <h3 class="mb1">Members</h3>
+      <div id="members-list" class="card-grid"><p class="muted">Loading…</p></div>
+    </div>
+
+    <!-- Skill tree tab -->
+    <div id="tab-skills" class="tab-panel">
+      <div class="flex mb1">
+        <h3>Skill Tree</h3>
+        <span class="spacer"></span>
+        <button class="btn btn-primary btn-sm" onclick="openAddNode()">+ Add Node</button>
+      </div>
+      <canvas id="skill-canvas"></canvas>
+      <p class="muted mt1" style="font-size:0.8rem">Click a node to select it. Shift-click another to connect them. Right-click a node to delete.</p>
+
+      <!-- Add node form -->
+      <div id="add-node-form" class="card mt1" style="display:none; max-width:420px">
+        <h3>New Skill Node</h3>
+        <div class="field mt1">
+          <label>Name</label>
+          <input id="node-name" type="text" placeholder="Fireball">
+        </div>
+        <div class="field">
+          <label>Description</label>
+          <textarea id="node-desc" rows="2" placeholder="Optional…"></textarea>
+        </div>
+        <div class="field">
+          <label>Tier (0 = root)</label>
+          <input id="node-tier" type="number" value="0" min="0">
+        </div>
+        <div class="flex">
+          <button class="btn btn-primary" onclick="addNode()">Add</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('add-node-form').style.display='none'">Cancel</button>
+        </div>
+        <p id="node-error" class="error-msg"></p>
+      </div>
+    </div>
+
+    <!-- Settings tab -->
+    <div id="tab-settings" class="tab-panel">
+      <div class="card" style="max-width:480px">
+        <h3>Game Info</h3>
+        <p id="game-id-display" class="muted mt1" style="font-size:0.85rem"></p>
+        <p class="mt1"><strong>Invite Code:</strong> <code id="invite-code" style="font-size:1.1rem; color:var(--accent)"></code></p>
+        <button class="btn btn-ghost btn-sm mt1" onclick="copyInvite()">Copy Code</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/dm-dashboard.js"></script>
+</body>
+</html>

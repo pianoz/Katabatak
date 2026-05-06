@@ -249,7 +249,7 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
             <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">
               Skill Tree
             </h2>
-            <SkillTreeViewer isDev={false}/>
+            <SkillTreeViewer isDev={false} characterId={character.id}/>
           </div>
         </div>
 

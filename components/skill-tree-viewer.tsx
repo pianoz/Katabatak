@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { ChevronUp, ChevronDown, Plus, Home, Pencil, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { id } from "date-fns/locale/id"
 
 interface Skill {
   id: string
@@ -12,6 +13,10 @@ interface Skill {
   unlock_key?: string
   skill_text?: string
   
+}
+
+interface Character {
+    characterid: string
 }
 
 interface SkillEdge {
@@ -24,11 +29,13 @@ interface SkillEdge {
 interface SkillTreeViewerProps {
   isDev?: boolean
   initialSkillId?: string
+  characterId?: string
 }
 
-export function SkillTreeViewer({ isDev = false, initialSkillId }: SkillTreeViewerProps) {
+export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: SkillTreeViewerProps) {
   const [skills, setSkills] = useState<Skill[]>([])
   const [edges, setEdges] = useState<SkillEdge[]>([])
+  const [unlockedSkillIds, setUnlockedSkillIds] = useState<Set<string>>(new Set()) // Track unlocked skills
   const [currentSkill, setCurrentSkill] = useState<Skill | null>(null)
   const [rootSkills, setRootSkills] = useState<Skill[]>([])
   const [loading, setLoading] = useState(true)
@@ -48,7 +55,17 @@ export function SkillTreeViewer({ isDev = false, initialSkillId }: SkillTreeView
       supabase.from("skills").select("*").order("name"),
       supabase.from("skill_edges").select("*")
     ])
-
+    // 2. Fetch unlocked skills if we have a characterId
+    if (characterId) {
+        const { data: charSkills } = await supabase
+        .from("character_skills")
+        .select("skill_id")
+        .eq("character_id", characterId)
+        
+        if (charSkills) {
+        setUnlockedSkillIds(new Set(charSkills.map(s => s.skill_id)))
+        }
+    }
     if (skillsRes.data) setSkills(skillsRes.data)
     if (edgesRes.data) setEdges(edgesRes.data)
 
@@ -265,39 +282,47 @@ export function SkillTreeViewer({ isDev = false, initialSkillId }: SkillTreeView
       <div className="p-6 space-y-6">
         {/* Parents Section */}
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <ChevronUp className="w-4 h-4" />
-            <span className="text-xs uppercase tracking-[0.2em]">Parents</span>
-          </div>
-          
-          {parents.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic font-serif pl-6">
-              This is a root skill
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2 pl-6">
-              {parents.map(parent => (
-                <div key={parent.id} className="flex items-center gap-1">
-                  <button
-                    onClick={() => navigateTo(parent)}
-                    className="border border-border bg-secondary/50 px-4 py-2 text-sm font-serif text-foreground hover:bg-secondary hover:border-foreground/30 transition-colors"
-                  >
-                    {parent.name}
-                  </button>
-                  {isDev && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteEdge(parent.id, currentSkill!.id)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-red-400"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  )}
-                </div>
-              ))}
+            <div className="flex items-center gap-2 text-muted-foreground">
+                <ChevronUp className="w-4 h-4" />
+                <span className="text-xs uppercase tracking-[0.2em]">Parents</span>
             </div>
-          )}
+            
+            {parents.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic font-serif pl-6">
+                This is a root skill
+                </p>
+            ) : (
+                <div className="flex flex-wrap gap-2 pl-6">
+                {parents.map(parent => {
+                    const isUnlocked = unlockedSkillIds.has(parent.id);
+                    return (
+                    <div key={parent.id} className="flex items-center gap-1">
+                        <button
+                        onClick={() => navigateTo(parent)}
+                        className={`
+                            border px-4 py-2 text-sm font-serif transition-all duration-700
+                            ${isUnlocked 
+                            ? "border-cyan-500/60 bg-cyan-950/30 text-cyan-100 shadow-[0_0_15px_rgba(34,211,238,0.2)] hover:border-cyan-400 hover:shadow-[0_0_20px_rgba(34,211,238,0.4)]" 
+                            : "border-border bg-secondary/50 text-foreground hover:bg-secondary hover:border-foreground/30"}
+                        `}
+                        >
+                        {parent.name}
+                        </button>
+                        {isDev && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteEdge(parent.id, currentSkill!.id)}
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-red-400"
+                        >
+                            <Trash2 className="w-3 h-3" />
+                        </Button>
+                        )}
+                    </div>
+                    );
+                })}
+                </div>
+            )}
         </div>
 
         {/* Connecting Line */}
@@ -309,36 +334,52 @@ export function SkillTreeViewer({ isDev = false, initialSkillId }: SkillTreeView
 
         {/* Current Skill */}
         {currentSkill && (
-          <div className="flex justify-center">
-            <div className="border-2 border-foreground bg-card px-8 py-6 text-center min-w-[200px] relative">
-              <h3 className="font-serif text-2xl text-foreground mb-2">
+        <div className="flex justify-center">
+            <div 
+            className={`
+                border-2 px-8 py-6 text-center min-w-[200px] relative transition-all duration-1000
+                ${unlockedSkillIds.has(currentSkill.id) 
+                ? "border-cyan-400/80 shadow-[0_0_20px_rgba(34,211,238,0.4),inset_0_0_12px_rgba(34,211,238,0.1)] bg-cyan-950/20" 
+                : "border-foreground bg-card"}
+            `}
+            >
+            {/* The Glow Effect "Core" for the Name */}
+            <h3 className={`
+                font-serif text-2xl mb-2 transition-colors duration-1000
+                ${unlockedSkillIds.has(currentSkill.id) ? "text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : "text-foreground"}
+            `}>
                 {currentSkill.name}
-              </h3>
-              {currentSkill.skill_text && (
-                <p className="text-sm text-muted-foreground italic mb-2">
-                  {currentSkill.skill_text}
+            </h3>
+
+            {currentSkill.skill_text && (
+                <p className={`
+                text-sm italic mb-2 transition-colors duration-1000
+                ${unlockedSkillIds.has(currentSkill.id) ? "text-cyan-200/70" : "text-muted-foreground"}
+                `}>
+                {currentSkill.skill_text}
                 </p>
-              )}
-              {currentSkill.unlock_hint && (
+            )}
+
+            {currentSkill.unlock_hint && (
                 <p className="text-xs text-muted-foreground uppercase tracking-widest">
-                  unlock: {currentSkill.unlock_hint}
+                unlock: {currentSkill.unlock_hint}
                 </p>
-              )}
-              
-              {isDev && (
+            )}
+            
+            {isDev && (
                 <div className="absolute top-2 right-2 flex gap-1">
-                  <Button
+                <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDeleteSkill(currentSkill.id)}
                     className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
-                  >
+                >
                     <Trash2 className="w-3 h-3" />
-                  </Button>
+                </Button>
                 </div>
-              )}
+            )}
             </div>
-          </div>
+        </div>
         )}
 
         {/* Connecting Line */}
@@ -350,40 +391,47 @@ export function SkillTreeViewer({ isDev = false, initialSkillId }: SkillTreeView
 
         {/* Children Section */}
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <ChevronDown className="w-4 h-4" />
-            <span className="text-xs uppercase tracking-[0.2em]">Children</span>
-          </div>
-          
-          {children.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic font-serif pl-6">
-              No skills branch from here
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2 pl-6">
-              {children.map(child => (
-                <div key={child.id} className="flex items-center gap-1">
-                  <button
-                    onClick={() => navigateTo(child)}
-                    className="border border-border bg-secondary/50 px-4 py-2 text-sm font-serif text-foreground hover:bg-secondary hover:border-foreground/30 transition-colors"
-                  >
-                    
-                    {child.name}
-                  </button>
-                  {isDev && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteEdge(currentSkill!.id, child.id)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-red-400"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  )}
-                </div>
-              ))}
+            <div className="flex items-center gap-2 text-muted-foreground">
+                <ChevronDown className="w-4 h-4" />
+                <span className="text-xs uppercase tracking-[0.2em]">Children</span>
             </div>
-          )}
+            
+            {children.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic font-serif pl-6">
+                No skills branch from here
+                </p>
+            ) : (
+                <div className="flex flex-wrap gap-2 pl-6">
+                {children.map(child => {
+                    const isUnlocked = unlockedSkillIds.has(child.id);
+                    return (
+                    <div key={child.id} className="flex items-center gap-1">
+                        <button
+                        onClick={() => navigateTo(child)}
+                        className={`
+                            border px-4 py-2 text-sm font-serif transition-all duration-700
+                            ${isUnlocked 
+                            ? "border-cyan-500/60 bg-cyan-950/30 text-cyan-100 shadow-[0_0_15px_rgba(34,211,238,0.2)] hover:border-cyan-400 hover:shadow-[0_0_20px_rgba(34,211,238,0.4)]" 
+                            : "border-border bg-secondary/50 text-foreground hover:bg-secondary hover:border-foreground/30"}
+                        `}
+                        >
+                        {child.name}
+                        </button>
+                        {isDev && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteEdge(currentSkill!.id, child.id)}
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-red-400"
+                        >
+                            <Trash2 className="w-3 h-3" />
+                        </Button>
+                        )}
+                    </div>
+                    );
+                })}
+                </div>
+            )}
         </div>
       </div>
 

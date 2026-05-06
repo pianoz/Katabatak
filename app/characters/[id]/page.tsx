@@ -33,6 +33,13 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
     .select("*")
     .eq("character_id", id)
     .order("name")
+    // Fetch IDs of skills this character has unlocked
+  const { data: unlockedSkills } = await supabase
+    .from("character_skills")
+    .select("skill_id")
+    .eq("character_id", id)
+    // Transform [{skill_id: '123'}, {skill_id: '456'}] into ['123', '456']
+    const unlockedIds = unlockedSkills?.map(s => s.skill_id) || []
 
   return (
     <CharacterDashboard 

@@ -28,12 +28,26 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
   }
 
   // Fetch character's items
-  const { data: items } = await supabase
-    .from("game_items")
+  // 1. Fetch the bridge table entries
+  const { data: inventoryData, error: inventoryError } = await supabase
+    .from("character_inventory")
+    .select("item_id")
+    .eq("character_id", id);
+
+  if (inventoryError) throw inventoryError;
+
+  // 2. Extract the IDs into a flat array: [1, 2, 3]
+  const itemIds = inventoryData?.map(row => row.item_id) || [];
+
+  // 3. Fetch the actual item details using the 'in' filter
+  const { data: items, error: itemsError } = await supabase
+    .from("items")
     .select("*")
-    .eq("character_id", id)
-    .order("name")
-    // Fetch IDs of skills this character has unlocked
+    .in("id", itemIds) // 'id' should be the primary key column in your 'items' table
+    .order("name");
+
+    if (itemsError) throw itemsError;
+
   const { data: unlockedSkills } = await supabase
     .from("character_skills")
     .select("skill_id")

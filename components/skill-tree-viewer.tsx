@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { ChevronUp, ChevronDown, Plus, Home, Pencil, Trash2 } from "lucide-react"
+import { ChevronUp, ChevronDown, Plus, Home, Pencil, Trash2, Lock } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { id } from "date-fns/locale/id"
 
@@ -223,20 +223,68 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
   const parents = currentSkill ? getParents(currentSkill.id) : []
   const children = currentSkill ? getChildren(currentSkill.id) : []
 
+  // 1. Check if the CURRENT skill is a child of something unlocked
+  // Since 'parents' is already defined for the currentSkill:
+  const isCurrentSkillVisible = parents.some(p => unlockedSkillIds.has(p.id));
+
+  // 2. To check if a CHILD node should show its name (Grandchild of unlocked)
+  // A child node shows its name if the current skill is unlocked OR if any parent is unlocked
+  const getChildVisibility = (childId: string) => {
+    if (unlockedSkillIds.has(childId)) return 'FULL';
+   
+    // If the skill we are looking AT (currentSkill) is unlocked, its children are FULL
+    if (currentSkill && unlockedSkillIds.has(currentSkill.id)) return 'FULL';
+  
+    // If the skill we are looking AT is a child of an unlocked skill, 
+    // then ITS children (the grandchildren) are NAME_ONLY
+    if (isCurrentSkillVisible) return 'NAME_ONLY';
+  
+    return 'HIDDEN';
+  };
+
+  const toggleSkillUnlock = async () => {
+    const supabase = createClient();
+    if (!currentSkill || !characterId) return;
+
+    const isCurrentlyUnlocked = unlockedSkillIds.has(currentSkill.id);
+
+        try {
+            if (isCurrentlyUnlocked) {
+            // 1. Database: Remove the skill
+            const { error } = await supabase
+                .from('character_skills')
+                .delete()
+                .match({ character_id: characterId, skill_id: currentSkill.id });
+
+            if (error) throw error;
+
+            // 2. Local State: Update UI
+            const newUnlocks = new Set(unlockedSkillIds);
+            newUnlocks.delete(currentSkill.id);
+            setUnlockedSkillIds(newUnlocks);
+
+            } else {
+            // 1. Database: Add the skill
+            const { error } = await supabase
+                .from('character_skills')
+                .insert([{ character_id: characterId, skill_id: currentSkill.id }]);
+
+            if (error) throw error;
+
+            // 2. Local State: Update UI
+            setUnlockedSkillIds(new Set([...unlockedSkillIds, currentSkill.id]));
+            }
+        } catch (err) {
+            console.error("Error toggling skill:", err);
+            // Optional: Add a toast notification here
+        }
+    };
+
   return (
     <div className="border border-border bg-card min-h-[400px]">
       {/* Header with navigation */}
       <div className="border-b border-border p-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={goToRoot}
-            className="text-muted-foreground hover:text-foreground uppercase text-xs tracking-widest"
-          >
-            <Home className="w-4 h-4 mr-1" />
-            Root
-          </Button>
           {rootSkills.length > 1 && (
             <select
               value={rootSkills.find(r => r.id === currentSkill?.id)?.id || ""}
@@ -282,17 +330,13 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
       <div className="p-6 space-y-6">
         {/* Parents Section */}
         <div className="space-y-3">
-            <div className="flex items-center gap-2 text-muted-foreground">
-                <ChevronUp className="w-4 h-4" />
-                <span className="text-xs uppercase tracking-[0.2em]">Parents</span>
-            </div>
             
             {parents.length === 0 ? (
                 <p className="text-sm text-muted-foreground italic font-serif pl-6">
                 This is a root skill
                 </p>
             ) : (
-                <div className="flex flex-wrap gap-2 pl-6">
+                <div className="flex flex-wrap gap-2 justify-evenly">
                 {parents.map(parent => {
                     const isUnlocked = unlockedSkillIds.has(parent.id);
                     return (
@@ -325,89 +369,190 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
             )}
         </div>
 
-        {/* Connecting Line */}
+        {/* Parents to Current Connectors */}
         {parents.length > 0 && (
-          <div className="flex justify-center">
-            <div className="w-px h-6 bg-border" />
-          </div>
+        <div className="relative w-full h-16 -mt-2 -mb-2">
+            {/* Added overflow-visible to prevent glow clipping */}
+            <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <defs>
+                <filter id="parent-glow-fixed">
+                <feGaussianBlur stdDeviation="1.5" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+            </defs>
+            
+            {parents.map((parent, index) => {
+                // Logic: The path glows if the parent is unlocked (representing energy flowing FROM it)
+                const isParentUnlocked = unlockedSkillIds.has(parent.id);
+                
+                const total = parents.length;
+                const spacing = 100 / (total + 1);
+                const xStart = (index + 1) * spacing;
+                
+                return (
+                <g key={`parent-link-${parent.id}`}>
+                    <path
+                    /* Starts at Parent (top), Curves to Current Skill (center bottom) */
+                    d={`M ${xStart} 0 Q ${xStart} 50, 50 100`}
+                    fill="none"
+                    /* Fallback: If it's not cyan, it MUST be the dim white */
+                    stroke={isParentUnlocked ? "rgba(34, 211, 238, 0.8)" : "rgba(255, 255, 255, 0.25)"}
+                    strokeWidth={isParentUnlocked ? "2" : "1"}
+                    className={`transition-all duration-1000 ${isParentUnlocked ? "animate-pulse" : ""}`}
+                    style={{ 
+                        filter: isParentUnlocked ? 'url(#parent-glow-fixed)' : 'none',
+                        strokeDasharray: isParentUnlocked ? 'none' : '4 2' 
+                    }}
+                    />
+                </g>
+                );
+            })}
+            </svg>
+        </div>
         )}
-
+        
         {/* Current Skill */}
-        {currentSkill && (
+        {currentSkill && (() => {
+        const isUnlocked = unlockedSkillIds.has(currentSkill.id);
+        // Check if this node is a direct child of an unlocked node
+        const isAvailable = parents.some(p => unlockedSkillIds.has(p.id));
+        
+        // Logic: Show full details if it's unlocked OR if it's a direct child (available to learn)
+        const showDetails = isUnlocked || isAvailable;
+
+        return (
         <div className="flex justify-center">
-            <div 
+        <div 
             className={`
-                border-2 px-8 py-6 text-center min-w-[200px] relative transition-all duration-1000
-                ${unlockedSkillIds.has(currentSkill.id) 
+            border-2 px-8 py-6 text-center w-[40%] relative transition-all duration-1000
+            ${isUnlocked 
                 ? "border-cyan-400/80 shadow-[0_0_20px_rgba(34,211,238,0.4),inset_0_0_12px_rgba(34,211,238,0.1)] bg-cyan-950/20" 
                 : "border-foreground bg-card"}
             `}
-            >
-            {/* The Glow Effect "Core" for the Name */}
+        >
+            {/* Name: Always visible if they can navigate here */}
             <h3 className={`
-                font-serif text-2xl mb-2 transition-colors duration-1000
-                ${unlockedSkillIds.has(currentSkill.id) ? "text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : "text-foreground"}
+            font-serif text-2xl mb-2 transition-colors duration-1000
+            ${isUnlocked ? "text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : "text-foreground"}
             `}>
-                {currentSkill.name}
+            {currentSkill.name}
             </h3>
 
-            {currentSkill.skill_text && (
+            {showDetails ? (
+            <>
+                {currentSkill.skill_text && (
                 <p className={`
-                text-sm italic mb-2 transition-colors duration-1000
-                ${unlockedSkillIds.has(currentSkill.id) ? "text-cyan-200/70" : "text-muted-foreground"}
+                    text-sm italic mb-2 transition-colors duration-1000
+                    ${isUnlocked ? "text-cyan-200/70" : "text-muted-foreground"}
                 `}>
-                {currentSkill.skill_text}
+                    {currentSkill.skill_text}
                 </p>
-            )}
+                )}
 
-            {currentSkill.unlock_hint && (
+                {currentSkill.unlock_hint && (
                 <p className="text-xs text-muted-foreground uppercase tracking-widest">
-                unlock: {currentSkill.unlock_hint}
+                    unlock: {currentSkill.unlock_hint}
                 </p>
-            )}
-            
-            {isDev && (
-                <div className="absolute top-2 right-2 flex gap-1">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteSkill(currentSkill.id)}
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
-                >
-                    <Trash2 className="w-3 h-3" />
-                </Button>
+                )}
+                </>
+                ) : (
+                /* Redacted State: Shows for Grandchildren */
+                <div className="py-4 space-y-2 opacity-20 select-none pointer-events-none">
+                    <div className="h-2 bg-foreground/50 w-full rounded-full" />
+                    <div className="h-2 bg-foreground/50 w-2/3 mx-auto rounded-full" />
+                    <p className="text-[10px] uppercase tracking-[0.2em] pt-2">
+                    Deep Insight Required
+                    </p>
                 </div>
-            )}
+                
+                )}
+                {/* Place this inside your Current Skill div, perhaps at the bottom */}
+                <button
+                onClick={toggleSkillUnlock}
+                className={`
+                    mt-6 px-6 py-2 text-xs tracking-[0.2em] uppercase font-bold transition-all duration-500 border
+                    ${unlockedSkillIds.has(currentSkill.id)
+                    ? "bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.3)] hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-400"
+                    : "bg-transparent border-foreground/30 text-muted-foreground hover:border-cyan-400/60 hover:text-foreground"
+                    }
+                `}
+                >
+                {unlockedSkillIds.has(currentSkill.id) ? "Remove Skill" : "Learn Skill"}
+                </button>
+                
+                {isDev && (
+                <div className="absolute top-2 right-2 flex gap-1">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteSkill(currentSkill.id)}
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
+                        >
+                        <Trash2 className="w-3 h-3" />
+                        </Button>
+                    </div>
+                    )}
+                </div>
             </div>
-        </div>
-        )}
+         );
+        })()}
 
-        {/* Connecting Line */}
+        {/* Current to Children Connectors */}
         {children.length > 0 && (
-          <div className="flex justify-center">
-            <div className="w-px h-6 bg-border" />
-          </div>
+        <div className="relative w-full h-16 -mt-2 -mb-2">
+            {/* Added viewBox and removed preserveAspectRatio="none" to keep curves clean */}
+            <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <defs>
+                <filter id="line-glow">
+                <feGaussianBlur stdDeviation="1" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+            </defs>
+            
+            {children.map((child, index) => {
+                const isUnlocked = unlockedSkillIds.has(child.id);
+                const total = children.length;
+                const spacing = 100 / (total + 1);
+                const xEnd = (index + 1) * spacing;
+                
+                return (
+                <g key={`link-${child.id}`}>
+                    <path
+                    /* REMOVED % signs - using viewBox 0-100 coordinates now */
+                    d={`M 50 0 Q 50 50, ${xEnd} 100`}
+                    fill="none"
+                    stroke={isUnlocked ? "rgba(34, 211, 238, 0.8)" : "rgba(255, 255, 255, 0.63)"}
+                    strokeWidth={isUnlocked ? "1.5" : "0.5"}
+                    className={`transition-all duration-1000 ${isUnlocked ? "animate-pulse" : ""}`}
+                    style={{ 
+                        filter: isUnlocked ? 'url(#line-glow)' : 'none',
+                        strokeDasharray: isUnlocked ? 'none' : '2 2' 
+                    }}
+                    />
+                </g>
+                );
+            })}
+            </svg>
+        </div>
         )}
 
         {/* Children Section */}
         <div className="space-y-3">
-            <div className="flex items-center gap-2 text-muted-foreground">
-                <ChevronDown className="w-4 h-4" />
-                <span className="text-xs uppercase tracking-[0.2em]">Children</span>
-            </div>
+            <div className="h-50px"/>
             
             {children.length === 0 ? (
                 <p className="text-sm text-muted-foreground italic font-serif pl-6">
                 No skills branch from here
                 </p>
             ) : (
-                <div className="flex flex-wrap gap-2 pl-6">
+                <div className="flex flex-wrap justify-evenly gap-6 w-full">
                 {children.map(child => {
                     const isUnlocked = unlockedSkillIds.has(child.id);
+                    const isParentUnlocked = currentSkill && unlockedSkillIds.has(currentSkill.id);
                     return (
                     <div key={child.id} className="flex items-center gap-1">
                         <button
-                        onClick={() => navigateTo(child)}
+                        onClick={() => isParentUnlocked && navigateTo(child)}
                         className={`
                             border px-4 py-2 text-sm font-serif transition-all duration-700
                             ${isUnlocked 
@@ -415,6 +560,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
                             : "border-border bg-secondary/50 text-foreground hover:bg-secondary hover:border-foreground/30"}
                         `}
                         >
+                        {!isParentUnlocked && (<Lock className="w-3 h-3 mr-2 text-muted-foreground" strokeWidth={2.5} />  )}
                         {child.name}
                         </button>
                         {isDev && (

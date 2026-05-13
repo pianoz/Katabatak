@@ -43,6 +43,13 @@ interface Item {
   damage?: string
   armor_value?: number
   character_id: string
+  // Mechanics fields
+  die_count?: number
+  die_type?: number
+  modifier?: number
+  coefficient?: number
+  cost?: number
+  cost_type?: 'power' | 'will'
 }
 
 interface CharacterDashboardProps {
@@ -55,12 +62,45 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
   const router = useRouter()
   const [character, setCharacter] = useState(initialCharacter)
   const [updating, setUpdating] = useState<string | null>(null)
+  const [lastRoll, setLastRoll] = useState<{ label: string, value: number } | null>(null)
+
+  // Filter items for dropdowns
+  const attackItems = items.filter(i => i.type === "weapon" || i.type === "attack_skill")
+  const defendItems = items.filter(i => i.type === "armor" || i.type === "defend_skill")
+  const castItems = items.filter(i => i.type === "spell" || i.type === "cast_skill")
+
+  // Selected IDs for dropdowns
+  const [selectedAttackId, setSelectedAttackId] = useState(attackItems[0]?.id || "")
+  const [selectedDefendId, setSelectedDefendId] = useState(defendItems[0]?.id || "")
+  const [selectedCastId, setSelectedCastId] = useState(castItems[0]?.id || "")
 
   const weapons = items.filter(item => item.type === "weapon")
   const armor = items.filter(item => item.type === "armor")
   const otherItems = items.filter(item => item.type !== "weapon" && item.type !== "armor")
   
   const totalWeight = items.reduce((sum, item) => sum + (item.weight || 0), 0)
+
+  const handleAction = async (actionType: "Attack" | "Defend" | "Cast", itemId: string) => {
+    const item = items.find(i => i.id === itemId)
+    if (!item) return
+
+    // Calculate Roll
+    const count = item.die_count || 0
+    const type = item.die_type || 0
+    let rollTotal = 0
+    for (let i = 0; i < count; i++) {
+      rollTotal += Math.floor(Math.random() * type) + 1
+    }
+
+    const total = (rollTotal + (item.modifier || 0)) * (item.coefficient || 1)
+    setLastRoll({ label: actionType, value: total })
+
+    // Handle Cost subtraction
+    if (isOwner && item.cost && item.cost_type) {
+      const pool = item.cost_type === "power" ? "current_power" : "current_will"
+      updatePool(pool, -item.cost)
+    }
+  }
 
   const updateMoney = async (delta: number) => {
     if (!isOwner) return
@@ -244,8 +284,43 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
             </div>
           </div>
 
-          {/* Right Column - Skill Tree Placeholder */}
+          {/* Right Column - Skill Tree and Actions */}
           <div className="lg:col-span-2">
+            {/* Action Sections */}
+            <section>
+              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">
+                Actions
+              </h2>
+              {lastRoll && (
+                <div className="mb-4 p-3 bg-secondary/30 border border-border text-center animate-in fade-in slide-in-from-top-1">
+                  <span className="text-xs uppercase tracking-widest text-muted-foreground">{lastRoll.label} Result:</span>
+                  <span className="ml-2 font-serif text-2xl text-foreground">{lastRoll.value}</span>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <ActionCard
+                  label="Attack"
+                  items={attackItems}
+                  selectedId={selectedAttackId}
+                  onSelect={setSelectedAttackId}
+                  onAction={() => handleAction("Attack", selectedAttackId)}
+                />
+                <ActionCard
+                  label="Defend"
+                  items={defendItems}
+                  selectedId={selectedDefendId}
+                  onSelect={setSelectedDefendId}
+                  onAction={() => handleAction("Defend", selectedDefendId)}
+                />
+                <ActionCard 
+                  label="Cast"
+                  items={castItems}
+                  selectedId={selectedCastId}
+                  onSelect={setSelectedCastId}
+                  onAction={() => handleAction("Cast", selectedCastId)}
+                />
+              </div>
+            </section>
             <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">
               Skill Tree
             </h2>
@@ -396,6 +471,52 @@ function DescriptionBlock({ label, text, expandable }: { label: string; text?: s
           {expanded ? "Show Less" : "Read More"}
         </button>
       )}
+    </div>
+  )
+}
+
+function ActionCard({ 
+  label, 
+  items, 
+  selectedId, 
+  onSelect, 
+  onAction,
+}: { 
+  label: string, 
+  items: Item[], 
+  selectedId: string, 
+  onSelect: (id: string) => void,
+  onAction: () => void,
+}) {
+  const selectedItem = items.find(i => i.id === selectedId)
+  
+  const damageDisplay = selectedItem ? 
+    `${selectedItem.die_count}d${selectedItem.die_type}${selectedItem.modifier ? (selectedItem.modifier > 0 ? `+${selectedItem.modifier}` : selectedItem.modifier) : ''}${selectedItem.coefficient && selectedItem.coefficient !== 1 ? ` x${selectedItem.coefficient}` : ''}` 
+    : "—"
+
+  const costDisplay = selectedItem?.cost ? `${selectedItem.cost}${selectedItem.cost_type === 'power' ? 'p' : 'w'}` : "0"
+
+  return (
+    <div className="border border-border bg-card p-4 flex flex-col justify-between min-h-[160px]">
+      <div className="flex items-start justify-between mb-4">
+        <Button onClick={onAction} disabled={!selectedItem} className="font-bold uppercase tracking-widest text-xs flex gap-2">
+          {label}
+        </Button>
+        <select 
+          value={selectedId} 
+          onChange={(e) => onSelect(e.target.value)}
+          className="bg-transparent text-[10px] uppercase tracking-tighter text-muted-foreground border-none focus:ring-0 max-w-[100px] text-right"
+        >
+          {items.length === 0 && <option>None</option>}
+          {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+        </select>
+      </div>
+
+      <div className="flex flex-col items-center justify-center border-t border-border pt-4">
+        <div className="text-lg font-serif text-foreground">{damageDisplay}</div>
+        <div className="w-12 h-px bg-border my-1" />
+        <div className="text-xs uppercase tracking-widest text-muted-foreground">{costDisplay}</div>
+      </div>
     </div>
   )
 }

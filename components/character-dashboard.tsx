@@ -4,9 +4,11 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { ChevronLeft, Minus, Plus, Shield, Sword, Package } from "lucide-react"
+import { ChevronLeft, Minus, Plus, Shield, Sword, Package, Hammer, Soup, Trash2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { SkillTreeViewer } from "@/components/skill-tree-viewer"
+import { AddItemModal } from "@/components/add-item-modal"
+import {AddSpellModal} from "@/components/add-spell-modal"
 
 interface Character {
   id: string
@@ -40,34 +42,55 @@ interface Item {
   type: string
   weight?: number
   description?: string
-  damage?: string
-  armor_value?: number
+  damage?: number
+  defence?: number
   character_id: string
   // Mechanics fields
+  condition: number
+  consumable: boolean
   die_count?: number
-  die_type?: number
+  modifier?: number
+  modifier_attribute_name?: string
+  coefficient?: number
+  coefficient_attribute_name?: string
+  cost?: number
+  cost_attribute_name?: 'power' | 'will'
+}
+
+interface Spell {
+  id: number
+  name: string
+  type: string
+  subtype?: string
+  damage?: number
+  defence?: number
   modifier?: number
   coefficient?: number
   cost?: number
-  cost_type?: 'power' | 'will'
+  cost_attribute_name?: string
+  range_m?: number
+  cast_time_min?: number
+  cooldown_min?: number
+  // Add other schema fields as needed for display
 }
 
 interface CharacterDashboardProps {
   character: Character
   items: Item[]
+  spells: Spell[]
   isOwner: boolean
 }
 
-export function CharacterDashboard({ character: initialCharacter, items, isOwner }: CharacterDashboardProps) {
+export function CharacterDashboard({ character: initialCharacter, items, spells, isOwner }: CharacterDashboardProps) {
   const router = useRouter()
   const [character, setCharacter] = useState(initialCharacter)
   const [updating, setUpdating] = useState<string | null>(null)
   const [lastRoll, setLastRoll] = useState<{ label: string, value: number } | null>(null)
 
   // Filter items for dropdowns
-  const attackItems = items.filter(i => i.type === "weapon" || i.type === "attack_skill")
-  const defendItems = items.filter(i => i.type === "armor" || i.type === "defend_skill")
-  const castItems = items.filter(i => i.type === "spell" || i.type === "cast_skill")
+  const attackItems = items.filter(i => i.type === "weapon")
+  const defendItems = items.filter(i => i.type === "armor")
+  const castItems = items.filter(i => i.type === "spell")
 
   // Selected IDs for dropdowns
   const [selectedAttackId, setSelectedAttackId] = useState(attackItems[0]?.id || "")
@@ -83,24 +106,33 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
   const handleAction = async (actionType: "Attack" | "Defend" | "Cast", itemId: string) => {
     const item = items.find(i => i.id === itemId)
     if (!item) return
+    let baseValue = 0
 
-    // Calculate Roll
-    const count = item.die_count || 0
-    const type = item.die_type || 0
-    let rollTotal = 0
-    for (let i = 0; i < count; i++) {
-      rollTotal += Math.floor(Math.random() * type) + 1
+      // Logic Branch: To roll or not to roll?
+      if (actionType === "Defend") {
+        // Defense is a flat value from the armor_value field
+        baseValue = item.defence || 0
+      } else {
+        // Attack and Cast still use the virtual dice roll
+        const count = item.die_count || 0
+        const type = item.damage || 0
+        
+        for (let i = 0; i < count; i++) {
+          baseValue += Math.floor(Math.random() * type) + 1
+        }
+      }
+
+      // Apply modifiers and coefficients to the base (whether rolled or flat)
+      const total = (baseValue + (item.modifier || 0)) * (item.coefficient || 1)
+      
+      setLastRoll({ label: '${actionType}ed for', value: total })
+
+      // Handle Cost subtraction (Power or Will)
+      if (isOwner && item.cost && item.cost_attribute_name) {
+        const pool = item.cost_attribute_name === "power" ? "current_power" : "current_will"
+        updatePool(pool, -item.cost)
+      }
     }
-
-    const total = (rollTotal + (item.modifier || 0)) * (item.coefficient || 1)
-    setLastRoll({ label: actionType, value: total })
-
-    // Handle Cost subtraction
-    if (isOwner && item.cost && item.cost_type) {
-      const pool = item.cost_type === "power" ? "current_power" : "current_will"
-      updatePool(pool, -item.cost)
-    }
-  }
 
   const updateMoney = async (delta: number) => {
     if (!isOwner) return
@@ -138,6 +170,57 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
     setUpdating(null)
   }
 
+  const handleRepair = async (itemId: string) => {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("character_inventory") // adjust table name if needed
+    .update({ condition: 100 })
+    .eq("id", itemId);
+  
+  if (!error) router.refresh();
+  };
+
+  const handleConsume = async (itemId: string) => {
+    const supabase = createClient();
+    // Typically consumption removes the item or reduces quantity
+    const { error } = await supabase
+      .from("character_inventory")
+      .delete()
+      .eq("id", itemId);
+      
+    if (!error) router.refresh();
+  };
+
+  const handleDrop = async (itemId: string) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("character_inventory")
+      .delete()
+      .eq("id", itemId);
+      
+    if (!error) router.refresh();
+  };
+
+  const SpellsSection = () => (
+  <div className="space-y-4 pt-4">
+    {/* Table with Ethereal Styling */}
+    <div className="relative group">
+      {/* Outer Glow Effect */}
+      <div className="absolute -inset-0.5 bg-cyan-500/20 rounded-lg blur opacity-30 group-hover:opacity-50 transition duration-1000"></div>
+      
+      <div className="relative border border-cyan-900/50 bg-card/80 backdrop-blur-sm overflow-hidden">
+        <ItemTable 
+          items={spells as any} 
+          columns={["name", "damage", "cost", "range_m"]}
+          emptyMessage="No spells known"
+          // We'll pass a custom className if your ItemTable supports it, 
+          // otherwise, the wrapper above handles the "vibe"
+        />
+      </div>
+    </div>
+  </div>
+)
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -169,7 +252,7 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
       <main className="px-6 md:px-12 lg:px-20 py-8">
         {/* Character Pools - Top Section */}
         <section className="mb-10">
-          <div className="grid grid-cols-4 gap-4 md:gap-8 w-full max-w-full">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-full">
             <PoolCounter 
               label={`Essence (${character.essence_max})`}
               value={character.current_essence} 
@@ -304,6 +387,7 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
                   selectedId={selectedAttackId}
                   onSelect={setSelectedAttackId}
                   onAction={() => handleAction("Attack", selectedAttackId)}
+                  isFlat={false}
                 />
                 <ActionCard
                   label="Defend"
@@ -311,36 +395,53 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
                   selectedId={selectedDefendId}
                   onSelect={setSelectedDefendId}
                   onAction={() => handleAction("Defend", selectedDefendId)}
+                  isFlat={true}
                 />
-                <ActionCard 
+                <ActionCard
                   label="Cast"
                   items={castItems}
                   selectedId={selectedCastId}
                   onSelect={setSelectedCastId}
                   onAction={() => handleAction("Cast", selectedCastId)}
+                  isFlat={false}
                 />
               </div>
             </section>
-            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">
+            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4 pt-5">
               Skill Tree
             </h2>
             <SkillTreeViewer isDev={false} characterId={character.id}/>
           </div>
         </div>
 
+        {/* Mobile Spells: Above Skill Tree */}
+        <section className="mt-12 space-y-8">
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <AddSpellModal characterId={character.id} />
+              <Sword className="w-5 h-5 text-cyan-400 rotate-45 drop-shadow-[0_0_5px_rgba(34,211,238,0.6)]" /> 
+              <h2 className="text-sm uppercase tracking-[0.3em] text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">
+                Grimoire 
+              </h2>
+            </div>
+            <SpellsSection />
+          </div>
+        </section>
+
         {/* Equipment Section */}
         <section className="mt-12 space-y-8">
           {/* Weapons Table */}
           <div>
             <div className="flex items-center gap-3 mb-4">
+              <AddItemModal characterId={character.id} type="weapon" />
               <Sword className="w-5 h-5 text-muted-foreground" />
               <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
-                Weapons
+                Weapons 
               </h2>
             </div>
             <ItemTable 
               items={weapons} 
-              columns={["name", "damage", "weight", "description"]}
+              columns={["name", "damage", "weight", "condition", "description"]}
               emptyMessage="No weapons equipped"
             />
           </div>
@@ -348,14 +449,15 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
           {/* Armor Table */}
           <div>
             <div className="flex items-center gap-3 mb-4">
+              <AddItemModal characterId={character.id} type="armor" />
               <Shield className="w-5 h-5 text-muted-foreground" />
               <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
-                Armor
+                Armor 
               </h2>
             </div>
             <ItemTable 
               items={armor} 
-              columns={["name", "armor_value", "weight", "description"]}
+              columns={["name", "armor_value", "weight", "condition", "description"]}
               emptyMessage="No armor equipped"
             />
           </div>
@@ -364,9 +466,10 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
           <div>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
+                <AddItemModal characterId={character.id} type="all" />
                 <Package className="w-5 h-5 text-muted-foreground" />
                 <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
-                  Items
+                  Items 
                 </h2>
               </div>
               <span className="text-sm text-muted-foreground">
@@ -378,7 +481,7 @@ export function CharacterDashboard({ character: initialCharacter, items, isOwner
             </div>
             <ItemTable 
               items={otherItems} 
-              columns={["name", "weight", "description"]}
+              columns={["name", "weight", "condition", "description"]}
               emptyMessage="No items in inventory"
             />
           </div>
@@ -481,41 +584,77 @@ function ActionCard({
   selectedId, 
   onSelect, 
   onAction,
+  isFlat = false 
 }: { 
   label: string, 
   items: Item[], 
   selectedId: string, 
   onSelect: (id: string) => void,
   onAction: () => void,
+  isFlat?: boolean
 }) {
   const selectedItem = items.find(i => i.id === selectedId)
   
-  const damageDisplay = selectedItem ? 
-    `${selectedItem.die_count}d${selectedItem.die_type}${selectedItem.modifier ? (selectedItem.modifier > 0 ? `+${selectedItem.modifier}` : selectedItem.modifier) : ''}${selectedItem.coefficient && selectedItem.coefficient !== 1 ? ` x${selectedItem.coefficient}` : ''}` 
-    : "—"
+  // Clean Integer Calculation for Dropdown Display
+  const getShortStats = (item: Item) => {
+    const power = isFlat ? (item.defence ?? 0) : item.damage
+    const cost = item.cost ?? 0
+    return `${power}/${cost}`
+  }
 
-  const costDisplay = selectedItem?.cost ? `${selectedItem.cost}${selectedItem.cost_type === 'power' ? 'p' : 'w'}` : "0"
+  const damageDisplay = selectedItem ? (
+    isFlat 
+      ? `${selectedItem.defence ?? 0}${selectedItem.modifier ? (selectedItem.modifier > 0 ? `+${selectedItem.modifier}` : selectedItem.modifier) : ''}${selectedItem.coefficient && selectedItem.coefficient !== 1 ? ` x${selectedItem.coefficient}` : ''}`
+      : `${selectedItem.die_count}d${selectedItem.damage}${selectedItem.modifier ? (selectedItem.modifier > 0 ? `+${selectedItem.modifier}` : selectedItem.modifier) : ''}${selectedItem.coefficient && selectedItem.coefficient !== 1 ? ` x${selectedItem.coefficient}` : ''}`
+  ) : "—"
 
+  const costDisplay = selectedItem?.cost 
+    ? `${selectedItem.cost}${selectedItem.cost_attribute_name === 'power' ? 'P' : 'W'}` 
+    : "0"
+  
   return (
-    <div className="border border-border bg-card p-4 flex flex-col justify-between min-h-[160px]">
-      <div className="flex items-start justify-between mb-4">
-        <Button onClick={onAction} disabled={!selectedItem} className="font-bold uppercase tracking-widest text-xs flex gap-2">
+    <div className="border border-border bg-card p-3 flex flex-col justify-between min-h-[140px]">
+      {/* Top Section */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-3">
+        <Button 
+          onClick={onAction} 
+          disabled={!selectedItem} 
+          className="font-bold uppercase tracking-widest text-[10px] h-9 sm:flex-1 shrink-0"
+        >
           {label}
         </Button>
+
         <select 
           value={selectedId} 
           onChange={(e) => onSelect(e.target.value)}
-          className="bg-transparent text-[10px] uppercase tracking-tighter text-muted-foreground border-none focus:ring-0 max-w-[100px] text-right"
+          className="bg-secondary/40 text-[10px] uppercase tracking-wider text-foreground border border-border h-9 px-2 rounded-sm focus:ring-1 focus:ring-foreground/20 w-full sm:flex-[2] cursor-pointer"
         >
           {items.length === 0 && <option>None</option>}
-          {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+          {items.map(i => (
+            <option key={i.id} value={i.id} className="bg-card text-foreground">
+              {i.name} ({getShortStats(i)})
+            </option>
+          ))}
         </select>
       </div>
 
-      <div className="flex flex-col items-center justify-center border-t border-border pt-4">
-        <div className="text-lg font-serif text-foreground">{damageDisplay}</div>
-        <div className="w-12 h-px bg-border my-1" />
-        <div className="text-xs uppercase tracking-widest text-muted-foreground">{costDisplay}</div>
+      {/* Bottom Section: Split Grid */}
+      <div className="grid grid-cols-2 gap-4 border-t border-border pt-3 items-center">
+        {/* Left: Stats */}
+        <div className="flex flex-col items-center border-r border-border/50 pr-2">
+          <div className="text-lg font-serif text-foreground leading-none">{damageDisplay}</div>
+          <div className="w-12 h-px bg-border my-1" />
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
+            Cost: {costDisplay}
+          </div>
+        </div>
+
+        {/* Right: Description */}
+        <div className="pl-1">
+          <p className="text-[10px] leading-tight text-muted-foreground italic line-clamp-3">
+            {selectedItem?.description || "No description."}
+          </p>
+        </div>
       </div>
     </div>
   )
@@ -524,11 +663,17 @@ function ActionCard({
 function ItemTable({ 
   items, 
   columns, 
-  emptyMessage 
+  emptyMessage,
+  onRepair,
+  onConsume,
+  onDrop
 }: { 
   items: Item[]
   columns: string[]
   emptyMessage: string
+  onRepair?: (item: Item) => void
+  onConsume?: (item: Item) => void
+  onDrop?: (item: Item) => void
 }) {
   if (items.length === 0) {
     return (
@@ -540,36 +685,67 @@ function ItemTable({
     )
   }
 
+  const getConditionStyle = (percent: number) => {
+    if (percent <= 15) {
+      return {
+        backgroundColor: '#0f0202',
+        border: '1px solid #450a0a',
+        boxShadow: '0 0 4px #7f1d1d'
+      }
+    }
+    const hue = Math.min(Math.max((percent - 20) * 1.5, 0), 120)
+    return {
+      backgroundColor: `hsl(${hue}, 80%, 45%)`,
+      transition: 'background-color 0.5s ease-in'
+    }
+  }
+
   const columnLabels: Record<string, string> = {
     name: "Name",
     damage: "Damage",
-    armor_value: "Armor",
+    defence: "Armor",
     weight: "Weight",
-    description: "Description"
+    description: "Description",
   }
+
+  // Separate condition from the generic columns — it gets its own dedicated cells
+  const genericColumns = columns.filter(col => col !== "condition")
+  const showCondition = columns.includes("condition")
 
   return (
     <div className="border border-border bg-card overflow-hidden">
-      <table className="w-full">
+      <table className="w-full text-left border-collapse">
         <thead>
           <tr className="border-b border-border bg-secondary/50">
-            {columns.map(col => (
-              <th 
+            {genericColumns.map(col => (
+              <th
                 key={col}
-                className="text-left text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal"
+                className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal"
               >
                 {columnLabels[col] || col}
               </th>
             ))}
+            {showCondition && (
+              <th className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
+                Condition
+              </th>
+            )}
+            <th className="text-right text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, index) => (
-            <tr 
-              key={item.id} 
-              className={index !== items.length - 1 ? "border-b border-border" : ""}
+            <tr
+              key={item.id}
+              className={
+                index !== items.length - 1
+                  ? "border-b border-border hover:bg-secondary/20 transition-colors"
+                  : "hover:bg-secondary/20 transition-colors"
+              }
             >
-              {columns.map(col => (
+              {genericColumns.map(col => (
                 <td key={col} className="p-3 text-sm text-foreground">
                   {col === "name" ? (
                     <span className="font-serif">{item[col as keyof Item] ?? "—"}</span>
@@ -578,6 +754,53 @@ function ItemTable({
                   )}
                 </td>
               ))}
+
+              {showCondition && (
+                <td className="p-2">
+                  <div className="flex items-center">
+                    <div
+                      className="relative flex items-center justify-center w-10 h-10 rounded-sm"
+                      style={getConditionStyle(item.condition)}
+                    >
+                      <span
+                        className="absolute text-[11px] font-semibold tracking-tight"
+                        style={{ color: 'rgba(240,240,240,0.88)' }}
+                      >
+                        {item.condition}%
+                      </span>
+                    </div>
+                  </div>
+                </td>
+              )}
+
+              <td className="p-3 text-right space-x-2 whitespace-nowrap">
+                {!item.consumable && (item.condition ?? 100) < 100 && (
+                  <button
+                    onClick={() => onRepair?.(item)}
+                    className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 hover:bg-blue-800 hover:text-white transition-all"
+                  >
+                    Repair
+                  </button>
+                )}
+                {item.consumable && (
+                  <button
+                    onClick={() => onConsume?.(item)}
+                    className="px-2 py-1 text-xs bg-green-900/30 text-green-400 border border-green-800 hover:bg-green-800 hover:text-white transition-all"
+                  >
+                    use/consume
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to drop ${item.name}?`)) {
+                      onDrop?.(item)
+                    }
+                  }}
+                  className="px-2 py-1 text-xs bg-red-900/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all"
+                >
+                  Drop
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>

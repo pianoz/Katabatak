@@ -7,7 +7,7 @@ interface CharacterPageProps {
 }
 
 export default async function CharacterPage({ params }: CharacterPageProps) {
-  const { id } = await params
+  const { id: characterId } = await params
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -16,49 +16,65 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
     redirect("/")
   }
 
-  // Fetch character data
+  // 1. Fetch character data
   const { data: character, error: characterError } = await supabase
     .from("characters")
     .select("*")
-    .eq("id", id)
+    .eq("id", characterId)
     .single()
 
   if (characterError || !character) {
     redirect("/dashboard")
   }
 
-  // Fetch character's items
-  // 1. Fetch the bridge table entries
+  // 2. Fetch inventory items and join with base item stats
+  // This gets the condition from the inventory row and the data from the items table
   const { data: inventoryData, error: inventoryError } = await supabase
     .from("character_inventory")
-    .select("item_id")
-    .eq("character_id", id);
+    .select(`
+      *,
+      items (*)
+    `)
+    .eq("character_id", characterId)
 
-  if (inventoryError) throw inventoryError;
+    if (inventoryError) throw inventoryError
 
-  // 2. Extract the IDs into a flat array: [1, 2, 3]
-  const itemIds = inventoryData?.map(row => row.item_id) || [];
+  // 3. Flatten the inventory data
+  // We transform { condition: 100, items: { name: 'Sword' } } -> { name: 'Sword', condition: 100 }
+  const flattenedItems = inventoryData?.map((row) => {
+  const itemDetails = Array.isArray(row.items) ? row.items[0] : row.items
+  
+    if (!itemDetails) return null
 
-  // 3. Fetch the actual item details using the 'in' filter
-  const { data: items, error: itemsError } = await supabase
-    .from("items")
+    return {
+      ...itemDetails,     // This spreads all columns from the 'items' table
+      id: row.id,         // CRITICAL: Overwrite the 'id' with the unique inventory row ID
+      base_id: itemDetails.id, // Keep the original item ID under a different name if needed
+      condition: row.condition,
+    }
+  }).filter(Boolean) || []
+
+  // 4. Fetch Spells
+  const { data: characterSpells } = await supabase
+    .from("character_spells")
+    .select("spell_id")
+    .eq("character_id", characterId)
+  
+  const characterSpellIds = characterSpells?.map(s => s.spell_id) || []
+
+  const { data: spells, error: spellsError } = await supabase
+    .from("spells")
     .select("*")
-    .in("id", itemIds) // 'id' should be the primary key column in your 'items' table
-    .order("name");
+    .in("id", characterSpellIds)
+    .order("name")
 
-    if (itemsError) throw itemsError;
-
-  const { data: unlockedSkills } = await supabase
-    .from("character_skills")
-    .select("skill_id")
-    .eq("character_id", id)
-    // Transform [{skill_id: '123'}, {skill_id: '456'}] into ['123', '456']
-    const unlockedIds = unlockedSkills?.map(s => s.skill_id) || []
+  if (spellsError) throw spellsError
 
   return (
     <CharacterDashboard 
       character={character} 
-      items={items || []} 
+      items={flattenedItems} 
+      spells={spells || []}
       isOwner={character.user_id === user.id}
     />
   )

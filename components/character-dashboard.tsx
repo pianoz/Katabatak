@@ -9,6 +9,8 @@ import { createClient } from "@/lib/supabase/client"
 import { SkillTreeViewer } from "@/components/skill-tree-viewer"
 import { AddItemModal } from "@/components/add-item-modal"
 import {AddSpellModal} from "@/components/add-spell-modal"
+import { handleBuildComplete } from "next/dist/build/adapter/build-complete"
+import { InspectItemModal } from "./inspect-item-modal"
 
 interface Character {
   id: string
@@ -41,7 +43,7 @@ interface Item {
   name: string
   type: string
   weight?: number
-  description?: string
+  short_description?: string
   damage?: number
   defence?: number
   character_id: string
@@ -55,6 +57,8 @@ interface Item {
   coefficient_attribute_name?: string
   cost?: number
   cost_attribute_name?: 'power' | 'will'
+  image_url?: string
+  action_text?: string
 }
 
 interface Spell {
@@ -86,6 +90,7 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
   const [character, setCharacter] = useState(initialCharacter)
   const [updating, setUpdating] = useState<string | null>(null)
   const [lastRoll, setLastRoll] = useState<{ label: string, value: number } | null>(null)
+  const [inspectingItem, setInspectingItem] = useState<Item | null>(null)
 
   // Filter items for dropdowns
   const attackItems = items.filter(i => i.type === "weapon")
@@ -170,17 +175,33 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
     setUpdating(null)
   }
 
-  const handleRepair = async ({ id }: { id: string }) => { 
-  const supabase = createClient();
-  
-  // Now 'id' is definitely the string "inventory_id_123"
-  const { error } = await supabase
-    .from("character_inventory")
-    .update({ condition: 100 })
-    .eq("id", id);
-  
-    if (error) console.error("Repair error:", error);
-    if (!error) router.refresh();
+  const [repairPopup, setRepairPopup] = useState<string | null>(null);
+
+  const handleRepair = async (item: Item) => {
+    const supabase = createClient();
+    
+    // Roll 1d10
+    const repairAmount = Math.floor(Math.random() * 10) + 1;
+    // Ensure condition doesn't exceed 100
+    const newCondition = Math.min(100, (item.condition || 0) + repairAmount);
+    const actualRepaired = newCondition - (item.condition || 0);
+
+    const { error } = await supabase
+      .from("character_inventory")
+      .update({ condition: newCondition })
+      .eq("id", item.id);
+
+    if (!error) {
+      // Trigger the popup
+      setRepairPopup(`Repaired ${actualRepaired}`);
+      
+      // Clear popup after 2 seconds
+      setTimeout(() => setRepairPopup(null), 2000);
+      
+      router.refresh();
+    } else {
+      console.error("Repair error:", error);
+    }
   };
 
   const handleConsume = async (item: Item) => {
@@ -214,7 +235,7 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
       <div className="relative border border-cyan-900/50 bg-card/80 backdrop-blur-sm overflow-hidden">
         <ItemTable 
           items={spells as any} 
-          columns={["name", "damage", "cost", "range_m"]}
+          columns={["name", "damage", "description", "cost"]}
           emptyMessage="No spells known"
           // We'll pass a custom className if your ItemTable supports it, 
           // otherwise, the wrapper above handles the "vibe"
@@ -433,6 +454,13 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
 
         {/* Equipment Section */}
         <section className="mt-12 space-y-8">
+          {repairPopup && (
+            <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-opacity animate-in fade-in zoom-in duration-300">
+              <div className="bg-blue-600/90 text-white px-6 py-2 rounded-full border border-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.5)] font-serif italic">
+                {repairPopup}
+              </div>
+            </div>
+          )}
           {/* Weapons Table */}
           <div>
             <div className="flex items-center gap-3 mb-4">
@@ -444,8 +472,12 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
             </div>
             <ItemTable 
               items={weapons} 
-              columns={["name", "damage", "weight", "condition", "description"]}
+              columns={["name", "damage", "weight", "condition", "short_description"]}
               emptyMessage="No weapons equipped"
+              onRepair={handleRepair}
+              onConsume={handleConsume}
+              onDrop={handleDrop}
+              onInspect={setInspectingItem}
             />
           </div>
 
@@ -460,8 +492,12 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
             </div>
             <ItemTable 
               items={armor} 
-              columns={["name", "armor_value", "weight", "condition", "description"]}
+              columns={["name", "armor_value", "weight", "condition", "short_description"]}
               emptyMessage="No armor equipped"
+              onRepair={handleRepair}
+              onConsume={handleConsume}
+              onDrop={handleDrop}
+              onInspect={setInspectingItem}
             />
           </div>
 
@@ -484,14 +520,24 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
             </div>
             <ItemTable 
               items={otherItems} 
-              columns={["name", "weight", "condition", "description"]}
+              columns={["name", "weight", "condition", "short_description"]}
               emptyMessage="No items in inventory"
+              onRepair={handleRepair}
+              onConsume={handleConsume}
+              onDrop={handleDrop}
+              onInspect={setInspectingItem}
             />
           </div>
         </section>
       </main>
+      {/* This is the reference that "uses" your state */}
+      <InspectItemModal 
+        item={inspectingItem} 
+        onClose={() => setInspectingItem(null)} 
+      />
     </div>
   )
+  
 }
 
 function PoolCounter({ 
@@ -655,7 +701,7 @@ function ActionCard({
         {/* Right: Description */}
         <div className="pl-1">
           <p className="text-[10px] leading-tight text-muted-foreground italic line-clamp-3">
-            {selectedItem?.description || "No description."}
+            {selectedItem?.short_description || "No description."}
           </p>
         </div>
       </div>
@@ -669,7 +715,8 @@ function ItemTable({
   emptyMessage,
   onRepair,
   onConsume,
-  onDrop
+  onDrop,
+  onInspect
 }: { 
   items: Item[]
   columns: string[]
@@ -677,6 +724,7 @@ function ItemTable({
   onRepair?: (item: Item) => void
   onConsume?: (item: Item) => void
   onDrop?: (item: Item) => void
+  onInspect?: (item: Item) => void
 }) {
   if (items.length === 0) {
     return (
@@ -689,51 +737,62 @@ function ItemTable({
   }
 
   const getConditionStyle = (percent: number) => {
-    if (percent <= 15) {
-      return {
-        backgroundColor: '#0f0202',
-        border: '1px solid #450a0a',
-        boxShadow: '0 0 4px #7f1d1d'
-      }
-    }
-    const hue = Math.min(Math.max((percent - 20) * 1.5, 0), 120)
+    const p = Math.min(Math.max(percent, 1), 100) / 100
+    const startRGB = { r: 92, g: 1, b: 1 }
+    const endRGB   = { r: 3,  g: 92, b: 1 }
+    const r = Math.round(startRGB.r + (endRGB.r - startRGB.r) * p)
+    const g = Math.round(startRGB.g + (endRGB.g - startRGB.g) * p)
+    const b = Math.round(startRGB.b + (endRGB.b - startRGB.b) * p)
     return {
-      backgroundColor: `hsl(${hue}, 80%, 45%)`,
-      transition: 'background-color 0.5s ease-in'
+      backgroundColor: `rgb(${r}, ${g}, ${b})`,
+      transition: 'background-color 0.5s ease-in',
+      border: '1px solid rgba(255, 255, 255, 0.1)'
     }
   }
 
   const columnLabels: Record<string, string> = {
-    name: "Name",
-    damage: "Damage",
-    defence: "Armor",
-    weight: "Weight",
-    description: "Description",
+    damage:      "Damage",
+    defence:     "Armor",
+    weight:      "Weight",
+    short_description: "Short Description",
+    condition:   "Condition",   // ← added
   }
 
   const genericColumns = columns.filter(col => col !== "condition")
-  const showCondition = columns.includes("condition")
+  const showCondition  = columns.includes("condition")
 
   return (
     <div className="border border-border bg-card overflow-hidden">
-      {/* MOBILE VIEW: List of Cards */}
+
+      {/* ── MOBILE VIEW ── */}
       <div className="md:hidden divide-y divide-border">
         {items.map((item) => (
           <div key={item.id} className="p-4 space-y-3 hover:bg-secondary/10 transition-colors">
-            {/* Header: Name and Condition */}
+
+            {/* Header: Name + Condition badge */}
             <div className="flex justify-between items-start">
-              <div>
-                <h4 className="font-serif text-lg text-foreground">{item.name}</h4>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                  {item.weight} lbs
+              <button
+                onClick={() => onInspect?.(item)}
+                className="flex flex-col items-start group text-left"
+              >
+                <h4 className="font-serif text-lg text-foreground group-hover:text-cyan-400 transition-colors underline decoration-dotted decoration-muted-foreground/30 underline-offset-4">
+                  {item.name}
+                </h4>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
+                  {item.weight} lbs • <span className="text-cyan-500/70">View Details</span>
                 </p>
-              </div>
+              </button>
+
               {showCondition && (
                 <div
-                  className="flex items-center justify-center w-10 h-10 rounded-sm"
+                  className="flex flex-col items-center justify-center w-10 h-10 rounded-sm"
                   style={getConditionStyle(item.condition)}
                 >
-                  <span className="text-[11px] font-semibold text-white/90">
+                  {/* ← "Cond" label so mobile also has a heading */}
+                  <span className="text-[8px] uppercase text-white/60 tracking-tight leading-none mb-0.5">
+                    Cond
+                  </span>
+                  <span className="text-[11px] font-semibold text-white/90 leading-none">
                     {item.condition}%
                   </span>
                 </div>
@@ -764,7 +823,7 @@ function ItemTable({
               )}
               {item.consumable && (
                 <button
-                  onClick={() => onConsume?.(item)}
+                  onClick={() => confirm(`Consume ${item.name}?`) && onConsume?.(item)}
                   className="flex-1 py-2 text-xs bg-green-900/30 text-green-400 border border-green-800 active:bg-green-800 transition-all"
                 >
                   Use
@@ -781,7 +840,7 @@ function ItemTable({
         ))}
       </div>
 
-      {/* DESKTOP VIEW: Retained Original Table */}
+      {/* ── DESKTOP VIEW ── */}
       <table className="hidden md:table w-full text-left border-collapse">
         <thead>
           <tr className="border-b border-border bg-secondary/50">
@@ -790,40 +849,70 @@ function ItemTable({
                 {columnLabels[col] || col}
               </th>
             ))}
+
+            {/* ← Condition now gets its own header cell */}
             {showCondition && (
-              <th className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">Condition</th>
+              <th className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
+                {columnLabels["condition"]}
+              </th>
             )}
-            <th className="text-right text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">Actions</th>
+
+            {/* ← w-px + whitespace-nowrap forces the cell to shrink-wrap,
+                   so text-right genuinely pins it to the far-right edge */}
+            <th className="w-px whitespace-nowrap text-right text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item, index) => (
-            <tr key={item.id} className="border-b border-border hover:bg-secondary/20 transition-colors last:border-0">
+          {items.map((item) => (
+            <tr key={item.id} className="border-b border-border hover:bg-secondary/20 transition-colors">
               {genericColumns.map(col => (
                 <td key={col} className="p-3 text-sm text-foreground">
-                  <span className={col === "name" ? "font-serif" : "text-foreground/80"}>
-                    {item[col as keyof Item] ?? "—"}
-                  </span>
+                  {col === "name" ? (
+                    <button
+                      onClick={() => onInspect?.(item)}
+                      className="font-serif text-left hover:text-cyan-400 transition-colors underline decoration-dotted decoration-muted-foreground/30 underline-offset-4"
+                    >
+                      {item.name}
+                    </button>
+                  ) : (
+                    <span className="text-foreground/80">{item[col as keyof Item] ?? "—"}</span>
+                  )}
                 </td>
               ))}
+
               {showCondition && (
-                <td className="p-2">
-                  <div className="relative flex items-center justify-center w-10 h-10 rounded-sm" style={getConditionStyle(item.condition)}>
-                    <span className="text-[11px] font-semibold tracking-tight text-white/90">
-                      {item.condition}%
-                    </span>
+                <td className="p-3 text-sm text-foreground whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    <div className="w-12 h-2 bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className="h-full transition-all"
+                        style={{
+                          width: `${item.condition}%`,
+                          backgroundColor: getConditionStyle(item.condition).backgroundColor
+                        }}
+                      />
+                    </div>
+                    <span className="text-[10px] tabular-nums">{item.condition}%</span>
                   </div>
                 </td>
               )}
+
               <td className="p-3 text-right space-x-2 whitespace-nowrap">
-                {/* ... Original Desktop Buttons ... */}
                 {!item.consumable && (item.condition ?? 100) < 100 && (
-                  <button onClick={() => onRepair?.(item)} className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 hover:bg-blue-800 hover:text-white transition-all">Repair</button>
+                  <button onClick={() => onRepair?.(item)} className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 hover:bg-blue-800 hover:text-white transition-all">
+                    Repair 1d10
+                  </button>
                 )}
                 {item.consumable && (
-                  <button onClick={() => onConsume?.(item)} className="px-2 py-1 text-xs bg-green-900/30 text-green-400 border border-green-800 hover:bg-green-800 hover:text-white transition-all">Use</button>
+                  <button onClick={() => onConsume?.(item)} className="px-2 py-1 text-xs bg-green-900/30 text-green-400 border border-green-800 hover:bg-green-800 hover:text-white transition-all">
+                    Use
+                  </button>
                 )}
-                <button onClick={() => confirm(`Drop ${item.name}?`) && onDrop?.(item)} className="px-2 py-1 text-xs bg-red-900/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all">Drop</button>
+                <button onClick={() => confirm(`Drop ${item.name}?`) && onDrop?.(item)} className="px-2 py-1 text-xs bg-red-900/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all">
+                  Drop
+                </button>
               </td>
             </tr>
           ))}

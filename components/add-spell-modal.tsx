@@ -65,7 +65,7 @@ export function AddSpellModal({
       setIsOpen(false)
       router.refresh()
     } else {
-      console.error("Error adding items:", error.message)
+      console.error("Error adding items:", error.message, characterId)
     }
     setLoading(false)
   }

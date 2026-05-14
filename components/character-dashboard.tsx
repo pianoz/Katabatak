@@ -170,33 +170,36 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
     setUpdating(null)
   }
 
-  const handleRepair = async (itemId: string) => {
+  const handleRepair = async ({ id }: { id: string }) => { 
   const supabase = createClient();
-  const { error } = await supabase
-    .from("character_inventory") // adjust table name if needed
-    .update({ condition: 100 })
-    .eq("id", itemId);
   
-  if (!error) router.refresh();
+  // Now 'id' is definitely the string "inventory_id_123"
+  const { error } = await supabase
+    .from("character_inventory")
+    .update({ condition: 100 })
+    .eq("id", id);
+  
+    if (error) console.error("Repair error:", error);
+    if (!error) router.refresh();
   };
 
-  const handleConsume = async (itemId: string) => {
+  const handleConsume = async (item: Item) => {
     const supabase = createClient();
     // Typically consumption removes the item or reduces quantity
     const { error } = await supabase
       .from("character_inventory")
       .delete()
-      .eq("id", itemId);
+      .eq("id", item.id);
       
     if (!error) router.refresh();
   };
 
-  const handleDrop = async (itemId: string) => {
+  const handleDrop = async (item: Item) => {
     const supabase = createClient();
     const { error } = await supabase
       .from("character_inventory")
       .delete()
-      .eq("id", itemId);
+      .eq("id", item.id);
       
     if (!error) router.refresh();
   };
@@ -708,98 +711,119 @@ function ItemTable({
     description: "Description",
   }
 
-  // Separate condition from the generic columns — it gets its own dedicated cells
   const genericColumns = columns.filter(col => col !== "condition")
   const showCondition = columns.includes("condition")
 
   return (
     <div className="border border-border bg-card overflow-hidden">
-      <table className="w-full text-left border-collapse">
+      {/* MOBILE VIEW: List of Cards */}
+      <div className="md:hidden divide-y divide-border">
+        {items.map((item) => (
+          <div key={item.id} className="p-4 space-y-3 hover:bg-secondary/10 transition-colors">
+            {/* Header: Name and Condition */}
+            <div className="flex justify-between items-start">
+              <div>
+                <h4 className="font-serif text-lg text-foreground">{item.name}</h4>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                  {item.weight} lbs
+                </p>
+              </div>
+              {showCondition && (
+                <div
+                  className="flex items-center justify-center w-10 h-10 rounded-sm"
+                  style={getConditionStyle(item.condition)}
+                >
+                  <span className="text-[11px] font-semibold text-white/90">
+                    {item.condition}%
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {genericColumns.filter(c => c !== 'name' && c !== 'weight').map(col => (
+                <div key={col} className="flex flex-col">
+                  <span className="text-[10px] uppercase text-muted-foreground tracking-tighter">
+                    {columnLabels[col] || col}
+                  </span>
+                  <span className="text-foreground/90">{item[col as keyof Item] ?? "—"}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-2">
+              {!item.consumable && (item.condition ?? 100) < 100 && (
+                <button
+                  onClick={() => onRepair?.(item)}
+                  className="flex-1 py-2 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 active:bg-blue-800 transition-all"
+                >
+                  Repair
+                </button>
+              )}
+              {item.consumable && (
+                <button
+                  onClick={() => onConsume?.(item)}
+                  className="flex-1 py-2 text-xs bg-green-900/30 text-green-400 border border-green-800 active:bg-green-800 transition-all"
+                >
+                  Use
+                </button>
+              )}
+              <button
+                onClick={() => confirm(`Drop ${item.name}?`) && onDrop?.(item)}
+                className="flex-1 py-2 text-xs bg-red-900/30 text-red-400 border border-red-800 active:bg-red-800 transition-all"
+              >
+                Drop
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* DESKTOP VIEW: Retained Original Table */}
+      <table className="hidden md:table w-full text-left border-collapse">
         <thead>
           <tr className="border-b border-border bg-secondary/50">
             {genericColumns.map(col => (
-              <th
-                key={col}
-                className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal"
-              >
+              <th key={col} className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
                 {columnLabels[col] || col}
               </th>
             ))}
             {showCondition && (
-              <th className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
-                Condition
-              </th>
+              <th className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">Condition</th>
             )}
-            <th className="text-right text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
-              Actions
-            </th>
+            <th className="text-right text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">Actions</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, index) => (
-            <tr
-              key={item.id}
-              className={
-                index !== items.length - 1
-                  ? "border-b border-border hover:bg-secondary/20 transition-colors"
-                  : "hover:bg-secondary/20 transition-colors"
-              }
-            >
+            <tr key={item.id} className="border-b border-border hover:bg-secondary/20 transition-colors last:border-0">
               {genericColumns.map(col => (
                 <td key={col} className="p-3 text-sm text-foreground">
-                  {col === "name" ? (
-                    <span className="font-serif">{item[col as keyof Item] ?? "—"}</span>
-                  ) : (
-                    <span className="text-foreground/80">{item[col as keyof Item] ?? "—"}</span>
-                  )}
+                  <span className={col === "name" ? "font-serif" : "text-foreground/80"}>
+                    {item[col as keyof Item] ?? "—"}
+                  </span>
                 </td>
               ))}
-
               {showCondition && (
                 <td className="p-2">
-                  <div className="flex items-center">
-                    <div
-                      className="relative flex items-center justify-center w-10 h-10 rounded-sm"
-                      style={getConditionStyle(item.condition)}
-                    >
-                      <span
-                        className="absolute text-[11px] font-semibold tracking-tight"
-                        style={{ color: 'rgba(240,240,240,0.88)' }}
-                      >
-                        {item.condition}%
-                      </span>
-                    </div>
+                  <div className="relative flex items-center justify-center w-10 h-10 rounded-sm" style={getConditionStyle(item.condition)}>
+                    <span className="text-[11px] font-semibold tracking-tight text-white/90">
+                      {item.condition}%
+                    </span>
                   </div>
                 </td>
               )}
-
               <td className="p-3 text-right space-x-2 whitespace-nowrap">
+                {/* ... Original Desktop Buttons ... */}
                 {!item.consumable && (item.condition ?? 100) < 100 && (
-                  <button
-                    onClick={() => onRepair?.(item)}
-                    className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 hover:bg-blue-800 hover:text-white transition-all"
-                  >
-                    Repair
-                  </button>
+                  <button onClick={() => onRepair?.(item)} className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 hover:bg-blue-800 hover:text-white transition-all">Repair</button>
                 )}
                 {item.consumable && (
-                  <button
-                    onClick={() => onConsume?.(item)}
-                    className="px-2 py-1 text-xs bg-green-900/30 text-green-400 border border-green-800 hover:bg-green-800 hover:text-white transition-all"
-                  >
-                    use/consume
-                  </button>
+                  <button onClick={() => onConsume?.(item)} className="px-2 py-1 text-xs bg-green-900/30 text-green-400 border border-green-800 hover:bg-green-800 hover:text-white transition-all">Use</button>
                 )}
-                <button
-                  onClick={() => {
-                    if (confirm(`Are you sure you want to drop ${item.name}?`)) {
-                      onDrop?.(item)
-                    }
-                  }}
-                  className="px-2 py-1 text-xs bg-red-900/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all"
-                >
-                  Drop
-                </button>
+                <button onClick={() => confirm(`Drop ${item.name}?`) && onDrop?.(item)} className="px-2 py-1 text-xs bg-red-900/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all">Drop</button>
               </td>
             </tr>
           ))}

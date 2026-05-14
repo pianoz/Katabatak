@@ -424,7 +424,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
         <div className="flex justify-center">
         <div 
             className={`
-            border-2 px-8 py-6 text-center w-[40%] relative transition-all duration-1000
+            border-2 px-8 py-6 text-center relative transition-all duration-1000
             ${isUnlocked 
                 ? "border-cyan-400/80 shadow-[0_0_20px_rgba(34,211,238,0.4),inset_0_0_12px_rgba(34,211,238,0.1)] bg-cyan-950/20" 
                 : "border-foreground bg-card"}

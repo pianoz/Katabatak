@@ -492,7 +492,7 @@ export function CharacterDashboard({ character: initialCharacter, items, spells,
             </div>
             <ItemTable 
               items={armor} 
-              columns={["name", "armor_value", "weight", "condition", "short_description"]}
+              columns={["name", "defence", "weight", "condition", "short_description"]}
               emptyMessage="No armor equipped"
               onRepair={handleRepair}
               onConsume={handleConsume}

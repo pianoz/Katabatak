@@ -4,7 +4,7 @@
 import { useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, Minus, Package, Plus, Shield, Sword } from "lucide-react"
+import { ChevronLeft, Minus, Package, Plus, Shield, Sword, Trash2 } from "lucide-react"
 
 // ─── Internal imports ─────────────────────────────────────────────────────────
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,10 @@ import { AddItemModal } from "@/components/add-item-modal"
 import { AddSpellModal } from "@/components/add-spell-modal"
 import { InspectItemModal } from "./inspect-item-modal"
 import { SkillTreeViewer } from "@/components/skill-tree-viewer"
+import { NotificationOverlay } from "@/components/notification-overlay"
+import { getConditionStyle } from "@/lib/utils"
+import { ItemTable } from "./item-table"
+import { SpellTable } from "@/components/spell-section"
 
 // NOTE: This import appears unused and references a Next.js internal — remove it.
 // import { handleBuildComplete } from "next/dist/build/adapter/build-complete"
@@ -50,6 +54,7 @@ interface Item {
   id: string
   name: string
   type: string
+  subtype?: string
   weight?: number
   short_description?: string
   damage?: number
@@ -66,6 +71,7 @@ interface Item {
   cost_attribute_name?: "power" | "will"
   image_url?: string
   action_text?: string
+  hidden: boolean
 }
 
 interface Spell {
@@ -91,27 +97,6 @@ type ActionType = "Attack" | "Defend" | "Cast"
 interface Notification {
   text?: string
   url?: string
-}
-
-
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-/**
- * Returns an RGB background style interpolated from deep red (0%) to deep green (100%).
- * Shared by ActionCard and ItemTable to keep condition colouring consistent.
- */
-function getConditionStyle(percent: number): React.CSSProperties {
-  const p = Math.min(Math.max(percent, 1), 100) / 100
-  const start = { r: 92, g: 1, b: 1 }
-  const end   = { r: 3,  g: 92, b: 1 }
-  const r = Math.round(start.r + (end.r - start.r) * p)
-  const g = Math.round(start.g + (end.g - start.g) * p)
-  const b = Math.round(start.b + (end.b - start.b) * p)
-  return {
-    backgroundColor: `rgb(${r}, ${g}, ${b})`,
-    transition: "background-color 0.5s ease-in",
-    border: "1px solid rgba(255, 255, 255, 0.1)",
-  }
 }
 
 /** Roll `count` dice each with `sides` faces and return the sum. */
@@ -327,279 +312,6 @@ function ActionCard({ label, items, selectedId, onSelect, onAction, isFlat = fal
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-// RECOMMENDATION: Extract ItemTable into its own file (components/item-table.tsx).
-// It is large, self-contained, and has no dependency on CharacterDashboard state.
-
-const COLUMN_LABELS: Record<string, string> = {
-  damage:            "Damage",
-  defence:           "Armor",
-  weight:            "Weight",
-  short_description: "Short Description",
-  condition:         "Condition",
-}
-
-interface ItemTableProps {
-  items: Item[]
-  columns: string[]
-  emptyMessage: string
-  onRepair?: (item: Item) => void
-  onConsume?: (item: Item) => Promise<void> | void
-  onDrop?: (item: Item) => void
-  onInspect?: (item: Item) => void
-}
-
-function ItemTable({ items, columns, emptyMessage, onRepair, onConsume, onDrop, onInspect }: ItemTableProps) {
-  if (items.length === 0) {
-    return (
-      <div className="border border-border bg-card p-6 text-center">
-        <p className="text-muted-foreground text-sm italic font-serif">{emptyMessage}</p>
-      </div>
-    )
-  }
-
-  const genericColumns = columns.filter((col) => col !== "condition")
-  const showCondition  = columns.includes("condition")
-
-  return (
-    <div className="border border-border bg-card overflow-hidden">
-      {/* ── Mobile view ── */}
-      <div className="md:hidden divide-y divide-border">
-        {items.map((item) => (
-          <div key={item.id} className="p-4 space-y-3 hover:bg-secondary/10 transition-colors">
-            <div className="flex justify-between items-start">
-              <button
-                onClick={() => onInspect?.(item)}
-                className="flex flex-col items-start group text-left"
-              >
-                <h4 className="font-serif text-lg text-foreground group-hover:text-cyan-400 transition-colors underline decoration-dotted decoration-muted-foreground/30 underline-offset-4">
-                  {item.name}
-                </h4>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
-                  {item.weight} lbs • <span className="text-cyan-500/70">View Details</span>
-                </p>
-              </button>
-
-              {showCondition && (
-                <div
-                  className="flex flex-col items-center justify-center w-10 h-10 rounded-sm"
-                  style={getConditionStyle(item.condition)}
-                >
-                  <span className="text-[8px] uppercase text-white/60 tracking-tight leading-none mb-0.5">
-                    Cond
-                  </span>
-                  <span className="text-[11px] font-semibold text-white/90 leading-none">
-                    {item.condition}%
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              {genericColumns
-                .filter((c) => c !== "name" && c !== "weight")
-                .map((col) => (
-                  <div key={col} className="flex flex-col">
-                    <span className="text-[10px] uppercase text-muted-foreground tracking-tighter">
-                      {COLUMN_LABELS[col] ?? col}
-                    </span>
-                    <span className="text-foreground/90">{item[col as keyof Item] ?? "—"}</span>
-                  </div>
-                ))}
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              {!item.consumable && (item.condition ?? 100) < 100 && (
-                <button
-                  onClick={() => onRepair?.(item)}
-                  className="flex-1 py-2 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 active:bg-blue-800 transition-all"
-                >
-                  Repair
-                </button>
-              )}
-              {item.consumable && (
-                <button
-                  onClick={() => window.confirm(`Use ${item.name}? This will destroy it.`) && onConsume?.(item)}
-                  className="flex-1 py-2 text-xs bg-green-900/30 text-green-400 border border-green-800 active:bg-green-800 transition-all"
-                >
-                  Use
-                </button>
-              )}
-              <button
-                onClick={() => window.confirm(`Drop ${item.name}?`) && onDrop?.(item)}
-                className="flex-1 py-2 text-xs bg-red-900/30 text-red-400 border border-red-800 active:bg-red-800 transition-all"
-              >
-                Drop
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Desktop view ── */}
-      <table className="hidden md:table w-full text-left border-collapse">
-        <thead>
-          <tr className="border-b border-border bg-secondary/50">
-            {genericColumns.map((col) => (
-              <th key={col} className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
-                {COLUMN_LABELS[col] ?? col}
-              </th>
-            ))}
-            {showCondition && (
-              <th className="text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
-                {COLUMN_LABELS["condition"]}
-              </th>
-            )}
-            <th className="w-px whitespace-nowrap text-right text-xs uppercase tracking-widest text-muted-foreground p-3 font-normal">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id} className="border-b border-border hover:bg-secondary/20 transition-colors">
-              {genericColumns.map((col) => (
-                <td key={col} className="p-3 text-sm text-foreground">
-                  {col === "name" ? (
-                    <button
-                      onClick={() => onInspect?.(item)}
-                      className="font-serif text-left hover:text-cyan-400 transition-colors underline decoration-dotted decoration-muted-foreground/30 underline-offset-4"
-                    >
-                      {item.name}
-                    </button>
-                  ) : (
-                    <span className="text-foreground/80">{item[col as keyof Item] ?? "—"}</span>
-                  )}
-                </td>
-              ))}
-
-              {showCondition && (
-                <td className="p-3 text-sm text-foreground whitespace-nowrap">
-                  <div className="flex items-center gap-2">
-                    <div className="w-12 h-2 bg-secondary rounded-full overflow-hidden">
-                      <div
-                        className="h-full transition-all"
-                        style={{
-                          width: `${item.condition}%`,
-                          backgroundColor: getConditionStyle(item.condition).backgroundColor,
-                        }}
-                      />
-                    </div>
-                    <span className="text-[10px] tabular-nums">{item.condition}%</span>
-                  </div>
-                </td>
-              )}
-
-              <td className="p-3 text-right space-x-2 whitespace-nowrap">
-                {!item.consumable && (item.condition ?? 100) < 100 && (
-                  <button
-                    onClick={() => onRepair?.(item)}
-                    className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 hover:bg-blue-800 hover:text-white transition-all"
-                  >
-                    Repair 1d10
-                  </button>
-                )}
-                {item.consumable && (
-                  <button
-                    onClick={async () => {
-                      if (window.confirm(`Use ${item.name}? This will destroy it.`)) {
-                        await onConsume?.(item)
-                      }
-                    }}
-                    className="px-2 py-1 text-xs bg-green-900/30 text-green-400 border border-green-800 hover:bg-green-800 hover:text-white transition-all"
-                  >
-                    Use
-                  </button>
-                )}
-                <button
-                  onClick={() => window.confirm(`Drop ${item.name}?`) && onDrop?.(item)}
-                  className="px-2 py-1 text-xs bg-red-900/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all"
-                >
-                  Drop
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-// RECOMMENDATION: Extract SpellsSection into its own file (components/spells-section.tsx).
-// It receives `spells` as a prop and has no other coupling to CharacterDashboard.
-
-interface SpellsSectionProps {
-  spells: Spell[]
-}
-
-function SpellsSection({ spells }: SpellsSectionProps) {
-  return (
-    <div className="space-y-4 pt-4">
-      <div className="relative group">
-        <div className="absolute -inset-0.5 bg-cyan-500/20 rounded-lg blur opacity-30 group-hover:opacity-50 transition duration-1000" />
-        <div className="relative border border-cyan-900/50 bg-card/80 backdrop-blur-sm overflow-hidden">
-          {/* NOTE: Casting spells as `any` to work around the Item/Spell type mismatch.
-              Consider creating a unified InventoryItem type or a dedicated SpellTable component. */}
-          <ItemTable
-            items={spells as unknown as Item[]}
-            columns={["name", "damage", "description", "cost"]}
-            emptyMessage="No spells known"
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-// RECOMMENDATION: Extract NotificationOverlay into its own file
-// (components/notification-overlay.tsx) — it is entirely presentational.
-
-interface NotificationOverlayProps {
-  notification: Notification
-  onDismiss: () => void
-}
-
-function NotificationOverlay({ notification, onDismiss }: NotificationOverlayProps) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm" onClick={onDismiss} />
-      <div className="relative flex flex-col items-center p-6 bg-gray-900 border border-green-500 rounded-xl shadow-2xl w-full max-w-md min-w-[320px] text-center transform animate-in zoom-in-95 duration-300">
-        <button
-          onClick={onDismiss}
-          className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors"
-        >
-          ✕
-        </button>
-
-        {notification.url && (
-          <img
-            src={notification.url}
-            alt="Item effect"
-            className="w-24 h-24 object-contain mb-4 rounded border border-gray-700 bg-gray-800 p-2"
-          />
-        )}
-
-        <p className="text-green-400 text-lg font-semibold mb-2">
-          {notification.text ?? "Item consumed!"}
-        </p>
-
-        <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-gray-800 overflow-hidden rounded-b-xl">
-          <div
-            className="h-full bg-green-500 animate-shrink-width"
-            style={{ width: "100%", transition: "width 10s linear" }}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
 interface RepairToastProps {
   message: string
 }
@@ -635,6 +347,7 @@ export function CharacterDashboard({
 
   const [character,      setCharacter]      = useState(initialCharacter)
   const [updating,       setUpdating]       = useState<string | null>(null)
+  const [isDeleting,     setIsDeleting]     = useState(false)
   const [lastRoll,       setLastRoll]       = useState<{ label: string; value: number } | null>(null)
   const [inspectingItem, setInspectingItem] = useState<Item | null>(null)
   const [notification,   setNotification]   = useState<Notification | null>(null)
@@ -698,14 +411,20 @@ export function CharacterDashboard({
     const total = (baseValue + (item.modifier ?? 0)) * (item.coefficient ?? 1)
     setLastRoll({ label: `${actionType}ed for`, value: total })
 
+
     if (actionType === "Attack" || actionType === "Cast") {
-      const newCondition = Math.max(0, (item.condition ?? 0) - total)
-      if (newCondition <= 0) {
-        await supabase.from("character_inventory").delete().eq("id", item.id)
-      } else {
-        await supabase.from("character_inventory").update({ condition: newCondition }).eq("id", item.id)
+      // Only calculate and update if it's NOT melee
+      if (item.subtype !== "melee") {
+        const newCondition = Math.max(0, (item.condition ?? 0) - total);
+        
+        if (newCondition <= 0) {
+          await supabase.from("character_inventory").delete().eq("id", item.id);
+        } else {
+          await supabase.from("character_inventory").update({ condition: newCondition }).eq("id", item.id);
+        }
+        
+        startTransition(() => router.refresh());
       }
-      startTransition(() => router.refresh())
     }
 
     if (isOwner && item.cost && item.cost_attribute_name) {
@@ -756,6 +475,34 @@ export function CharacterDashboard({
       .eq("id", item.id)
 
     if (!error) router.refresh()
+  }
+
+  // handle for deleting a character 
+  const handleDeleteCharacter = async () => {
+    if (!isOwner) return
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${character.name}? This action is permanent and cannot be undone.`
+    )
+
+    if (confirmed) {
+      setIsDeleting(true)
+      const supabase = createClient()
+      
+      const { error } = await supabase
+        .from("characters")
+        .delete()
+        .eq("id", character.id)
+
+      if (!error) {
+        router.push("/dashboard")
+        router.refresh()
+      } else {
+        console.error("Delete error:", error)
+        alert("Failed to delete character. Please try again.")
+        setIsDeleting(false)
+      }
+    }
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -954,7 +701,14 @@ export function CharacterDashboard({
                 Grimoire
               </h2>
             </div>
-            <SpellsSection spells={spells} />
+            <SpellTable
+              spells={spells}
+              inventory={items}         
+              characterId={character.id}
+              isOwner={isOwner}
+              character={character}
+              updatePool={updatePool}
+            />
           </div>
         </section>
 
@@ -1025,6 +779,29 @@ export function CharacterDashboard({
             />
           </div>
         </section>
+        {isOwner && (
+          <section className="mt-20 pt-8 border-t border-red-900/20">
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <h2 className="text-[10px] uppercase tracking-[0.4em] text-red-500/50 font-bold">
+                Danger Zone
+              </h2>
+              <Button
+                variant="ghost"
+                onClick={handleDeleteCharacter}
+                disabled={isDeleting}
+                className="group border border-red-900/30 hover:bg-red-950/30 hover:border-red-600 transition-all duration-300 px-8"
+              >
+                <Trash2 className="w-4 h-4 mr-2 text-red-500 group-hover:text-red-400" />
+                <span className="text-xs uppercase tracking-widest text-red-500 group-hover:text-red-400">
+                  {isDeleting ? "Deleting..." : "Delete Character"}
+                </span>
+              </Button>
+              <p className="text-[10px] text-muted-foreground/40 italic">
+                This will remove all associated inventory, spells, and progress.
+              </p>
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Overlays */}

@@ -70,7 +70,8 @@ export function CharacterCreation({ userId }: CharacterCreationProps) {
 
     const supabase = createClient()
 
-    const { data, error: insertError } = await supabase
+    // 1. Create the Character
+    const { data: charData, error: insertError } = await supabase
         .from("characters")
         .insert({
             user_id: userId,
@@ -81,14 +82,11 @@ export function CharacterCreation({ userId }: CharacterCreationProps) {
             current_power: 10,
             will_max: 10,
             current_will: 10,
-            
-            // Mapping form fields to DB columns
-            speed: formData.speed ? parseInt(formData.speed) : 2, // im m
-            height: formData.height ? parseInt(formData.height) : 170, //in cm
+            speed: formData.speed ? parseInt(formData.speed) : 2,
+            height: formData.height ? parseInt(formData.height) : 170,
             weight_kgs: formData.weight ? parseInt(formData.weight) : 18, 
             carrying_capacity: formData.carrying_capacity ? parseInt(formData.carrying_capacity) : 0,
-            denarius: formData.denarius ? parseInt(formData.denarius) : 5, // Changed drachma -> denarius
-            
+            denarius: formData.denarius ? parseInt(formData.denarius) : 5, 
             background_primary: formData.background_primary || null,
             background_secondary: formData.background_secondary || null,
             physical_description: formData.physical_description || null,
@@ -104,7 +102,29 @@ export function CharacterCreation({ userId }: CharacterCreationProps) {
       return
     }
 
-    router.push(`/characters/${data.id}`)
+    // 2. Add Starting Items to character_inventory
+    const { error: inventoryError } = await supabase
+        .from("character_inventory")
+        .insert([
+            {
+                character_id: charData.id,
+                item_id: "f761376b-f5aa-4834-abdb-1f7e0acc1c29", // Hard-coded unarmed strike ID
+                condition: 100
+            },
+            {
+                character_id: charData.id,
+                item_id: "8200bd07-931c-433f-a92e-69472d213350", // Hard-coded unarmed block ID
+                condition: 100  
+            }
+        ])
+
+    if (inventoryError) {
+        // We log the error but proceed to the character page.
+        // You may want to display a toast notification here.
+        console.error("Error adding starting items:", inventoryError.message)
+    }
+
+    router.push(`/characters/${charData.id}`)
   }
 
   return (

@@ -169,7 +169,7 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
             Games
           </h2>
         </div>
-        <Link href="/games/new">
+        <Link href="/game/new">
           <Button 
             size="sm" 
             className="bg-foreground text-background hover:bg-foreground/90 uppercase tracking-widest text-xs"

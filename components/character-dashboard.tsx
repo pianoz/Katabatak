@@ -17,37 +17,52 @@ import { NotificationOverlay } from "@/components/notification-overlay"
 import { getConditionStyle } from "@/lib/utils"
 import { ItemTable } from "./item-table"
 import { SpellTable } from "@/components/spell-section"
+import VirtualGMComponent from "@/components/virtual-gm-component"
 
 // NOTE: This import appears unused and references a Next.js internal — remove it.
 // import { handleBuildComplete } from "next/dist/build/adapter/build-complete"
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+export interface Character {
+  id: string                      // uuid
+  user_id: string | null
 
-interface Character {
-  id: string
+  // Identity
   name: string
-  current_essence: number
-  current_power: number
-  current_will: number
-  essence_max: number
-  power_max: number
-  will_max: number
+  level: number
+  class_archetype: string | null
+  is_active: boolean
+
+  // Vital pools
   health_max: number
   current_health: number
-  speed?: number
-  height?: string
-  weight_kgs?: string
-  carrying_capacity?: number
-  current_carry_weight?: number
-  denarius?: number
-  background_primary?: string
-  background_secondary?: string
-  physical_description?: string
-  backstory?: string
-  is_active?: boolean
-  created_at: string
-  user_id: string
+  essence_max: number
+  current_essence: number
+  power_max: number
+  current_power: number
+  will_max: number
+  current_will: number
+
+  // Physical stats
+  speed: number
+  height: number                  // cm
+  weight_kgs: number
+  carrying_capacity: number
+  current_carry_weight: number
+  unused_skill_points: number
+
+  // Currency
+  denarius: number
+
+  // Background / lore
+  background_primary: string | null
+  background_secondary: string | null
+  physical_description: string | null
+  backstory: string | null
+
+  // Metadata
+  created_at: string              // ISO timestamp string from Supabase
 }
 
 interface Item {
@@ -252,7 +267,7 @@ function ActionCard({ label, items, selectedId, onSelect, onAction, isFlat = fal
     : "0"
 
   return (
-    <div className="border border-border bg-card p-3 flex flex-col justify-between min-h-[140px]">
+    <div className="border border-border bg-card p-3 flex flex-col justify-between min-h-35">
       {/* Top: action button + item selector */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-3">
         <Button
@@ -266,7 +281,7 @@ function ActionCard({ label, items, selectedId, onSelect, onAction, isFlat = fal
         <select
           value={selectedId}
           onChange={(e) => onSelect(e.target.value)}
-          className="bg-secondary/40 text-[10px] uppercase tracking-wider text-foreground border border-border h-9 px-2 rounded-sm focus:ring-1 focus:ring-foreground/20 w-full sm:flex-[2] cursor-pointer"
+          className="bg-secondary/40 text-[10px] uppercase tracking-wider text-foreground border border-border h-9 px-2 rounded-sm focus:ring-1 focus:ring-foreground/20 w-full sm:flex-2 cursor-pointer"
         >
           {items.length === 0 && <option>None</option>}
           {items.map((i) => (
@@ -366,6 +381,10 @@ export function CharacterDashboard({
   const [selectedAttackId, setSelectedAttackId] = useState(attackItems[0]?.id ?? "")
   const [selectedDefendId, setSelectedDefendId] = useState(defendItems[0]?.id ?? "")
   const [selectedCastId,   setSelectedCastId]   = useState(castItems[0]?.id  ?? "")
+
+  // ── Skill Tree Updates───────────────────────────────────────────────────────
+
+  
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
@@ -536,7 +555,12 @@ export function CharacterDashboard({
       </header>
 
       <main className="px-6 md:px-12 lg:px-20 py-8">
-        {/* Resource pools */}
+        {/* Virtual GM Framework Wrapper */}
+        <div className="flex justify-center">
+          <div className="w-1/2 border border-neutral-600/50 bg-background/50 overflow-hidden rounded-sm mb-10">
+            <VirtualGMComponent playerName={character.name} characterId={character.id} />
+          </div>
+        </div>
         <section className="mb-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-full">
             <PoolCounter
@@ -629,12 +653,11 @@ export function CharacterDashboard({
 
             {/* Text descriptions */}
             <div className="space-y-4">
-              <DescriptionBlock label="Primary Background"   text={character.background_primary}   />
-              <DescriptionBlock label="Secondary Background" text={character.background_secondary} />
-              <DescriptionBlock label="Physical Description" text={character.physical_description} />
-              <DescriptionBlock label="Backstory"           text={character.backstory} expandable  />
+              <DescriptionBlock label="Primary Background"   text={character.background_primary ?? undefined}   />
+              <DescriptionBlock label="Secondary Background" text={character.background_secondary ?? undefined} />
+              <DescriptionBlock label="Physical Description" text={character.physical_description ?? undefined} />
+              <DescriptionBlock label="Backstory"            text={character.backstory ?? undefined} expandable  />
             </div>
-
             <div className="text-xs text-muted-foreground pt-4 border-t border-border">
               Created {new Date(character.created_at).toLocaleDateString()}
             </div>
@@ -656,7 +679,7 @@ export function CharacterDashboard({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <ActionCard
                   label="Attack"
                   items={attackItems}
@@ -673,21 +696,13 @@ export function CharacterDashboard({
                   onAction={() => handleAction("Defend", selectedDefendId)}
                   isFlat={true}
                 />
-                <ActionCard
-                  label="Cast"
-                  items={castItems}
-                  selectedId={selectedCastId}
-                  onSelect={setSelectedCastId}
-                  onAction={() => handleAction("Cast", selectedCastId)}
-                  isFlat={false}
-                />
               </div>
             </section>
 
             <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4 pt-5">
               Skill Tree
             </h2>
-            <SkillTreeViewer isDev={false} characterId={character.id} />
+            <SkillTreeViewer isDev={false} characterId={character.id} unused_skill_points={character.unused_skill_points} />
           </div>
         </div>
 

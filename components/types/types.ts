@@ -115,6 +115,7 @@ export interface Character {
   weight_kgs: number
   carrying_capacity: number
   current_carry_weight: number
+  unused_skill_points: number
 
   // Currency
   denarius: number
@@ -128,3 +129,33 @@ export interface Character {
   // Metadata
   created_at: string              // ISO timestamp string from Supabase
 }
+
+//Game Objects Here _____________________________________________________________________
+export interface Games {
+  id: string; // uuid
+  gm_id: string; // uuid for auth table
+  name: string;
+  join_code: string;
+  created_at: string; // ISO timestamp string from Supabase
+  gm_profile_id: string | null; // uuid for profiles table
+  archived: boolean;
+
+  //session and combat info
+  session_number: number;
+  is_in_session: boolean;
+  is_in_combat: boolean;
+  current_turn_order: string[]; // array of character ids in turn order
+  active_turn_index: number; // index into current_turn_order for whose turn it is
+  combat_log: string[]; 
+  is_private: boolean;
+}
+
+export interface game_members {
+  id: string; // uuid
+  game_id: string; // uuid
+  profile_id: string; // uuid for profiles table
+  character_id: string | null; // uuid for character table
+  role: "player" | "gm";
+  member_status: "invited" | "active" | "declined" | "removed"| "left";
+}
+

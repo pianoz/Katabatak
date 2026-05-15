@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { ChevronUp, ChevronDown, Plus, Home, Pencil, Trash2, Lock } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-import { id } from "date-fns/locale/id"
+import { StatIncreaseModal } from "./attribute-increase-popup"
 
 interface Skill {
   id: string
@@ -12,11 +12,6 @@ interface Skill {
   unlock_hint?: string
   unlock_key?: string
   skill_text?: string
-  
-}
-
-interface Character {
-    characterid: string
 }
 
 interface SkillEdge {
@@ -30,12 +25,14 @@ interface SkillTreeViewerProps {
   isDev?: boolean
   initialSkillId?: string
   characterId?: string
+  unused_skill_points: number
 }
 
-export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: SkillTreeViewerProps) {
+export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, unused_skill_points }: SkillTreeViewerProps) {
+  const [isStatModalOpen, setIsStatModalOpen] = useState(false)
   const [skills, setSkills] = useState<Skill[]>([])
   const [edges, setEdges] = useState<SkillEdge[]>([])
-  const [unlockedSkillIds, setUnlockedSkillIds] = useState<Set<string>>(new Set()) // Track unlocked skills
+  const [unlockedSkillIds, setUnlockedSkillIds] = useState<Set<string>>(new Set()) 
   const [currentSkill, setCurrentSkill] = useState<Skill | null>(null)
   const [rootSkills, setRootSkills] = useState<Skill[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,6 +40,14 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
   const [showAddEdge, setShowAddEdge] = useState(false)
   const [newSkill, setNewSkill] = useState({ name: "", unlock_hint: "", unlock_key: "" })
   const [newEdge, setNewEdge] = useState({ parent_skill_id: "", child_skill_id: "", edge_type: "unlocks" })
+  
+  // Local state to track and optimistically update skill points
+  const [availablePoints, setAvailablePoints] = useState(unused_skill_points)
+
+  // Keep local points in sync if the parent component updates the prop externally
+  useEffect(() => {
+    setAvailablePoints(unused_skill_points)
+  }, [unused_skill_points])
 
   useEffect(() => {
     fetchData()
@@ -55,7 +60,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
       supabase.from("skills").select("*").order("name"),
       supabase.from("skill_edges").select("*")
     ])
-    // 2. Fetch unlocked skills if we have a characterId
+
     if (characterId) {
         const { data: charSkills } = await supabase
         .from("character_skills")
@@ -63,19 +68,17 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
         .eq("character_id", characterId)
         
         if (charSkills) {
-        setUnlockedSkillIds(new Set(charSkills.map(s => s.skill_id)))
+          setUnlockedSkillIds(new Set(charSkills.map(s => s.skill_id)))
         }
     }
     if (skillsRes.data) setSkills(skillsRes.data)
     if (edgesRes.data) setEdges(edgesRes.data)
 
-    // Find root skills (skills that are never a child)
     if (skillsRes.data && edgesRes.data) {
       const childIds = new Set(edgesRes.data.map(e => e.child_skill_id))
       const roots = skillsRes.data.filter(s => !childIds.has(s.id))
       setRootSkills(roots)
 
-      // Set initial skill
       if (initialSkillId) {
         const initial = skillsRes.data.find(s => s.id === initialSkillId)
         if (initial) setCurrentSkill(initial)
@@ -99,19 +102,8 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
     return skills.filter(s => childIds.includes(s.id))
   }
 
-  const getEdgeType = (parentId: string, childId: string): string => {
-    const edge = edges.find(e => e.parent_skill_id === parentId && e.child_skill_id === childId)
-    return edge?.edge_type || "unlocks"
-  }
-
   const navigateTo = (skill: Skill) => {
     setCurrentSkill(skill)
-  }
-
-  const goToRoot = () => {
-    if (rootSkills.length > 0) {
-      setCurrentSkill(rootSkills[0])
-    }
   }
 
   const handleAddSkill = async () => {
@@ -158,11 +150,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
 
   const handleDeleteSkill = async (skillId: string) => {
     const supabase = createClient()
-    
-    // Delete edges first
     await supabase.from("skill_edges").delete().or(`parent_skill_id.eq.${skillId},child_skill_id.eq.${skillId}`)
-    
-    // Delete skill
     await supabase.from("skills").delete().eq("id", skillId)
     
     fetchData()
@@ -181,6 +169,76 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
     
     fetchData()
   }
+
+  const updateCharacterStatInDB = async (statField: "health_max" | "power_max" | "will_max" | "essence_max") => {
+    const supabase = createClient();
+    if (!characterId) return;
+
+    // Fetch current value of that specific stat first to increment it safely
+    const { data: character, error: fetchError } = await supabase
+      .from('characters') // Replace with your actual character table name
+      .select(statField)
+      .eq('id', characterId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    const currentValue = (character as Record<string, any>)?.[statField] || 0;
+
+    // Update the database with the incremented value
+    const { error: updateError } = await supabase
+      .from('characters')
+      .update({ [statField]: currentValue + 1 }) // Dynamic object key assignment
+      .eq('id', characterId);
+
+    if (updateError) throw updateError;
+  };
+
+  const toggleSkillUnlock = async () => {
+    const supabase = createClient();
+    if (!currentSkill || !characterId) return;
+
+    const isCurrentlyUnlocked = unlockedSkillIds.has(currentSkill.id);
+
+    try {
+      if (isCurrentlyUnlocked) {
+        // --- LOCKING THE SKILL (REFUND POINT) ---
+        const { error } = await supabase
+          .from('character_skills')
+          .delete()
+          .match({ character_id: characterId, skill_id: currentSkill.id });
+
+        if (error) throw error;
+
+        const newUnlocks = new Set(unlockedSkillIds);
+        newUnlocks.delete(currentSkill.id);
+        setUnlockedSkillIds(newUnlocks);
+
+        // Note: If you want to deduct stats on a refund, you'd add that logic here!
+
+      } else {
+        // --- UNLOCKING THE SKILL (SPEND POINT) ---
+        if (availablePoints > 0) {
+          const { error } = await supabase
+            .from('character_skills')
+            .insert([{ character_id: characterId, skill_id: currentSkill.id }]);
+
+          if (error) throw error;
+
+          setUnlockedSkillIds(new Set([...unlockedSkillIds, currentSkill.id]));
+          setAvailablePoints(prev => prev - 1);
+
+          // Open the modal. The actual DB stat update happens when they hit confirm in the modal.
+          setIsStatModalOpen(true);
+
+        } else { 
+          alert("You don't have enough skill points to unlock this skill.");
+        }
+      }
+    } catch (err) {
+      console.error("Error toggling skill:", err);
+    }
+  };
 
   if (loading) {
     return (
@@ -222,69 +280,13 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
 
   const parents = currentSkill ? getParents(currentSkill.id) : []
   const children = currentSkill ? getChildren(currentSkill.id) : []
-
-  // 1. Check if the CURRENT skill is a child of something unlocked
-  // Since 'parents' is already defined for the currentSkill:
   const isCurrentSkillVisible = parents.some(p => unlockedSkillIds.has(p.id));
-
-  // 2. To check if a CHILD node should show its name (Grandchild of unlocked)
-  // A child node shows its name if the current skill is unlocked OR if any parent is unlocked
-  const getChildVisibility = (childId: string) => {
-    if (unlockedSkillIds.has(childId)) return 'FULL';
-   
-    // If the skill we are looking AT (currentSkill) is unlocked, its children are FULL
-    if (currentSkill && unlockedSkillIds.has(currentSkill.id)) return 'FULL';
-  
-    // If the skill we are looking AT is a child of an unlocked skill, 
-    // then ITS children (the grandchildren) are NAME_ONLY
-    if (isCurrentSkillVisible) return 'NAME_ONLY';
-  
-    return 'HIDDEN';
-  };
-
-  const toggleSkillUnlock = async () => {
-    const supabase = createClient();
-    if (!currentSkill || !characterId) return;
-
-    const isCurrentlyUnlocked = unlockedSkillIds.has(currentSkill.id);
-
-        try {
-            if (isCurrentlyUnlocked) {
-            // 1. Database: Remove the skill
-            const { error } = await supabase
-                .from('character_skills')
-                .delete()
-                .match({ character_id: characterId, skill_id: currentSkill.id });
-
-            if (error) throw error;
-
-            // 2. Local State: Update UI
-            const newUnlocks = new Set(unlockedSkillIds);
-            newUnlocks.delete(currentSkill.id);
-            setUnlockedSkillIds(newUnlocks);
-
-            } else {
-            // 1. Database: Add the skill
-            const { error } = await supabase
-                .from('character_skills')
-                .insert([{ character_id: characterId, skill_id: currentSkill.id }]);
-
-            if (error) throw error;
-
-            // 2. Local State: Update UI
-            setUnlockedSkillIds(new Set([...unlockedSkillIds, currentSkill.id]));
-            }
-        } catch (err) {
-            console.error("Error toggling skill:", err);
-            // Optional: Add a toast notification here
-        }
-    };
 
   return (
     <div className="border border-border bg-card min-h-[400px]">
-      {/* Header with navigation */}
+      {/* Header with navigation & Point display */}
       <div className="border-b border-border p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
           {rootSkills.length > 1 && (
             <select
               value={rootSkills.find(r => r.id === currentSkill?.id)?.id || ""}
@@ -300,6 +302,10 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
               ))}
             </select>
           )}
+          {/* Display current skill points */}
+          <span className="text-xs uppercase tracking-widest text-muted-foreground">
+            Points Available: <strong className="text-foreground">{availablePoints}</strong>
+          </span>
         </div>
         
         {isDev && (
@@ -326,11 +332,10 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
         )}
       </div>
 
-      {/* Skill Tree View - Parent / Current / Children */}
+      {/* Skill Tree View */}
       <div className="p-6 space-y-6">
         {/* Parents Section */}
         <div className="space-y-3">
-            
             {parents.length === 0 ? (
                 <p className="text-sm text-muted-foreground italic font-serif pl-6">
                 This is a root skill
@@ -372,7 +377,6 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
         {/* Parents to Current Connectors */}
         {parents.length > 0 && (
         <div className="relative w-full h-16 -mt-2 -mb-2">
-            {/* Added overflow-visible to prevent glow clipping */}
             <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
                 <filter id="parent-glow-fixed">
@@ -382,9 +386,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
             </defs>
             
             {parents.map((parent, index) => {
-                // Logic: The path glows if the parent is unlocked (representing energy flowing FROM it)
                 const isParentUnlocked = unlockedSkillIds.has(parent.id);
-                
                 const total = parents.length;
                 const spacing = 100 / (total + 1);
                 const xStart = (index + 1) * spacing;
@@ -392,10 +394,8 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
                 return (
                 <g key={`parent-link-${parent.id}`}>
                     <path
-                    /* Starts at Parent (top), Curves to Current Skill (center bottom) */
                     d={`M ${xStart} 0 Q ${xStart} 50, 50 100`}
                     fill="none"
-                    /* Fallback: If it's not cyan, it MUST be the dim white */
                     stroke={isParentUnlocked ? "rgba(34, 211, 238, 0.8)" : "rgba(255, 255, 255, 0.25)"}
                     strokeWidth={isParentUnlocked ? "2" : "1"}
                     className={`transition-all duration-1000 ${isParentUnlocked ? "animate-pulse" : ""}`}
@@ -414,10 +414,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
         {/* Current Skill */}
         {currentSkill && (() => {
         const isUnlocked = unlockedSkillIds.has(currentSkill.id);
-        // Check if this node is a direct child of an unlocked node
         const isAvailable = parents.some(p => unlockedSkillIds.has(p.id));
-        
-        // Logic: Show full details if it's unlocked OR if it's a direct child (available to learn)
         const showDetails = isUnlocked || isAvailable;
 
         return (
@@ -430,7 +427,6 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
                 : "border-foreground bg-card"}
             `}
         >
-            {/* Name: Always visible if they can navigate here */}
             <h3 className={`
             font-serif text-2xl mb-2 transition-colors duration-1000
             ${isUnlocked ? "text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : "text-foreground"}
@@ -456,7 +452,6 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
                 )}
                 </>
                 ) : (
-                /* Redacted State: Shows for Grandchildren */
                 <div className="py-4 space-y-2 opacity-20 select-none pointer-events-none">
                     <div className="h-2 bg-foreground/50 w-full rounded-full" />
                     <div className="h-2 bg-foreground/50 w-2/3 mx-auto rounded-full" />
@@ -464,9 +459,8 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
                     Deep Insight Required
                     </p>
                 </div>
-                
                 )}
-                {/* Place this inside your Current Skill div, perhaps at the bottom */}
+                
                 <button
                 onClick={toggleSkillUnlock}
                 className={`
@@ -500,7 +494,6 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
         {/* Current to Children Connectors */}
         {children.length > 0 && (
         <div className="relative w-full h-16 -mt-2 -mb-2">
-            {/* Added viewBox and removed preserveAspectRatio="none" to keep curves clean */}
             <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
                 <filter id="line-glow">
@@ -518,7 +511,6 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
                 return (
                 <g key={`link-${child.id}`}>
                     <path
-                    /* REMOVED % signs - using viewBox 0-100 coordinates now */
                     d={`M 50 0 Q 50 50, ${xEnd} 100`}
                     fill="none"
                     stroke={isUnlocked ? "rgba(34, 211, 238, 0.8)" : "rgba(255, 255, 255, 0.63)"}
@@ -659,6 +651,24 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId }: 
           </div>
         </div>
       )}
+      {/* Stat Increase Popup */}
+      <StatIncreaseModal 
+        isOpen={isStatModalOpen}
+        onClose={() => setIsStatModalOpen(false)}
+        onConfirm={async (selectedPool) => { // 1. Accept the selected stat parameter here
+        try {
+          // 2. Call your database update function or API route
+          // Replace 'updateCharacterStatInDB' with your actual API fetch or Server Action
+          await updateCharacterStatInDB(selectedPool); 
+          
+          // 3. Only close the modal after the database successfully updates
+          setIsStatModalOpen(false);
+        } catch (error) {
+          console.error("Failed to save stat to database:", error);
+          // Optional: Add a toast notification here to alert the user it failed
+        }
+      }}
+      />
     </div>
   )
 }

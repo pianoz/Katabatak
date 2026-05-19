@@ -1,0 +1,1 @@
+ALTER TABLE games ADD COLUMN IF NOT EXISTS starting_level integer NOT NULL DEFAULT 0;

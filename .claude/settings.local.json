@@ -25,7 +25,15 @@
       "Bash(Get-ChildItem -Recurse -Path \"C:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\" -Include \"*skill*\")",
       "Bash(npx supabase *)",
       "Bash(echo \"Exit: $?\")",
-      "PowerShell($token1 = \"$env:APPDATA\\\\supabase\\\\access-token\"; $token2 = \"$env:USERPROFILE\\\\.config\\\\supabase\\\\access-token\"; if \\(Test-Path $token1\\) { Get-Content $token1 } elseif \\(Test-Path $token2\\) { Get-Content $token2 } else { \"No token found\" })"
+      "PowerShell($token1 = \"$env:APPDATA\\\\supabase\\\\access-token\"; $token2 = \"$env:USERPROFILE\\\\.config\\\\supabase\\\\access-token\"; if \\(Test-Path $token1\\) { Get-Content $token1 } elseif \\(Test-Path $token2\\) { Get-Content $token2 } else { \"No token found\" })",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(xargs grep -l \"encounter_creatures\\\\|creature\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\" -Depth 2)",
+      "Bash(Select-Object FullName)",
+      "Bash(find c:\\\\\\\\Users\\\\\\\\Robert\\\\\\\\Documents\\\\\\\\Katabatak -type f -name \"package.json\")",
+      "Bash(ls -la /mnt/c/Users/Robert/Documents/Katabatak/ | head -30)",
+      "Read(//mnt/c/Users/Robert/Documents/**)"
     ]
   }
 }

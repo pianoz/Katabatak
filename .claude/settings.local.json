@@ -33,7 +33,9 @@
       "Bash(Select-Object FullName)",
       "Bash(find c:\\\\\\\\Users\\\\\\\\Robert\\\\\\\\Documents\\\\\\\\Katabatak -type f -name \"package.json\")",
       "Bash(ls -la /mnt/c/Users/Robert/Documents/Katabatak/ | head -30)",
-      "Read(//mnt/c/Users/Robert/Documents/**)"
+      "Read(//mnt/c/Users/Robert/Documents/**)",
+      "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\")",
+      "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\")"
     ]
   }
 }

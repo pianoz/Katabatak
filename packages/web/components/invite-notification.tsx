@@ -1,0 +1,161 @@
+"use client"
+
+import { useState, useRef, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Mail } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { createClient } from "@/lib/supabase/client"
+import { CharacterSelectModal, CharacterForSelect } from "./character-select-modal"
+
+export interface GameInvite {
+  id: string
+  game_id: string
+  game_name: string
+  starting_level: number
+}
+
+interface InviteNotificationProps {
+  invites: GameInvite[]
+  characters: CharacterForSelect[]
+}
+
+export function InviteNotification({ invites: initialInvites, characters }: InviteNotificationProps) {
+  const router = useRouter()
+  const [invites, setInvites] = useState<GameInvite[]>(initialInvites)
+  const [open, setOpen] = useState(false)
+  const [selectingForInvite, setSelectingForInvite] = useState<GameInvite | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [open])
+
+  const handleDecline = async (inviteId: string) => {
+    const supabase = createClient()
+    await supabase
+      .from("game_members")
+      .update({ member_status: "declined" })
+      .eq("id", inviteId)
+    setInvites((prev) => prev.filter((i) => i.id !== inviteId))
+  }
+
+  const handleAccept = (invite: GameInvite) => {
+    setOpen(false)
+    setSelectingForInvite(invite)
+  }
+
+  const handleCharacterSelected = async (characterId: string) => {
+    if (!selectingForInvite) return
+    const supabase = createClient()
+    const startingLevel = selectingForInvite.starting_level ?? 0
+
+    const { data: charData } = await supabase
+      .from("characters")
+      .select("unused_skill_points")
+      .eq("id", characterId)
+      .single()
+
+    const currentPoints = charData?.unused_skill_points ?? 0
+
+    await Promise.all([
+      supabase
+        .from("game_members")
+        .update({ character_id: characterId, member_status: "active" })
+        .eq("id", selectingForInvite.id),
+      supabase
+        .from("characters")
+        .update({ in_game: true, unused_skill_points: currentPoints + startingLevel })
+        .eq("id", characterId),
+    ])
+    setInvites((prev) => prev.filter((i) => i.id !== selectingForInvite.id))
+    setSelectingForInvite(null)
+  }
+
+  const handleCreateNewCharacter = () => {
+    if (!selectingForInvite) return
+    setSelectingForInvite(null)
+    router.push(
+      `/characters/new?inviteMemberId=${selectingForInvite.id}&startingLevel=${selectingForInvite.starting_level}`
+    )
+  }
+
+  return (
+    <>
+      <div className="relative" ref={dropdownRef}>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="relative p-2 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Game invites"
+        >
+          <Mail className="w-5 h-5" />
+          {invites.length > 0 && (
+            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+          )}
+        </button>
+
+        {open && (
+          <div className="absolute right-0 top-full mt-2 w-80 bg-card border border-border shadow-lg z-50">
+            <div className="px-4 py-3 border-b border-border">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                Game Invites
+              </p>
+            </div>
+            {invites.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-muted-foreground italic text-center font-serif">
+                No pending invites.
+              </p>
+            ) : (
+              <div className="max-h-72 overflow-y-auto">
+                {invites.map((invite) => (
+                  <div
+                    key={invite.id}
+                    className="px-4 py-3 border-b border-border/50 last:border-0"
+                  >
+                    <p className="font-serif text-foreground mb-1">{invite.game_name}</p>
+                    {invite.starting_level > 0 && (
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+                        Starting Level {invite.starting_level} — {invite.starting_level} skill {invite.starting_level === 1 ? "point" : "points"} on join
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-foreground text-background hover:bg-foreground/90 uppercase tracking-widest text-xs h-7"
+                        onClick={() => handleAccept(invite)}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 border-border uppercase tracking-widest text-xs h-7"
+                        onClick={() => handleDecline(invite.id)}
+                      >
+                        Decline
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {selectingForInvite && (
+        <CharacterSelectModal
+          characters={characters}
+          onSelect={handleCharacterSelected}
+          onClose={() => setSelectingForInvite(null)}
+          onCreateNew={handleCreateNewCharacter}
+        />
+      )}
+    </>
+  )
+}

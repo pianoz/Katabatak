@@ -1,0 +1,187 @@
+
+<style>
+:root { --gap: 12px; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-size: 15px; color: var(--color-text-primary); }
+h2 { font-size: 18px; font-weight: 500; margin-bottom: 8px; color: var(--color-text-primary); }
+h3 { font-size: 15px; font-weight: 500; margin-bottom: 6px; color: var(--color-text-primary); }
+p, li { font-size: 14px; line-height: 1.6; color: var(--color-text-secondary); }
+ul { padding-left: 1.1rem; }
+li { margin-bottom: 2px; }
+code { font-family: var(--font-mono); font-size: 12.5px; background: var(--color-background-secondary); padding: 1px 5px; border-radius: 4px; color: var(--color-text-primary); }
+.badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 20px; margin-right: 4px; }
+.badge-type { background: #EEEDFE; color: #3C3489; }
+.badge-pool { background: #E1F5EE; color: #085041; }
+.badge-cond { background: #FAEEDA; color: #633806; }
+.badge-req { background: #FCEBEB; color: #791F1F; }
+.badge-opt { background: #F1EFE8; color: #444441; }
+@media (prefers-color-scheme: dark) {
+  .badge-type { background: #3C3489; color: #CECBF6; }
+  .badge-pool { background: #085041; color: #9FE1CB; }
+  .badge-cond { background: #633806; color: #FAC775; }
+  .badge-req { background: #791F1F; color: #F7C1C1; }
+  .badge-opt { background: #444441; color: #D3D1C7; }
+}
+.card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; margin-bottom: var(--gap); }
+.card-accent { border-left: 3px solid; border-radius: 0 var(--border-radius-lg) var(--border-radius-lg) 0; padding-left: calc(1.25rem - 2.5px); }
+.accent-purple { border-left-color: #7F77DD; }
+.accent-teal { border-left-color: #1D9E75; }
+.accent-amber { border-left-color: #BA7517; }
+.accent-blue { border-left-color: #378ADD; }
+.accent-coral { border-left-color: #D85A30; }
+.section-label { font-size: 11px; font-weight: 500; letter-spacing: 0.07em; color: var(--color-text-tertiary); text-transform: uppercase; margin-bottom: 10px; margin-top: 1.5rem; }
+.field-row { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; align-items: start; margin-bottom: 4px; font-size: 13px; }
+.field-name { color: var(--color-text-secondary); font-family: var(--font-mono); font-size: 12px; padding-top: 1px; }
+.field-desc { color: var(--color-text-primary); }
+.example-block { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 12px; margin-top: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-primary); line-height: 1.7; white-space: pre-wrap; }
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--gap); margin-bottom: var(--gap); }
+.pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.divider { border: none; border-top: 0.5px solid var(--color-border-tertiary); margin: 1rem 0; }
+.note { font-size: 13px; color: var(--color-text-secondary); background: var(--color-background-info); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 8px 12px; margin-top: 8px; }
+</style>
+
+<div style="padding: 1rem 0 2rem;">
+
+<h2 style="margin-bottom: 4px;">Skill effects reference</h2>
+<p style="margin-bottom: 1.5rem; font-size: 14px;">Complete field guide for authoring and editing skill definitions.</p>
+
+<div class="section-label">Resource pools</div>
+<div class="card">
+  <p style="margin-bottom: 8px;">The four pools that skills can reference as <code>source</code> or <code>destination</code>:</p>
+  <div class="pill-row">
+    <span class="badge badge-pool">will</span>
+    <span class="badge badge-pool">essence</span>
+    <span class="badge badge-pool">power</span>
+    <span class="badge badge-pool">health</span>
+  </div>
+</div>
+
+<div class="section-label">Effect types</div>
+
+<div class="card card-accent accent-purple">
+  <span class="badge badge-type">stat_modifier</span>
+  <h3 style="margin-top: 6px;">Stat modifier</h3>
+  <p style="margin-bottom: 8px;">Adds a flat bonus and/or multiplies a core stat. Scales with rank.</p>
+  <div class="field-row"><span class="field-name">target <span class="badge badge-req">required</span></span><span class="field-desc">Which stat to affect. Options: <code>damage</code>, <code>defense</code>, <code>carry_capacity</code></span></div>
+  <div class="field-row"><span class="field-name">add</span><span class="field-desc">Flat amount added per rank. e.g. <code>add: 2</code> at rank 3 = +6</span></div>
+  <div class="field-row"><span class="field-name">multiply</span><span class="field-desc">Multiplier. Delta from 1.0 scales with rank. e.g. <code>multiply: 1.1</code> at rank 3 = ×1.3</span></div>
+  <div class="field-row"><span class="field-name">condition</span><span class="field-desc">Optional. Restrict when this fires (see conditions section below)</span></div>
+  <div class="example-block">{ type: "stat_modifier", target: "damage", add: 3, multiply: 1.1,
+  condition: { weapon_type: "sword" } }</div>
+</div>
+
+<div class="card card-accent accent-teal">
+  <span class="badge badge-type">weight_reduction</span>
+  <h3 style="margin-top: 6px;">Weight reduction</h3>
+  <p style="margin-bottom: 8px;">Reduces the carry weight of a specific item type (or all items). Flat reduction scales with rank.</p>
+  <div class="field-row"><span class="field-name">target <span class="badge badge-opt">optional</span></span><span class="field-desc">Item type name (e.g. <code>"armor"</code>, <code>"potion"</code>). Omit to reduce weight of all items.</span></div>
+  <div class="field-row"><span class="field-name">add</span><span class="field-desc">Weight units reduced per rank. e.g. <code>add: 5</code> at rank 2 = −10 weight</span></div>
+  <div class="note">Reductions stack additively across skills. Results are stored by item type key (<code>"all"</code> if no target).</div>
+  <div class="example-block">{ type: "weight_reduction", target: "armor", add: 5 }</div>
+</div>
+
+<div class="card card-accent accent-amber">
+  <span class="badge badge-type">pool_conversion</span>
+  <h3 style="margin-top: 6px;">Pool conversion</h3>
+  <p style="margin-bottom: 8px;">Lets one pool be spent in place of another. Optionally applies a conversion rate.</p>
+  <div class="field-row"><span class="field-name">source <span class="badge badge-req">required</span></span><span class="field-desc">The pool that will actually be spent (substituted in)</span></div>
+  <div class="field-row"><span class="field-name">destination <span class="badge badge-req">required</span></span><span class="field-desc">The pool that would normally be required</span></div>
+  <div class="field-row"><span class="field-name">multiply</span><span class="field-desc">Conversion rate. e.g. <code>multiply: 0.5</code> means spend half as much from the source pool</span></div>
+  <div class="field-row"><span class="field-name">add</span><span class="field-desc">Flat offset applied on top of the rate</span></div>
+  <div class="note">Direction: <code>destination</code> is the required pool; <code>source</code> is what's actually spent. Think "pay with <em>source</em> instead of <em>destination</em>."</div>
+  <div class="example-block">{ type: "pool_conversion", source: "will", destination: "essence" }</div>
+</div>
+
+<div class="card card-accent accent-blue">
+  <span class="badge badge-type">resource_gain</span>
+  <h3 style="margin-top: 6px;">Resource gain</h3>
+  <p style="margin-bottom: 8px;">Grants bonus pool resources when the character rests. Only fires during rest actions.</p>
+  <div class="field-row"><span class="field-name">destination <span class="badge badge-req">required</span></span><span class="field-desc">Which pool receives the bonus: <code>will</code>, <code>essence</code>, <code>power</code>, or <code>health</code></span></div>
+  <div class="field-row"><span class="field-name">add</span><span class="field-desc">Amount gained per rank. e.g. <code>add: 4</code> at rank 2 = +8 on rest</span></div>
+  <div class="note">Only triggers when the action context is <code>actionType: "rest"</code>. Has no effect during combat or other actions.</div>
+  <div class="example-block">{ type: "resource_gain", destination: "power", add: 4 }</div>
+</div>
+
+<div class="card card-accent accent-coral">
+  <span class="badge badge-type">utility</span>
+  <h3 style="margin-top: 6px;">Utility</h3>
+  <p style="margin-bottom: 8px;">Grants spells, items, or the ability to remove status conditions. Use limit to cap condition removals per day or per rest.</p>
+  <div class="field-row"><span class="field-name">grant_spell</span><span class="field-desc">Name of a spell to add to the character's available spells</span></div>
+  <div class="field-row"><span class="field-name">grant_item</span><span class="field-desc">Name of an item to add to granted items</span></div>
+  <div class="field-row"><span class="field-name">target</span><span class="field-desc">Name of a status condition this skill can remove (e.g. <code>"poison"</code>, <code>"bleed"</code>)</span></div>
+  <div class="field-row"><span class="field-name">limit</span><span class="field-desc">Required when using condition removal. Sets how many times it can be used per period</span></div>
+  <div class="example-block">{ type: "utility", target: "poison", limit: { amount: 2, period: "day" } }
+{ type: "utility", grant_spell: "fireball" }
+{ type: "utility", grant_item: "antidote" }</div>
+</div>
+
+<div class="section-label">Conditions</div>
+
+<div class="card">
+  <p style="margin-bottom: 10px;">All effect types except <code>resource_gain</code> and <code>utility</code> can include a <code>condition</code> block. An effect is skipped if any specified condition field doesn't match the current action context.</p>
+  <div class="field-row"><span class="field-name">weapon_type</span><span class="field-desc">Only fires if the character is using this weapon type (e.g. <code>"sword"</code>, <code>"bow"</code>)</span></div>
+  <div class="field-row"><span class="field-name">armor_type</span><span class="field-desc">Only fires if wearing this armor type (e.g. <code>"light"</code>, <code>"heavy"</code>)</span></div>
+  <div class="field-row"><span class="field-name">item_type</span><span class="field-desc">Only fires if the relevant item is of this type</span></div>
+  <div class="field-row"><span class="field-name">is_combat</span><span class="field-desc">Set <code>true</code> to restrict to combat; <code>false</code> to restrict to non-combat. Omit to always fire.</span></div>
+  <div class="note">All specified fields must match. Unspecified fields are ignored (not required to match).</div>
+</div>
+
+<div class="section-label">Usage limits</div>
+
+<div class="card">
+  <p style="margin-bottom: 10px;">Any effect can include a <code>limit</code> block to cap how many times it fires within a tracking period. Required for condition-removal utility effects.</p>
+  <div class="field-row"><span class="field-name">amount</span><span class="field-desc">Maximum number of activations before the effect is skipped</span></div>
+  <div class="field-row"><span class="field-name">period</span><span class="field-desc"><code>"day"</code> — resets on a new day. <code>"rest"</code> — resets on rest.</span></div>
+  <div class="note">Usage is tracked externally via <code>dailyTracker</code>. The engine checks but does not update the tracker — your game layer must record uses.</div>
+</div>
+
+<div class="section-label">Rank scaling rules</div>
+
+<div class="card">
+  <div class="two-col">
+    <div>
+      <h3>Additive (<code>add</code>)</h3>
+      <p style="margin-top: 4px;">Scales linearly: <code>add × rank</code></p>
+      <div class="example-block">add: 5, rank 1 → +5
+add: 5, rank 2 → +10
+add: 5, rank 3 → +15</div>
+    </div>
+    <div>
+      <h3>Multiplicative (<code>multiply</code>)</h3>
+      <p style="margin-top: 4px;">Delta from 1.0 scales: <code>1 + (mult − 1) × rank</code></p>
+      <div class="example-block">mult: 1.1, rank 1 → ×1.10
+mult: 1.1, rank 2 → ×1.20
+mult: 1.1, rank 3 → ×1.30</div>
+    </div>
+  </div>
+  <div class="note">Multiple damage or defense modifiers across skills stack: flat bonuses add together, multipliers multiply together.</div>
+</div>
+
+<div class="section-label">Full skill definition structure</div>
+
+<div class="card">
+  <div class="example-block">{
+  current_rank: 2,
+  effects: [
+    {
+      type: "stat_modifier",
+      target: "damage",
+      add: 3,
+      multiply: 1.1,
+      condition: { weapon_type: "axe", is_combat: true }
+    },
+    {
+      type: "resource_gain",
+      destination: "power",
+      add: 5
+    },
+    {
+      type: "utility",
+      target: "bleed",
+      limit: { amount: 1, period: "rest" }
+    }
+  ]
+}</div>
+</div>
+
+</div>

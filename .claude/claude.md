@@ -1,0 +1,74 @@
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+style for this project is described as follows:
+Design Style: "Brutalist Dark Fantasy"
+The visual language leans heavily into a gritty, atmospheric tabletop RPG or dark fantasy aesthetic (likely inspired by games like Darkest Dungeon or MÖRK BORG).
+
+Typography & Hierarchy: Uses a stark contrast between an elegant, high-fantasy serif font (playfair) for main data/titles and a hard-edged, minimalist sans-serif font featuring all-caps, high letter-spacing (tracking-widest, tracking-[0.3em]) for metadata and labels.
+
+Color Palette: Built on a dark mode base using Radix/Shadcn tokens (bg-background, bg-card, text-muted-foreground). It relies on sharp pop colors for specific thematic elements:
+
+Cyan/Neon Blue: Used to denote magic, glowing elements, and the "Grimoire".
+
+Muted Grays/Crimson: Used for standard gear, mechanical elements, and the "Danger Zone".
+
+Borders over Shadows: Features heavily structured layouts built using sharp, flat borders (border border-border) and boxy, square-jawed components over smooth gradients or soft dropshadows.

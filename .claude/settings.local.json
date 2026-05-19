@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(npx tsc *)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm exec *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\" -Directory)",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\" -Force)",
+      "Bash(Select-Object Name, FullName)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\" -Directory | Where-Object { $_.Name -ne 'node_modules' -and $_.Name -ne '.git' -and $_.Name -ne '.next' } | Select-Object -ExpandProperty Name)",
+      "Bash(pnpm add *)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")"
+    ]
+  }
+}

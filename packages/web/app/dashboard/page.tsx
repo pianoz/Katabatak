@@ -27,17 +27,28 @@ export default async function DashboardPage() {
 
   const memberGameIds = (memberRows ?? []).map(r => r.game_id as string)
 
-  // Fetch games where user is GM or active member
-  const filterParts = [`gm_profile_id.eq.${user.id}`, `gm_id.eq.${user.id}`]
-  if (memberGameIds.length > 0) {
-    filterParts.push(`id.in.(${memberGameIds.join(",")})`)
-  }
-
-  const { data: games } = await supabase
+  // Fetch games where user is GM
+  const { data: gmGames } = await supabase
     .from("games")
     .select("*")
-    .or(filterParts.join(","))
+    .eq("gm_id", user.id)
     .order("created_at", { ascending: false })
+
+  // Fetch games where user is an active member (excluding games already fetched as GM)
+  const gmGameIds = new Set((gmGames ?? []).map(g => g.id))
+  const memberOnlyIds = memberGameIds.filter(id => !gmGameIds.has(id))
+
+  let memberGames: typeof gmGames = []
+  if (memberOnlyIds.length > 0) {
+    const { data } = await supabase
+      .from("games")
+      .select("*")
+      .in("id", memberOnlyIds)
+      .order("created_at", { ascending: false })
+    memberGames = data ?? []
+  }
+
+  const games = [...(gmGames ?? []), ...(memberGames ?? [])]
 
   // Fetch user's characters
   const { data: characters } = await supabase

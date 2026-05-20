@@ -7,7 +7,9 @@
     "build": "pnpm --filter web build",
     "start": "pnpm --filter web start",
     "lint": "pnpm --recursive lint",
-    "db:types": "supabase gen types typescript --project-id saejphxigsjpbeaakqez > packages/web/components/types/supabase.ts"
+    "db:types": "supabase gen types typescript --project-id saejphxigsjpbeaakqez > packages/web/components/types/supabase.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
@@ -19,5 +21,8 @@
       "sharp",
       "supabase"
     ]
+  },
+  "dependencies": {
+    "vitest": "^4.1.6"
   }
 }

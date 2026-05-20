@@ -15,7 +15,7 @@ interface Game {
   id: string
   name: string
   description?: string
-  dm_id?: string
+  gm_id?: string
   created_at: string | null
   archived?: boolean
 }
@@ -146,14 +146,15 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
                   Modify Skill Tree
                 </Button>
               </Link>
-              <Link href="/dev/items">
-                <Button 
-                  variant="outline" 
-                  className="border-border text-foreground hover:bg-card uppercase tracking-widest text-xs"
-                >
+              <Button
+                asChild
+                variant="outline"
+                className="border-border text-foreground hover:bg-card uppercase tracking-widest text-xs"
+              >
+                <Link href="/dev/items">
                   Modify Items
-                </Button>
-              </Link>
+                </Link>
+              </Button>
               <Link href="/dev/users">
                 <Button 
                   variant="outline" 
@@ -174,7 +175,9 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
   const router = useRouter()
   const [showArchived, setShowArchived] = useState(false)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
   const [archiving, setArchiving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const displayed = games.filter((g) => showArchived ? g.archived : !g.archived)
 
@@ -185,6 +188,20 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
     await supabase.from("games").update({ archived: true }).eq("id", gameId)
     setArchiving(false)
     setConfirmingId(null)
+    router.refresh()
+  }
+
+  const handleDelete = async (gameId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDeleting(true)
+    const supabase = createClient()
+    const { error } = await supabase.from("games").delete().eq("id", gameId)
+    setDeleting(false)
+    if (error) {
+      console.error("Delete failed:", error.message)
+      return
+    }
+    setConfirmingDeleteId(null)
     router.refresh()
   }
 
@@ -250,12 +267,12 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0 ml-3">
-                  {game.dm_id === userId && (
+                  {game.gm_id === userId && (
                     <span className="text-xs uppercase tracking-widest text-muted-foreground bg-secondary px-2 py-1">
                       DM
                     </span>
                   )}
-                  {!game.archived && (
+                  {!game.archived && game.gm_id === userId && (
                     confirmingId === game.id ? (
                       <>
                         <span className="font-sans text-[0.62rem] tracking-widest uppercase text-muted-foreground">
@@ -284,6 +301,35 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
                       </button>
                     )
                   )}
+                  {game.archived && game.gm_id === userId && (
+                    confirmingDeleteId === game.id ? (
+                      <>
+                        <span className="font-sans text-[0.62rem] tracking-widest uppercase text-destructive">
+                          Delete forever?
+                        </span>
+                        <button
+                          onClick={(e) => handleDelete(game.id, e)}
+                          disabled={deleting}
+                          className="font-sans text-[0.65rem] tracking-widest uppercase bg-transparent border border-destructive text-destructive px-3 py-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {deleting ? "…" : "Delete"}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(null) }}
+                          className="font-sans text-[0.65rem] tracking-widest uppercase bg-transparent border border-border text-muted-foreground px-3 py-1.5 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(game.id) }}
+                        className="font-sans text-[0.65rem] tracking-widest uppercase bg-transparent border border-destructive/40 text-destructive/70 px-3 py-1.5 cursor-pointer"
+                      >
+                        Delete
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
             </div>
@@ -305,8 +351,8 @@ function CharactersList({ characters }: { characters: Character[] }) {
           </h2>
         </div>
         <Link href="/characters/new">
-          <Button 
-            size="sm" 
+          <Button
+            size="sm"
             className="bg-foreground text-background hover:bg-foreground/90 uppercase tracking-widest text-xs"
           >
             <Plus className="w-4 h-4 mr-1" />
@@ -324,8 +370,8 @@ function CharactersList({ characters }: { characters: Character[] }) {
           </div>
         ) : (
           characters.map((character) => (
-            <Link 
-              key={character.id} 
+            <Link
+              key={character.id}
               href={`/characters/${character.id}`}
               className="block border border-border bg-card p-4 hover:border-foreground/30 transition-colors group"
             >

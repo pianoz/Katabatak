@@ -37,7 +37,13 @@
       "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\")",
       "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\")",
       "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
-      "Bash(grep -E \"\\(page|route\\)\\\\.\\(tsx|ts\\)$\")"
+      "Bash(grep -E \"\\(page|route\\)\\\\.\\(tsx|ts\\)$\")",
+      "Bash(mkdir -p \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\dev\\\\users\")",
+      "Bash(supabase db *)",
+      "Bash(node_modules/.bin/vitest run *)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"
     ]
   }
 }

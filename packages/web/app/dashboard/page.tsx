@@ -18,10 +18,25 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .single()
 
-  // Fetch games - both as player and as DM
+  // Get game IDs where user is an active member (player)
+  const { data: memberRows } = await supabase
+    .from("game_members")
+    .select("game_id")
+    .eq("profile_id", user.id)
+    .eq("member_status", "active")
+
+  const memberGameIds = (memberRows ?? []).map(r => r.game_id as string)
+
+  // Fetch games where user is GM or active member
+  const filterParts = [`gm_profile_id.eq.${user.id}`, `gm_id.eq.${user.id}`]
+  if (memberGameIds.length > 0) {
+    filterParts.push(`id.in.(${memberGameIds.join(",")})`)
+  }
+
   const { data: games } = await supabase
     .from("games")
     .select("*")
+    .or(filterParts.join(","))
     .order("created_at", { ascending: false })
 
   // Fetch user's characters

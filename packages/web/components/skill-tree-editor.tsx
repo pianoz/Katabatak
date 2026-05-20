@@ -1,6 +1,33 @@
 ﻿"use client"
 
 import { useState, useEffect } from "react"
+
+const EFFECT_SKELETON = JSON.stringify(
+  [
+    {
+      type: "",
+      target: null,
+      source: null,
+      destination: null,
+      add: null,
+      multiply: null,
+      condition: {
+        weapon_type: null,
+        armor_type: null,
+        item_type: null,
+        is_combat: null,
+      },
+      limit: {
+        amount: null,
+        period: null,
+      },
+      grant_spell: null,
+      grant_item: null,
+    },
+  ],
+  null,
+  2
+)
 import { Button } from "@/components/ui/button"
 import { 
   Plus, 
@@ -63,12 +90,13 @@ export function SkillTreeEditor() {
   // Modal states
   const [showAddSkill, setShowAddSkill] = useState(false)
   const [showAddEdge, setShowAddEdge] = useState(false)
+  const [showRemoveEdge, setShowRemoveEdge] = useState(false)
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null)
   const [editingEffectsJson, setEditingEffectsJson] = useState("[]")
   const [effectsJsonError, setEffectsJsonError] = useState<string | null>(null)
 
   // Form states
-  const [newSkill, setNewSkill] = useState({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, max_rank: 1, effects_json: "[]" })
+  const [newSkill, setNewSkill] = useState({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, max_rank: 1, effects_json: EFFECT_SKELETON })
   const [newEdge, setNewEdge] = useState({ parent_skill_id: "", child_skill_id: "", edge_type: "unlocks" })
 
   useEffect(() => {
@@ -151,7 +179,7 @@ export function SkillTreeEditor() {
       .single()
 
     if (!error && data) {
-      setNewSkill({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, max_rank: 1, effects_json: "[]" })
+      setNewSkill({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, max_rank: 1, effects_json: EFFECT_SKELETON })
       setShowAddSkill(false)
       fetchData()
     }
@@ -301,6 +329,14 @@ export function SkillTreeEditor() {
             className="border-border text-foreground hover:bg-secondary uppercase tracking-widest text-xs"
           >
             <Plus className="w-4 h-4 mr-1" />
+            Edge
+          </Button>
+          <Button
+            onClick={() => setShowRemoveEdge(true)}
+            variant="outline"
+            className="border-border text-foreground hover:bg-secondary uppercase tracking-widest text-xs"
+          >
+            <Trash2 className="w-4 h-4 mr-1" />
             Edge
           </Button>
         </div>
@@ -497,6 +533,16 @@ export function SkillTreeEditor() {
         </Modal>
       )}
 
+      {/* Remove Edge Modal */}
+      {showRemoveEdge && (
+        <RemoveEdgeModal
+          edges={edges}
+          skills={skills}
+          onDelete={handleDeleteEdge}
+          onClose={() => setShowRemoveEdge(false)}
+        />
+      )}
+
       {/* Edit Skill Modal */}
       {editingSkill && (
         <Modal onClose={() => setEditingSkill(null)} className="max-w-xl min-h-[75vh] max-h-[90vh] overflow-y-auto">
@@ -591,6 +637,89 @@ export function SkillTreeEditor() {
         </Modal>
       )}
     </div>
+  )
+}
+
+// Remove Edge Modal Component
+function RemoveEdgeModal({
+  edges,
+  skills,
+  onDelete,
+  onClose,
+}: {
+  edges: SkillEdge[]
+  skills: Skill[]
+  onDelete: (parentId: string, childId: string) => void
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState("")
+  const q = query.toLowerCase()
+
+  const filtered = edges.filter(edge => {
+    if (!q) return true
+    const parent = skills.find(s => s.id === edge.parent_skill_id)
+    const child = skills.find(s => s.id === edge.child_skill_id)
+    return (
+      parent?.name.toLowerCase().includes(q) ||
+      child?.name.toLowerCase().includes(q) ||
+      edge.edge_type?.toLowerCase().includes(q)
+    )
+  })
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 className="font-serif text-lg text-foreground mb-4">Remove Connection</h3>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Filter by skill name or type..."
+        autoFocus
+        className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2 placeholder:text-muted-foreground mb-3"
+      />
+      {filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground italic font-serif">
+          {edges.length === 0 ? "No connections exist." : "No matches."}
+        </p>
+      ) : (
+        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+          {filtered.map(edge => {
+            const parent = skills.find(s => s.id === edge.parent_skill_id)
+            const child = skills.find(s => s.id === edge.child_skill_id)
+            if (!parent || !child) return null
+            return (
+              <div key={edge.id} className="flex items-center justify-between border border-border bg-secondary/30 px-3 py-2">
+                <span className="text-sm font-serif text-foreground">
+                  {parent.name}
+                  <span className="text-muted-foreground text-xs mx-2">→</span>
+                  {child.name}
+                  {edge.edge_type && (
+                    <span className="text-xs text-muted-foreground ml-2">[{edge.edge_type}]</span>
+                  )}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(parent.id, child.id)}
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400 shrink-0"
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <div className="mt-4">
+        <Button
+          variant="outline"
+          onClick={onClose}
+          className="border-border text-foreground hover:bg-secondary uppercase tracking-widest text-xs"
+        >
+          Done
+        </Button>
+      </div>
+    </Modal>
   )
 }
 

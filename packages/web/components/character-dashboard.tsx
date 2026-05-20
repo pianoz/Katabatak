@@ -23,6 +23,7 @@ import { Character, Spell } from "@/components/types/types"
 import { resolvePendingOffer } from "@/lib/pending-offers"
 import type { Tables } from "@/components/types/supabase"
 import { evaluateSkillEffects, type SkillEffect, type ActionContext } from "@/lib/skill-engine"
+import { SkillCheckPanel } from "@/components/skill-check-panel"
 
 interface Item {
   id: string
@@ -537,11 +538,12 @@ export function CharacterDashboard({
     if (!isOwner) return
     const restFx = evaluateSkillEffects(activeSkills, { actionType: 'rest' })
     const supabase = createClient()
+    const BASE_REST = 7
     const updates = {
-      current_health:  Math.min(character.health_max  ?? 0, (character.health_max  ?? 0) + (restFx.poolOverrides.restGains['health']  ?? 0)),
-      current_essence: Math.min(character.essence_max ?? 0, (character.essence_max ?? 0) + (restFx.poolOverrides.restGains['essence'] ?? 0)),
-      current_power:   Math.min(character.power_max   ?? 0, (character.power_max   ?? 0) + (restFx.poolOverrides.restGains['power']   ?? 0)),
-      current_will:    Math.min(character.will_max    ?? 0, (character.will_max    ?? 0) + (restFx.poolOverrides.restGains['will']    ?? 0)),
+      current_health:  Math.min(character.health_max  ?? 0, (character.current_health  ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['health']  ?? 0)),
+      current_essence: Math.min(character.essence_max ?? 0, (character.current_essence ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['essence'] ?? 0)),
+      current_power:   Math.min(character.power_max   ?? 0, (character.current_power   ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['power']   ?? 0)),
+      current_will:    Math.min(character.will_max    ?? 0, (character.current_will    ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['will']    ?? 0)),
     }
     const { error } = await supabase.from('characters').update(updates).eq('id', character.id)
     if (!error) setCharacter(prev => ({ ...prev, ...updates }))
@@ -732,6 +734,11 @@ export function CharacterDashboard({
 
       <main className="px-6 md:px-12 lg:px-20 py-8">
         <section className="mb-10">
+          <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">Skill Checks</h2>
+          <SkillCheckPanel character={character} onCharacterUpdate={patch => setCharacter(prev => ({ ...prev, ...patch }))} />
+        </section>
+
+        <section className="mb-10">
           <div className="flex items-center gap-2 mb-4">
             <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Pools</h2>
             <InfoTooltip text="Your four resource pools — Essence, Power, Will, and Health — each start at 10. They are spent on actions and combat, and their current level has passive effects on your character." />
@@ -786,18 +793,78 @@ export function CharacterDashboard({
           </div>
         </section>
 
-        {/* Two-column layout: attributes | actions + skill tree */}
+        {/* Actions */}
+        <section className="mb-10">
+          {repairPopup && <RepairToast message={repairPopup} />}
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Actions</h2>
+            <InfoTooltip text="Execute combat using equipped weapons and armor. Attack rolls your weapon's dice for damage; Defend applies flat damage reduction from your armor." />
+          </div>
+
+          {actionError && (
+            <div className="mb-4 p-3 bg-red-950/60 border border-red-700/70 text-center animate-in fade-in slide-in-from-top-1">
+              <span className="text-xs uppercase tracking-widest text-red-400">
+                {actionError}
+              </span>
+            </div>
+          )}
+
+          {lastRoll && (
+            <div className="mb-4 p-3 bg-secondary/30 border border-border text-center animate-in fade-in slide-in-from-top-1">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                {lastRoll.label} Result:
+              </span>
+              <span className="ml-2 font-serif text-2xl text-foreground">{lastRoll.value}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <ActionCard
+              label="Attack"
+              items={effectiveAttackItems}
+              selectedId={selectedAttackId}
+              onSelect={setSelectedAttackId}
+              onAction={(isStrong) => handleAction("Attack", selectedAttackId, isStrong)}
+              isFlat={false}
+            />
+            <ActionCard
+              label="Defend"
+              items={effectiveDefendItems}
+              selectedId={selectedDefendId}
+              onSelect={setSelectedDefendId}
+              onAction={(isStrong) => handleAction("Defend", selectedDefendId, isStrong)}
+              isFlat={true}
+            />
+            <div className="relative border border-border bg-card p-4 flex flex-col overflow-hidden">
+              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground mb-3">Modules</p>
+              <select
+                disabled
+                className="w-full bg-background border border-border text-muted-foreground text-xs uppercase tracking-widest px-3 py-2 focus:outline-none appearance-none cursor-not-allowed opacity-50"
+              >
+                <option>— No modules unlocked —</option>
+              </select>
+              <span
+                className="absolute inset-0 flex items-center justify-center font-serif text-[4rem] font-bold text-muted-foreground/[0.07] select-none pointer-events-none leading-none tracking-wide"
+                aria-hidden
+              >
+                MODULES
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* Two-column layout: attributes | skill tree */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
           {/* Left: Attributes */}
           <div className="lg:col-span-1 space-y-6">
-            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">
+            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
               Attributes
             </h2>
 
             <div className="border border-border bg-card p-6 space-y-4">
-              <AttributeRow label="Speed"            value={character.speed            ?? "—"} />
-              <AttributeRow label="Height"           value={character.height           ?? "—"} />
-              <AttributeRow label="Weight"           value={character.weight_kgs       ?? "—"} />
+              <AttributeRow label="Speed"             value={character.speed            ?? "—"} />
+              <AttributeRow label="Height"            value={character.height           ?? "—"} />
+              <AttributeRow label="Weight"            value={character.weight_kgs       ?? "—"} />
               <AttributeRow label="Carrying Capacity" value={character.carrying_capacity != null ? effectiveCarryCapacity : "—"} />
 
               {/* Denarius */}
@@ -847,53 +914,9 @@ export function CharacterDashboard({
             </div>
           </div>
 
-          {/* Right: Actions + Skill tree */}
+          {/* Right: Skill Tree */}
           <div className="lg:col-span-2">
-            <section>
-              <div className="flex items-center gap-2 mb-4">
-                <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Actions</h2>
-                <InfoTooltip text="Execute combat using equipped weapons and armor. Attack rolls your weapon's dice for damage; Defend applies flat damage reduction from your armor." />
-              </div>
-
-              {actionError && (
-                <div className="mb-4 p-3 bg-red-950/60 border border-red-700/70 text-center animate-in fade-in slide-in-from-top-1">
-                  <span className="text-xs uppercase tracking-widest text-red-400">
-                    {actionError}
-                  </span>
-                </div>
-              )}
-
-              {lastRoll && (
-                <div className="mb-4 p-3 bg-secondary/30 border border-border text-center animate-in fade-in slide-in-from-top-1">
-                  <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                    {lastRoll.label} Result:
-                  </span>
-                  <span className="ml-2 font-serif text-2xl text-foreground">{lastRoll.value}</span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <ActionCard
-                  label="Attack"
-                  items={effectiveAttackItems}
-                  selectedId={selectedAttackId}
-                  onSelect={setSelectedAttackId}
-                  onAction={(isStrong) => handleAction("Attack", selectedAttackId, isStrong)}
-                  isFlat={false}
-                />
-                <ActionCard
-                  label="Defend"
-                  items={effectiveDefendItems}
-                  selectedId={selectedDefendId}
-                  onSelect={setSelectedDefendId}
-                  onAction={(isStrong) => handleAction("Defend", selectedDefendId, isStrong)}
-                  isFlat={true}
-                />
-              </div>
-            </section>
-
-            <div className="flex items-center gap-2 mb-4 pt-5">
-              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Skill Tree</h2>
+            <div className="flex items-center gap-2 mb-4">
               <InfoTooltip text="Spend skill points to unlock new abilities. Skills are interconnected — unlocking one may open paths to deeper, more powerful abilities gained through discovery and level-ups." />
             </div>
             <SkillTreeViewer
@@ -921,7 +944,7 @@ export function CharacterDashboard({
             </div>
             <SpellTable
               spells={spells}
-              inventory={items}         
+              inventory={items}
               characterId={character.id}
               isOwner={isOwner}
               character={character}
@@ -930,75 +953,71 @@ export function CharacterDashboard({
           </div>
         </section>
 
-        {/* Equipment */}
-        <section className="mt-12 space-y-8">
-          {repairPopup && <RepairToast message={repairPopup} />}
-
-          {/* Weapons */}
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <AddItemModal characterId={character.id} type="weapon" />
-              <Sword className="w-5 h-5 text-muted-foreground" />
-              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Weapons</h2>
-              <InfoTooltip text="Equipped weapons power your Attack action. Each has a damage die and modifier. All weapons degrade with use and must be repair to stay effective" />
+        {/* All Items */}
+        <section className="mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">All Items</h2>
+              <AddItemModal characterId={character.id} type="all" />
+              <Package className="w-5 h-5 text-muted-foreground" />
+              <InfoTooltip text="Your carried inventory, tracked against your carrying capacity. Consumables are used once; other items degrade with use and can be repaired." />
             </div>
-            <ItemTable
-              items={weapons}
-              columns={["name", "damage", "weight", "condition", "short_description"]}
-              emptyMessage="No weapons equipped"
-              onRepair={handleRepair}
-              onConsume={handleConsume}
-              onDrop={handleDrop}
-              onInspect={setInspectingItem}
-            />
+            <span className="text-sm text-muted-foreground">
+              Weight:{" "}
+              <span className="text-foreground font-medium">{totalWeight}</span>
+              {character.carrying_capacity && (
+                <span className="text-muted-foreground"> / {effectiveCarryCapacity}</span>
+              )}
+            </span>
           </div>
-
-          {/* Armor */}
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <AddItemModal characterId={character.id} type="armor" />
-              <Shield className="w-5 h-5 text-muted-foreground" />
-              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Armor</h2>
-            </div>
-            <ItemTable
-              items={armor}
-              columns={["name", "defence", "weight", "condition", "short_description"]}
-              emptyMessage="No armor equipped"
-              onRepair={handleRepair}
-              onConsume={handleConsume}
-              onDrop={handleDrop}
-              onInspect={setInspectingItem}
-            />
-          </div>
-
-          {/* Other items */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <AddItemModal characterId={character.id} type="all" />
-                <Package className="w-5 h-5 text-muted-foreground" />
-                <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Items</h2>
-                <InfoTooltip text="Your carried inventory, tracked against your carrying capacity. Consumables are used once; other items degrade with use and can be repaired." />
-              </div>
-              <span className="text-sm text-muted-foreground">
-                Total Weight:{" "}
-                <span className="text-foreground font-medium">{totalWeight}</span>
-                {character.carrying_capacity && (
-                  <span className="text-muted-foreground"> / {effectiveCarryCapacity}</span>
-                )}
-              </span>
-            </div>
-            <ItemTable
-              items={otherItems}
-              columns={["name", "weight", "condition", "short_description"]}
-              emptyMessage="No items in inventory"
-              onRepair={handleRepair}
-              onConsume={handleConsume}
-              onDrop={handleDrop}
-              onInspect={setInspectingItem}
-            />
-          </div>
+          <ItemTable
+            items={otherItems}
+            columns={["name", "weight", "condition", "short_description"]}
+            emptyMessage="No items in inventory"
+            onRepair={handleRepair}
+            onConsume={handleConsume}
+            onDrop={handleDrop}
+            onInspect={setInspectingItem}
+          />
         </section>
+
+        {/* Weapons */}
+        <section className="mt-8">
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Weapons</h2>
+            <AddItemModal characterId={character.id} type="weapon" />
+            <Sword className="w-5 h-5 text-muted-foreground" />
+            <InfoTooltip text="Equipped weapons power your Attack action. Each has a damage die and modifier. All weapons degrade with use and must be repaired to stay effective." />
+          </div>
+          <ItemTable
+            items={weapons}
+            columns={["name", "damage", "weight", "condition", "short_description"]}
+            emptyMessage="No weapons equipped"
+            onRepair={handleRepair}
+            onConsume={handleConsume}
+            onDrop={handleDrop}
+            onInspect={setInspectingItem}
+          />
+        </section>
+
+        {/* Armor */}
+        <section className="mt-8">
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Armor</h2>
+            <AddItemModal characterId={character.id} type="armor" />
+            <Shield className="w-5 h-5 text-muted-foreground" />
+          </div>
+          <ItemTable
+            items={armor}
+            columns={["name", "defence", "weight", "condition", "short_description"]}
+            emptyMessage="No armor equipped"
+            onRepair={handleRepair}
+            onConsume={handleConsume}
+            onDrop={handleDrop}
+            onInspect={setInspectingItem}
+          />
+        </section>
+
         {isOwner && (
           <section className="mt-20 pt-8 border-t border-red-900/20">
             <div className="flex flex-col items-center justify-center space-y-4">

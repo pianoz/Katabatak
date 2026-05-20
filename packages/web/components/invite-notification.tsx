@@ -6,6 +6,7 @@ import { Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { CharacterSelectModal, CharacterForSelect } from "./character-select-modal"
+import { acceptInvite, declineInvite } from "@/lib/invite-logic"
 
 export interface GameInvite {
   id: string
@@ -37,11 +38,7 @@ export function InviteNotification({ invites: initialInvites, characters }: Invi
   }, [open])
 
   const handleDecline = async (inviteId: string) => {
-    const supabase = createClient()
-    await supabase
-      .from("game_members")
-      .update({ member_status: "declined" })
-      .eq("id", inviteId)
+    await declineInvite(createClient(), inviteId)
     setInvites((prev) => prev.filter((i) => i.id !== inviteId))
   }
 
@@ -63,16 +60,7 @@ export function InviteNotification({ invites: initialInvites, characters }: Invi
 
     const currentPoints = charData?.unused_skill_points ?? 0
 
-    await Promise.all([
-      supabase
-        .from("game_members")
-        .update({ character_id: characterId, member_status: "active" })
-        .eq("id", selectingForInvite.id),
-      supabase
-        .from("characters")
-        .update({ in_game: true, unused_skill_points: currentPoints + startingLevel })
-        .eq("id", characterId),
-    ])
+    await acceptInvite(supabase, selectingForInvite.id, characterId, currentPoints, startingLevel)
     setInvites((prev) => prev.filter((i) => i.id !== selectingForInvite.id))
     setSelectingForInvite(null)
   }

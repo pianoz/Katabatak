@@ -218,6 +218,14 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
 
     const isCurrentlyUnlocked = unlockedSkillIds.has(currentSkill.id);
 
+    if (!isCurrentlyUnlocked) {
+      const skillParents = getParents(currentSkill.id)
+      if (skillParents.length > 0 && !skillParents.every(p => unlockedSkillIds.has(p.id))) {
+        alert("You must unlock all prerequisite skills first.")
+        return
+      }
+    }
+
     try {
       if (isCurrentlyUnlocked) {
         // --- LOCKING THE SKILL (REFUND POINT) ---
@@ -449,6 +457,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
         {currentSkill && (() => {
         const isUnlocked = unlockedSkillIds.has(currentSkill.id);
         const isAvailable = parents.some(p => unlockedSkillIds.has(p.id));
+        const canUnlock = parents.length === 0 || parents.every(p => unlockedSkillIds.has(p.id));
         const showDetails = isUnlocked || isAvailable;
 
         return (
@@ -507,15 +516,18 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
                 
                 <button
                 onClick={toggleSkillUnlock}
+                disabled={!isUnlocked && !canUnlock}
                 className={`
                     mt-6 px-6 py-2 text-xs tracking-[0.2em] uppercase font-bold transition-all duration-500 border
-                    ${unlockedSkillIds.has(currentSkill.id)
+                    ${isUnlocked
                     ? "bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.3)] hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-400"
-                    : "bg-transparent border-foreground/30 text-muted-foreground hover:border-cyan-400/60 hover:text-foreground"
+                    : canUnlock
+                      ? "bg-transparent border-foreground/30 text-muted-foreground hover:border-cyan-400/60 hover:text-foreground"
+                      : "bg-transparent border-foreground/10 text-muted-foreground/30 cursor-not-allowed"
                     }
                 `}
                 >
-                {unlockedSkillIds.has(currentSkill.id) ? "Remove Skill" : "Learn Skill"}
+                {isUnlocked ? "Remove Skill" : "Learn Skill"}
                 </button>
                 
                 {isDev && (

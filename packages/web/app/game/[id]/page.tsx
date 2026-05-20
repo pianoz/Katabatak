@@ -20,6 +20,7 @@ import { InspectItemModal } from "@/components/inspect-item-modal"
 import type { Tables } from "@/components/types/supabase"
 import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core"
 import { SortableContext, horizontalListSortingStrategy, arrayMove } from "@dnd-kit/sortable"
+import { invitePlayer, kickPlayer } from "@/lib/invite-logic"
 
 type Creature = Tables<"creatures">
 
@@ -150,7 +151,7 @@ function KickPlayerModal({
   gameId: string
   characters: Character[]
   onClose: () => void
-  onKicked: (characterId: string) => void
+  onKicked: (characterId: string, profileId: string) => void
 }) {
   const [selectedId, setSelectedId] = useState("")
   const [kicking, setKicking] = useState(false)
@@ -159,9 +160,14 @@ function KickPlayerModal({
     if (!selectedId) return
     setKicking(true)
     const supabase = createClient()
-    await supabase.from("characters").update({ in_game: false }).eq("id", selectedId)
-    await supabase.from("game_members").update({ character_id: null }).eq("game_id", gameId).eq("character_id", selectedId)
-    onKicked(selectedId)
+    const { data: memberRow } = await supabase
+      .from("game_members")
+      .select("profile_id")
+      .eq("game_id", gameId)
+      .eq("character_id", selectedId)
+      .single()
+    await kickPlayer(supabase, gameId, selectedId)
+    onKicked(selectedId, memberRow?.profile_id ?? "")
     setKicking(false)
     onClose()
   }
@@ -298,13 +304,7 @@ function InvitePanel({
   const handleInvite = async () => {
     if (!selectedId) return
     setInviting(true)
-    await createClient().from("game_members").insert({
-      game_id: gameId,
-      profile_id: selectedId,
-      character_id: null,
-      role: "player",
-      member_status: "invited",
-    })
+    await invitePlayer(createClient(), gameId, selectedId)
     onInvited(selectedId)
     setSelectedId("")
     setInviting(false)
@@ -391,11 +391,17 @@ export default function GameDashboardPage({
 
       const { data: members } = await supabase
         .from("game_members")
-        .select("profile_id, characters(*)")
+        .select("profile_id, member_status, characters(*)")
         .eq("game_id", gameId)
 
       if (members) {
-        setMemberProfileIds(new Set(members.map((m: any) => m.profile_id).filter(Boolean)))
+        // Only block re-invite for members who are active or have a pending invite
+        setMemberProfileIds(new Set(
+          members
+            .filter((m: any) => m.member_status === "active" || m.member_status === "invited")
+            .map((m: any) => m.profile_id)
+            .filter(Boolean)
+        ))
         const chars = members.map((m: any) => m.characters).filter(Boolean)
         setCharacters(chars as Character[])
       }
@@ -722,9 +728,16 @@ export default function GameDashboardPage({
           gameId={gameId}
           characters={characters}
           onClose={() => setKickOpen(false)}
-          onKicked={(characterId) => {
+          onKicked={(characterId, profileId) => {
             setCharacters((prev) => prev.filter((c) => c.id !== characterId))
             setCharacterOrder((prev) => prev.filter((id) => id !== characterId))
+            if (profileId) {
+              setMemberProfileIds((prev) => {
+                const next = new Set(prev)
+                next.delete(profileId)
+                return next
+              })
+            }
           }}
         />
       )}

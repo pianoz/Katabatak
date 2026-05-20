@@ -1,18 +1,18 @@
-Building a web-hosted RPG is a massive undertaking, and keeping the backend logic clean while juggling content is half the battle. Here is your Katabatk development roadmap, organized by technical focus so you can tackle related systems together.
+# To-Do
 
 Backend & Game Management
-[ ] Fix Game Deletion Dependencies: Update the delete logic for archived games. Implement a cascade delete through the game_members relational table, ensuring actual character records are strictly preserved when a game is removed.
+[x] Fix Game Deletion Dependencies: Update the delete logic for archived games. Implement a cascade delete through the game_members relational table, ensuring actual character records are strictly preserved when a game is removed.
 
-[ ] Overhaul Character Invites: Allow characters to be re-invited to games (handling multiple invites). Implement cleanup logic on the relational table so pending invites are automatically deleted upon an "Accept" or "Decline" action.
+[ ] Create the skill checks view. Logic for it posted below
 
-[ ] Edit Game Settings: Build the UI and endpoint to allow players to change the game's name after creation.
+[ ] Add skill check logic to the
 
 Core Engine & Mechanics
 [ ] Wire Up the Skill Engine: Connect the core skill system to the rest of the game architecture and run end-to-end functionality tests.
 
-[ ] Fix the "Rest" Button: Update the resting logic so characters regain exactly 6 points to each pool base. Ensure this calculation properly hooks into modifiers from the newly wired skill engine.
-
 [ ] Implement Body-Part Loadouts: Add an armor and equipment section where players can equip specific armor pieces to distinct locations on their character's body.
+
+[ ] Implement scavenge module (button that allows user to scavenge for items. 30 min respawn. Filter by item level and location.)
 
 [ ] Build Crafting Mechanic: Implement the custom crafting system you've mapped out.
 

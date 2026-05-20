@@ -99,7 +99,7 @@ export function SkillTreeEditor() {
   const [effectsJsonError, setEffectsJsonError] = useState<string | null>(null)
 
   // Form states
-  const [newSkill, setNewSkill] = useState({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, max_rank: 1, effects_json: EFFECT_SKELETON })
+  const [newSkill, setNewSkill] = useState({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, max_rank: 1, effects_json: EFFECT_SKELETON, edge_parent_id: "", edge_child_id: "" })
   const [newEdge, setNewEdge] = useState({ parent_skill_id: "", child_skill_id: "", edge_type: "unlocks" })
 
   useEffect(() => {
@@ -182,7 +182,17 @@ export function SkillTreeEditor() {
       .single()
 
     if (!error && data) {
-      setNewSkill({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, max_rank: 1, effects_json: EFFECT_SKELETON })
+      const edgesToCreate: { parent_skill_id: string; child_skill_id: string; edge_type: string }[] = []
+      if (newSkill.edge_parent_id) {
+        edgesToCreate.push({ parent_skill_id: newSkill.edge_parent_id, child_skill_id: data.id, edge_type: "unlocks" })
+      }
+      if (newSkill.edge_child_id) {
+        edgesToCreate.push({ parent_skill_id: data.id, child_skill_id: newSkill.edge_child_id, edge_type: "unlocks" })
+      }
+      if (edgesToCreate.length > 0) {
+        await saveSkillEdgesDelta(edgesToCreate, [])
+      }
+      setNewSkill({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, max_rank: 1, effects_json: EFFECT_SKELETON, edge_parent_id: "", edge_child_id: "" })
       setShowAddSkill(false)
       fetchData()
     }
@@ -463,6 +473,33 @@ export function SkillTreeEditor() {
                 spellCheck={false}
                 className="w-full bg-secondary border border-border text-foreground text-xs px-3 py-2 font-mono resize-none"
               />
+            </div>
+            <div className="border-t border-border pt-4 space-y-3">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Connect (optional)</p>
+              <Field label="Parent Skill">
+                <select
+                  value={newSkill.edge_parent_id}
+                  onChange={(e) => setNewSkill({ ...newSkill, edge_parent_id: e.target.value })}
+                  className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2"
+                >
+                  <option value="">None</option>
+                  {skills.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Child Skill">
+                <select
+                  value={newSkill.edge_child_id}
+                  onChange={(e) => setNewSkill({ ...newSkill, edge_child_id: e.target.value })}
+                  className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2"
+                >
+                  <option value="">None</option>
+                  {skills.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </Field>
             </div>
             <div className="flex gap-3 pt-2">
               <Button

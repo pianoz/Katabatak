@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react"
 import { getConditionStyle } from "@/lib/utils"
+import { Trash2 } from "lucide-react"
 
 const COLUMN_LABELS: Record<string, string> = {
   damage:            "Damage",
@@ -73,6 +74,8 @@ interface ItemTableProps {
   onDrop?: (item: Item) => void
   onInspect?: (item: Item) => void
   onGrantToCharacter?: (item: Item, gameCharacters: GameCharacter[]) => void
+  onDelete?: (item: Item) => void
+  onBatchDelete?: (ids: string[]) => void
 }
 
 function SortIcon({ direction }: { direction: SortDirection }) {
@@ -95,9 +98,12 @@ export function ItemTable({
   onDrop,
   onInspect,
   onGrantToCharacter,
+  onDelete,
+  onBatchDelete,
 }: ItemTableProps) {
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDir, setSortDir] = useState<SortDirection>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<FilterState>({
     search: "",
     type: "",
@@ -137,6 +143,29 @@ export function ItemTable({
     setFilters({ search: "", type: "", subtype: "", minCondition: "", maxCondition: "", showHidden: false, magical: "all", consumable: "all" })
     setSortField(null)
     setSortDir(null)
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === processedItems.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(processedItems.map(i => i.id)))
+    }
+  }
+
+  function handleBatchDelete() {
+    const ids = Array.from(selectedIds)
+    if (!window.confirm(`Delete ${ids.length} item${ids.length !== 1 ? "s" : ""}? This cannot be undone.`)) return
+    onBatchDelete?.(ids)
+    setSelectedIds(new Set())
   }
 
   const activeFilterCount = [
@@ -239,6 +268,17 @@ export function ItemTable({
             className="px-3 py-1.5 text-xs text-red-400/70 border border-red-900/30 hover:border-red-700/50 hover:text-red-400 transition-all"
           >
             Clear
+          </button>
+        )}
+
+        {/* Batch delete */}
+        {onBatchDelete && selectedIds.size > 0 && (
+          <button
+            onClick={handleBatchDelete}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-red-700/60 text-red-400 hover:bg-red-900/20 transition-all"
+          >
+            <Trash2 className="w-3 h-3" />
+            Delete {selectedIds.size} selected
           </button>
         )}
       </div>
@@ -356,12 +396,20 @@ export function ItemTable({
               {processedItems.map((item) => (
                 <div
                   key={item.id}
-                  className={`p-4 space-y-3 hover:bg-secondary/10 transition-colors ${item.hidden ? "opacity-50" : ""}`}
+                  className={`p-4 space-y-3 hover:bg-secondary/10 transition-colors ${item.hidden ? "opacity-50" : ""} ${selectedIds.has(item.id) ? "bg-red-900/10" : ""}`}
                 >
                   <div className="flex justify-between items-start">
+                    {onDelete && (
+                      <input
+                        type="checkbox"
+                        className="accent-red-500 mt-1 mr-2 shrink-0"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => toggleSelect(item.id)}
+                      />
+                    )}
                     <button
                       onClick={() => onInspect?.(item)}
-                      className="flex flex-col items-start group text-left"
+                      className="flex flex-col items-start group text-left flex-1"
                     >
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className={
@@ -443,6 +491,16 @@ export function ItemTable({
                       </button>
                     </div>
                   )}
+                  {onDelete && (
+                    <div className="pt-2">
+                      <button
+                        onClick={() => window.confirm(`Delete "${item.name}"? This cannot be undone.`) && onDelete(item)}
+                        className="w-full py-2 text-xs bg-red-900/20 text-red-400 border border-red-800/50 active:bg-red-800 transition-all uppercase tracking-widest flex items-center justify-center gap-1.5"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -451,6 +509,16 @@ export function ItemTable({
             <table className="hidden md:table w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
+                  {onDelete && (
+                    <th className="w-px p-3">
+                      <input
+                        type="checkbox"
+                        className="accent-red-500"
+                        checked={processedItems.length > 0 && selectedIds.size === processedItems.length}
+                        onChange={toggleSelectAll}
+                      />
+                    </th>
+                  )}
                   {genericColumns.map(col => {
                     const sortable = SORTABLE_COLUMNS.includes(col)
                     const isActive = sortField === col
@@ -488,14 +556,27 @@ export function ItemTable({
                       Actions
                     </th>
                   )}
+                  {onDelete && (
+                    <th className="w-px p-3" />
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {processedItems.map(item => (
                   <tr
                     key={item.id}
-                    className={`border-b border-border hover:bg-secondary/20 transition-colors ${item.hidden ? "opacity-50" : ""}`}
+                    className={`border-b border-border hover:bg-secondary/20 transition-colors ${item.hidden ? "opacity-50" : ""} ${selectedIds.has(item.id) ? "bg-red-900/10" : ""}`}
                   >
+                    {onDelete && (
+                      <td className="p-3">
+                        <input
+                          type="checkbox"
+                          className="accent-red-500"
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleSelect(item.id)}
+                        />
+                      </td>
+                    )}
                     {genericColumns.map(col => (
                       <td key={col} className="p-3 text-sm text-foreground">
                         {col === "name" ? (
@@ -574,6 +655,17 @@ export function ItemTable({
                           className="px-2 py-1 text-xs bg-red-900/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all"
                         >
                           Drop
+                        </button>
+                      </td>
+                    )}
+                    {onDelete && (
+                      <td className="p-3 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => window.confirm(`Delete "${item.name}"? This cannot be undone.`) && onDelete(item)}
+                          className="px-2 py-1 text-xs bg-red-900/20 text-red-400 border border-red-800/50 hover:bg-red-900/40 hover:text-red-300 transition-all"
+                          title="Delete item"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     )}

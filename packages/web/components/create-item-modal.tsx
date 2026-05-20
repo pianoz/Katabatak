@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Info, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Item } from "@/components/types/types";
+
+export type ItemFormValues = Partial<Omit<Item, "id" | "required_skill">>;
 
 interface CreateItemModalProps {
   isOpen: boolean;
@@ -11,6 +13,8 @@ interface CreateItemModalProps {
   onSubmit: (item: Omit<Item, "id">) => void;
   /** UUID of the skill required to use this item. Hidden from the form — pass programmatically. */
   requiredSkillId?: string;
+  /** Pre-fill the form with these values (e.g. from Inspire Me). */
+  initialValues?: ItemFormValues;
 }
 
 const RARITIES = ["common", "uncommon", "rare", "extremely rare", "mythical"] as const;
@@ -66,10 +70,19 @@ const empty: FormState = {
   strong_damage: null
 };
 
-export function CreateItemModal({ isOpen, onClose, onSubmit, requiredSkillId }: CreateItemModalProps) {
+export function CreateItemModal({ isOpen, onClose, onSubmit, requiredSkillId, initialValues }: CreateItemModalProps) {
   const [form, setForm] = useState<FormState>(empty);
   const [dealsDamage, setDealsDamage] = useState(false);
   const [providesDefence, setProvidesDefence] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setForm({ ...empty, ...(initialValues ?? {}) });
+      setDealsDamage(false);
+      setProvidesDefence(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

@@ -35,7 +35,9 @@
       "Bash(ls -la /mnt/c/Users/Robert/Documents/Katabatak/ | head -30)",
       "Read(//mnt/c/Users/Robert/Documents/**)",
       "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\")",
-      "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\")"
+      "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\")",
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
+      "Bash(grep -E \"\\(page|route\\)\\\\.\\(tsx|ts\\)$\")"
     ]
   }
 }

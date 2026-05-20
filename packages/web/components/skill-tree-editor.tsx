@@ -66,16 +66,18 @@ interface SkillEdge {
 type ViewMode = "tree" | "list"
 
 async function saveSkillEdgesDelta(
-  characterId: string,
-  upsertEdges: { parent_skill_id: string; child_skill_id: string }[],
+  upsertEdges: { parent_skill_id: string; child_skill_id: string; edge_type?: string }[],
   deleteEdgeIds: string[]
-): Promise<{ success: boolean; error?: Error }> {
+): Promise<{ success: boolean; error?: string }> {
   const supabase = createClient()
   const { error } = await supabase.rpc("save_skill_edges_delta", {
     p_delete_ids: deleteEdgeIds,
     p_upsert_edges: upsertEdges,
   })
-  if (error) return { success: false, error: new Error(error.message) }
+  if (error) {
+    console.error("saveSkillEdgesDelta:", error.message)
+    return { success: false, error: error.message }
+  }
   return { success: true }
 }
 
@@ -91,6 +93,7 @@ export function SkillTreeEditor() {
   const [showAddSkill, setShowAddSkill] = useState(false)
   const [showAddEdge, setShowAddEdge] = useState(false)
   const [showRemoveEdge, setShowRemoveEdge] = useState(false)
+  const [edgeError, setEdgeError] = useState<string | null>(null)
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null)
   const [editingEffectsJson, setEditingEffectsJson] = useState("[]")
   const [effectsJsonError, setEffectsJsonError] = useState<string | null>(null)
@@ -232,9 +235,9 @@ export function SkillTreeEditor() {
     if (!newEdge.parent_skill_id || !newEdge.child_skill_id) return
     if (newEdge.parent_skill_id === newEdge.child_skill_id) return
 
+    setEdgeError(null)
     const result = await saveSkillEdgesDelta(
-      "",
-      [{ parent_skill_id: newEdge.parent_skill_id, child_skill_id: newEdge.child_skill_id }],
+      [{ parent_skill_id: newEdge.parent_skill_id, child_skill_id: newEdge.child_skill_id, edge_type: newEdge.edge_type }],
       []
     )
 
@@ -242,6 +245,8 @@ export function SkillTreeEditor() {
       setNewEdge({ parent_skill_id: "", child_skill_id: "", edge_type: "unlocks" })
       setShowAddEdge(false)
       fetchData()
+    } else {
+      setEdgeError(result.error ?? "Failed to add connection.")
     }
   }
 
@@ -263,8 +268,12 @@ export function SkillTreeEditor() {
     const edge = edges.find(e => e.parent_skill_id === parentId && e.child_skill_id === childId)
     if (!edge) return
 
-    const result = await saveSkillEdgesDelta("", [], [edge.id])
-    if (result.success) fetchData()
+    const result = await saveSkillEdgesDelta([], [edge.id])
+    if (result.success) {
+      fetchData()
+    } else {
+      console.error("Delete edge failed:", result.error)
+    }
   }
 
   if (loading) {
@@ -513,6 +522,9 @@ export function SkillTreeEditor() {
                 className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2 placeholder:text-muted-foreground"
               />
             </Field>
+            {edgeError && (
+              <p className="text-xs text-red-400 uppercase tracking-widest">{edgeError}</p>
+            )}
             <div className="flex gap-3 pt-2">
               <Button
                 onClick={handleAddEdge}

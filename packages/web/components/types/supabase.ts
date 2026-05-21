@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      action_skills: {
+        Row: {
+          cooldown: number | null
+          effect: Json | null
+          id: string
+          name: string
+          type: string | null
+          use: string | null
+        }
+        Insert: {
+          cooldown?: number | null
+          effect?: Json | null
+          id?: string
+          name: string
+          type?: string | null
+          use?: string | null
+        }
+        Update: {
+          cooldown?: number | null
+          effect?: Json | null
+          id?: string
+          name?: string
+          type?: string | null
+          use?: string | null
+        }
+        Relationships: []
+      }
       attributes: {
         Row: {
           id: number
@@ -63,6 +90,39 @@ export type Database = {
             columns: ["game_id"]
             isOneToOne: false
             referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      character_action_skills: {
+        Row: {
+          action_skill_id: string
+          character_id: string
+          id: string
+        }
+        Insert: {
+          action_skill_id: string
+          character_id: string
+          id?: string
+        }
+        Update: {
+          action_skill_id?: string
+          character_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "character_action_skills_action_skill_id_fkey"
+            columns: ["action_skill_id"]
+            isOneToOne: false
+            referencedRelation: "action_skills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "character_action_skills_character_id_fkey"
+            columns: ["character_id"]
+            isOneToOne: false
+            referencedRelation: "characters"
             referencedColumns: ["id"]
           },
         ]
@@ -494,6 +554,45 @@ export type Database = {
           },
         ]
       }
+      friends: {
+        Row: {
+          created_at: string | null
+          friend_1: string
+          friend_2: string
+          id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string | null
+          friend_1: string
+          friend_2: string
+          id?: string
+          status: string
+        }
+        Update: {
+          created_at?: string | null
+          friend_1?: string
+          friend_2?: string
+          id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "friends_friend_1_fkey"
+            columns: ["friend_1"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "friends_friend_2_fkey"
+            columns: ["friend_2"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       game_items: {
         Row: {
           custom_price_override: number | null
@@ -825,8 +924,10 @@ export type Database = {
       pending_offers: {
         Row: {
           character_id: string
+          condition: number | null
           created_at: string | null
           game_id: string
+          giver_inventory_id: string | null
           id: string
           quantity: number | null
           source_id: string | null
@@ -834,8 +935,10 @@ export type Database = {
         }
         Insert: {
           character_id: string
+          condition?: number | null
           created_at?: string | null
           game_id: string
+          giver_inventory_id?: string | null
           id?: string
           quantity?: number | null
           source_id?: string | null
@@ -843,8 +946,10 @@ export type Database = {
         }
         Update: {
           character_id?: string
+          condition?: number | null
           created_at?: string | null
           game_id?: string
+          giver_inventory_id?: string | null
           id?: string
           quantity?: number | null
           source_id?: string | null
@@ -863,6 +968,13 @@ export type Database = {
             columns: ["game_id"]
             isOneToOne: false
             referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_offers_giver_inventory_id_fkey"
+            columns: ["giver_inventory_id"]
+            isOneToOne: false
+            referencedRelation: "character_inventory"
             referencedColumns: ["id"]
           },
         ]
@@ -938,8 +1050,10 @@ export type Database = {
           created_at: string | null
           effects: Json | null
           id: string
+          in_development: boolean
           is_passive: boolean | null
           max_rank: number | null
+          min_level: number
           name: string
           skill_text: string | null
           unlock_hint: string | null
@@ -949,8 +1063,10 @@ export type Database = {
           created_at?: string | null
           effects?: Json | null
           id?: string
+          in_development?: boolean
           is_passive?: boolean | null
           max_rank?: number | null
+          min_level?: number
           name: string
           skill_text?: string | null
           unlock_hint?: string | null
@@ -960,8 +1076,10 @@ export type Database = {
           created_at?: string | null
           effects?: Json | null
           id?: string
+          in_development?: boolean
           is_passive?: boolean | null
           max_rank?: number | null
+          min_level?: number
           name?: string
           skill_text?: string | null
           unlock_hint?: string | null
@@ -1145,13 +1263,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      auth_user_is_game_member: {
+        Args: { p_game_id: string }
+        Returns: boolean
+      }
       is_game_gm: { Args: { p_game_id: string }; Returns: boolean }
       is_game_member: { Args: { p_game_id: string }; Returns: boolean }
       save_skill_edges_delta: {
-        Args: {
-          p_upsert_edges: { parent_skill_id: string; child_skill_id: string }[]
-          p_delete_ids: string[]
-        }
+        Args: { p_delete_ids: string[]; p_upsert_edges: Json }
         Returns: undefined
       }
       search_world_lore: {

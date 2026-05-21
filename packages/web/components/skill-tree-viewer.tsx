@@ -16,6 +16,8 @@ interface Skill {
   effects?: unknown
   is_passive?: boolean | null
   max_rank?: number | null
+  min_level?: number | null
+  in_development?: boolean | null
 }
 
 interface SkillEdge {
@@ -33,8 +35,20 @@ interface SkillTreeViewerProps {
   onSkillChange?: () => void
 }
 
+function toRoman(n: number): string {
+  const map: [number, string][] = [[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']]
+  let result = ''
+  for (const [val, sym] of map) {
+    while (n >= val) { result += sym; n -= val }
+  }
+  return result
+}
+
 export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, unused_skill_points, onSkillChange }: SkillTreeViewerProps) {
   const [isStatModalOpen, setIsStatModalOpen] = useState(false)
+  const [showKeyModal, setShowKeyModal] = useState(false)
+  const [keyAttempt, setKeyAttempt] = useState("")
+  const [keyFailed, setKeyFailed] = useState(false)
   const [skills, setSkills] = useState<Skill[]>([])
   const [edges, setEdges] = useState<SkillEdge[]>([])
   const [unlockedSkillIds, setUnlockedSkillIds] = useState<Set<string>>(new Set()) 
@@ -45,9 +59,11 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
   const [showAddEdge, setShowAddEdge] = useState(false)
   const [newSkill, setNewSkill] = useState({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: true, max_rank: 1, effects_json: "[]" })
   const [newEdge, setNewEdge] = useState({ parent_skill_id: "", child_skill_id: "", edge_type: "unlocks" })
-  
+
   // Local state to track and optimistically update skill points
   const [availablePoints, setAvailablePoints] = useState(unused_skill_points)
+  // current_rank per skill_id for unlocked skills
+  const [skillRanks, setSkillRanks] = useState<Map<string, number>>(new Map())
 
   // Keep local points in sync if the parent component updates the prop externally
   useEffect(() => {
@@ -69,28 +85,37 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
     if (characterId) {
         const { data: charSkills } = await supabase
         .from("character_skills")
-        .select("skill_id")
+        .select("skill_id, current_rank")
         .eq("character_id", characterId)
-        
+
         if (charSkills) {
           setUnlockedSkillIds(new Set(charSkills.map(s => s.skill_id)))
+          const ranks = new Map<string, number>()
+          for (const s of charSkills) {
+            if (s.skill_id) ranks.set(s.skill_id, s.current_rank ?? 1)
+          }
+          setSkillRanks(ranks)
         }
     }
-    if (skillsRes.data) setSkills(skillsRes.data)
+    const visibleSkills = isDev
+      ? (skillsRes.data ?? [])
+      : (skillsRes.data ?? []).filter(s => !s.in_development)
+
+    setSkills(visibleSkills)
     if (edgesRes.data) setEdges(edgesRes.data)
 
     if (skillsRes.data && edgesRes.data) {
       const childIds = new Set(edgesRes.data.map(e => e.child_skill_id))
-      const roots = skillsRes.data.filter(s => !childIds.has(s.id))
+      const roots = visibleSkills.filter(s => !childIds.has(s.id))
       setRootSkills(roots)
 
       if (initialSkillId) {
-        const initial = skillsRes.data.find(s => s.id === initialSkillId)
+        const initial = visibleSkills.find(s => s.id === initialSkillId)
         if (initial) setCurrentSkill(initial)
       } else if (roots.length > 0) {
         setCurrentSkill(roots[0])
-      } else if (skillsRes.data.length > 0) {
-        setCurrentSkill(skillsRes.data[0])
+      } else if (visibleSkills.length > 0) {
+        setCurrentSkill(visibleSkills[0])
       }
     }
 
@@ -212,6 +237,31 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
     if (updateError) throw updateError;
   };
 
+  const attemptKeyUnlock = async () => {
+    if (!currentSkill || !characterId || availablePoints <= 0) return
+    const supabase = createClient()
+    const normalize = (s: string) => s.toLowerCase().replace(/[\s\-_.,!?;:'"()\[\]{}\/\\]+/g, " ").trim().replace(/\s+/g, " ")
+    const correct = normalize(keyAttempt) === normalize(currentSkill.unlock_key ?? "")
+
+    if (correct) {
+      const { error } = await supabase
+        .from('character_skills')
+        .insert([{ character_id: characterId, skill_id: currentSkill.id }])
+      if (error) return
+      setUnlockedSkillIds(new Set([...unlockedSkillIds, currentSkill.id]))
+      setAvailablePoints(prev => prev - 1)
+      setShowKeyModal(false)
+      setIsStatModalOpen(true)
+    } else {
+      await supabase
+        .from('characters')
+        .update({ unused_skill_points: availablePoints - 1 })
+        .eq('id', characterId)
+      setAvailablePoints(prev => prev - 1)
+      setKeyFailed(true)
+    }
+  }
+
   const toggleSkillUnlock = async () => {
     const supabase = createClient();
     if (!currentSkill || !characterId) return;
@@ -220,8 +270,18 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
 
     if (!isCurrentlyUnlocked) {
       const skillParents = getParents(currentSkill.id)
-      if (skillParents.length > 0 && !skillParents.every(p => unlockedSkillIds.has(p.id))) {
-        alert("You must unlock all prerequisite skills first.")
+      if (skillParents.length > 0 && !skillParents.every(p => {
+        const parentRank = skillRanks.get(p.id) ?? 0
+        return parentRank >= (p.max_rank ?? 1)
+      })) {
+        alert("You must fully rank up all prerequisite skills before unlocking this one.")
+        return
+      }
+
+      const characterLevel = Array.from(skillRanks.values()).reduce((sum, r) => sum + r, 0)
+      const requiredLevel = currentSkill.min_level ?? 0
+      if (requiredLevel > 0 && characterLevel < requiredLevel) {
+        alert(`This skill requires level ${requiredLevel}. Your current level is ${characterLevel}.`)
         return
       }
     }
@@ -244,6 +304,13 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
       } else {
         // --- UNLOCKING THE SKILL (SPEND POINT) ---
         if (availablePoints > 0) {
+          if (currentSkill.unlock_key) {
+            setKeyAttempt("")
+            setKeyFailed(false)
+            setShowKeyModal(true)
+            return
+          }
+
           const { error } = await supabase
             .from('character_skills')
             .insert([{ character_id: characterId, skill_id: currentSkill.id }]);
@@ -264,6 +331,42 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
       console.error("Error toggling skill:", err);
     }
   };
+
+  const handleRankUp = async () => {
+    const supabase = createClient()
+    if (!currentSkill || !characterId) return
+    if (!unlockedSkillIds.has(currentSkill.id)) return
+
+    const currentRank = skillRanks.get(currentSkill.id) ?? 1
+    const maxRank = currentSkill.max_rank ?? 1
+    if (currentRank >= maxRank) return
+    if (availablePoints <= 0) {
+      alert("You don't have enough skill points to rank up this skill.")
+      return
+    }
+
+    try {
+      const { error: rankError } = await supabase
+        .from("character_skills")
+        .update({ current_rank: currentRank + 1 })
+        .match({ character_id: characterId, skill_id: currentSkill.id })
+
+      if (rankError) throw rankError
+
+      const { error: pointError } = await supabase
+        .from("characters")
+        .update({ unused_skill_points: availablePoints - 1 })
+        .eq("id", characterId)
+
+      if (pointError) throw pointError
+
+      setSkillRanks(prev => new Map(prev).set(currentSkill.id, currentRank + 1))
+      setAvailablePoints(prev => prev - 1)
+      setIsStatModalOpen(true)
+    } catch (err) {
+      console.error("Error ranking up skill:", err)
+    }
+  }
 
   if (loading) {
     return (
@@ -397,7 +500,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
                             : "border-border bg-secondary/50 text-foreground hover:bg-secondary hover:border-foreground/30"}
                         `}
                         >
-                        {parent.name}
+                        {parent.name}{isUnlocked && ` ${toRoman(skillRanks.get(parent.id) ?? 1)}`}
                         </button>
                         {isDev && (
                         <Button
@@ -474,7 +577,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
             font-serif text-2xl mb-2 transition-colors duration-1000
             ${isUnlocked ? "text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : "text-foreground"}
             `}>
-            {currentSkill.name}
+            {currentSkill.name}{isUnlocked && ` ${toRoman(skillRanks.get(currentSkill.id) ?? 1)}`}
             </h3>
 
             {showDetails ? (
@@ -514,11 +617,12 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
                 </div>
                 )}
                 
+                <div className="mt-6 flex flex-wrap gap-3 justify-center">
                 <button
                 onClick={toggleSkillUnlock}
                 disabled={!isUnlocked && !canUnlock}
                 className={`
-                    mt-6 px-6 py-2 text-xs tracking-[0.2em] uppercase font-bold transition-all duration-500 border
+                    px-6 py-2 text-xs tracking-[0.2em] uppercase font-bold transition-all duration-500 border
                     ${isUnlocked
                     ? "bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.3)] hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-400"
                     : canUnlock
@@ -529,6 +633,32 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
                 >
                 {isUnlocked ? "Remove Skill" : "Learn Skill"}
                 </button>
+
+                {isUnlocked && characterId && (currentSkill.max_rank ?? 1) > 1 && (() => {
+                  const currentRank = skillRanks.get(currentSkill.id) ?? 1
+                  const maxRank = currentSkill.max_rank ?? 1
+                  const canRankUp = currentRank < maxRank && availablePoints > 0
+                  const atMax = currentRank >= maxRank
+                  return (
+                    <button
+                      onClick={handleRankUp}
+                      disabled={!canRankUp}
+                      title={atMax ? `Max rank (${maxRank}) reached` : canRankUp ? `Rank up (${currentRank}/${maxRank})` : `Not enough skill points`}
+                      className={`
+                        px-6 py-2 text-xs tracking-[0.2em] uppercase font-bold transition-all duration-500 border
+                        ${atMax
+                          ? "bg-transparent border-foreground/10 text-muted-foreground/30 cursor-not-allowed"
+                          : canRankUp
+                            ? "bg-transparent border-cyan-400/50 text-cyan-300 hover:border-cyan-400 hover:bg-cyan-950/30"
+                            : "bg-transparent border-foreground/10 text-muted-foreground/30 cursor-not-allowed"
+                        }
+                      `}
+                    >
+                      Rank Up ({currentRank}/{maxRank})
+                    </button>
+                  )
+                })()}
+                </div>
                 
                 {isDev && (
                 <div className="absolute top-2 right-2 flex gap-1">
@@ -609,7 +739,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
                         `}
                         >
                         {!isParentUnlocked && (<Lock className="w-3 h-3 mr-2 text-muted-foreground" strokeWidth={2.5} />  )}
-                        {child.name}
+                        {child.name}{isUnlocked && ` ${toRoman(skillRanks.get(child.id) ?? 1)}`}
                         </button>
                         {isDev && (
                         <Button
@@ -707,8 +837,61 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
           </div>
         </div>
       )}
+      {/* Unlock Key Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="border border-border bg-card p-6 w-full max-w-sm space-y-4">
+            {keyFailed ? (
+              <>
+                <h3 className="font-serif text-xl text-foreground">The knowledge eludes you.</h3>
+                <p className="text-sm uppercase tracking-widest text-red-400">You failed to unlock the skill.</p>
+                <Button
+                  onClick={() => setShowKeyModal(false)}
+                  className="w-full bg-foreground text-background hover:bg-foreground/90 uppercase tracking-widest text-xs"
+                >
+                  Accept
+                </Button>
+              </>
+            ) : (
+              <>
+                <h3 className="font-serif text-xl text-foreground">{currentSkill?.name}</h3>
+                {currentSkill?.unlock_hint && (
+                  <p className="text-sm italic text-muted-foreground font-serif">{currentSkill.unlock_hint}</p>
+                )}
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">Enter the unlock key to attempt this skill. Failure costs the skill point.</p>
+                <input
+                  type="text"
+                  value={keyAttempt}
+                  onChange={(e) => setKeyAttempt(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && attemptKeyUnlock()}
+                  autoFocus
+                  placeholder="Unlock key..."
+                  className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2 placeholder:text-muted-foreground"
+                />
+                <div className="flex gap-3">
+                  <Button
+                    onClick={attemptKeyUnlock}
+                    disabled={!keyAttempt.trim()}
+                    className="flex-1 bg-foreground text-background hover:bg-foreground/90 uppercase tracking-widest text-xs"
+                  >
+                    Attempt
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowKeyModal(false)}
+                    className="border-border text-foreground hover:bg-secondary uppercase tracking-widest text-xs"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Stat Increase Popup */}
-      <StatIncreaseModal 
+      <StatIncreaseModal
         isOpen={isStatModalOpen}
         onClose={() => setIsStatModalOpen(false)}
         onConfirm={async (selectedPool) => {

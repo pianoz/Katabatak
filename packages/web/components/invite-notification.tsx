@@ -6,7 +6,9 @@ import { Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { CharacterSelectModal, CharacterForSelect } from "./character-select-modal"
+import { FriendRequestModal } from "./friend-request-modal"
 import { acceptInvite, declineInvite } from "@/lib/invite-logic"
+import { FriendRequest } from "@/lib/friend-logic"
 
 export interface GameInvite {
   id: string
@@ -18,13 +20,22 @@ export interface GameInvite {
 interface InviteNotificationProps {
   invites: GameInvite[]
   characters: CharacterForSelect[]
+  friendRequests: FriendRequest[]
+  onFriendRequestResolved: (requestId: string) => void
 }
 
-export function InviteNotification({ invites: initialInvites, characters }: InviteNotificationProps) {
+export function InviteNotification({
+  invites: initialInvites,
+  characters,
+  friendRequests: initialFriendRequests,
+  onFriendRequestResolved,
+}: InviteNotificationProps) {
   const router = useRouter()
   const [invites, setInvites] = useState<GameInvite[]>(initialInvites)
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(initialFriendRequests)
   const [open, setOpen] = useState(false)
   const [selectingForInvite, setSelectingForInvite] = useState<GameInvite | null>(null)
+  const [viewingRequest, setViewingRequest] = useState<FriendRequest | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -37,12 +48,12 @@ export function InviteNotification({ invites: initialInvites, characters }: Invi
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [open])
 
-  const handleDecline = async (inviteId: string) => {
+  const handleDeclineGameInvite = async (inviteId: string) => {
     await declineInvite(createClient(), inviteId)
     setInvites((prev) => prev.filter((i) => i.id !== inviteId))
   }
 
-  const handleAccept = (invite: GameInvite) => {
+  const handleAcceptGameInvite = (invite: GameInvite) => {
     setOpen(false)
     setSelectingForInvite(invite)
   }
@@ -73,22 +84,72 @@ export function InviteNotification({ invites: initialInvites, characters }: Invi
     )
   }
 
+  const handleOpenFriendRequest = (request: FriendRequest) => {
+    setOpen(false)
+    setViewingRequest(request)
+  }
+
+  const handleFriendRequestApprove = (requestId: string) => {
+    setFriendRequests((prev) => prev.filter((r) => r.id !== requestId))
+    onFriendRequestResolved(requestId)
+    setViewingRequest(null)
+  }
+
+  const handleFriendRequestDecline = (requestId: string) => {
+    setFriendRequests((prev) => prev.filter((r) => r.id !== requestId))
+    onFriendRequestResolved(requestId)
+    setViewingRequest(null)
+  }
+
+  const totalCount = invites.length + friendRequests.length
+
   return (
     <>
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setOpen((o) => !o)}
           className="relative p-2 text-muted-foreground hover:text-foreground transition-colors"
-          aria-label="Game invites"
+          aria-label="Notifications"
         >
           <Mail className="w-5 h-5" />
-          {invites.length > 0 && (
+          {totalCount > 0 && (
             <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
           )}
         </button>
 
         {open && (
           <div className="absolute right-0 top-full mt-2 w-80 bg-card border border-border shadow-lg z-50">
+            {/* Friend requests section */}
+            {friendRequests.length > 0 && (
+              <>
+                <div className="px-4 py-3 border-b border-border">
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                    Friend Requests
+                  </p>
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  {friendRequests.map((req) => (
+                    <div
+                      key={req.id}
+                      className="px-4 py-3 border-b border-border/50 last:border-0"
+                    >
+                      <p className="font-serif text-foreground mb-1">
+                        {req.requester_username ?? "Unknown Traveler"}
+                      </p>
+                      <Button
+                        size="sm"
+                        className="w-full bg-foreground text-background hover:bg-foreground/90 uppercase tracking-widest text-xs h-7"
+                        onClick={() => handleOpenFriendRequest(req)}
+                      >
+                        View Request
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Game invites section */}
             <div className="px-4 py-3 border-b border-border">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">
                 Game Invites
@@ -108,14 +169,15 @@ export function InviteNotification({ invites: initialInvites, characters }: Invi
                     <p className="font-serif text-foreground mb-1">{invite.game_name}</p>
                     {invite.starting_level > 0 && (
                       <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
-                        Starting Level {invite.starting_level} — {invite.starting_level} skill {invite.starting_level === 1 ? "point" : "points"} on join
+                        Starting Level {invite.starting_level} — {invite.starting_level} skill{" "}
+                        {invite.starting_level === 1 ? "point" : "points"} on join
                       </p>
                     )}
                     <div className="flex gap-2">
                       <Button
                         size="sm"
                         className="flex-1 bg-foreground text-background hover:bg-foreground/90 uppercase tracking-widest text-xs h-7"
-                        onClick={() => handleAccept(invite)}
+                        onClick={() => handleAcceptGameInvite(invite)}
                       >
                         Accept
                       </Button>
@@ -123,7 +185,7 @@ export function InviteNotification({ invites: initialInvites, characters }: Invi
                         size="sm"
                         variant="outline"
                         className="flex-1 border-border uppercase tracking-widest text-xs h-7"
-                        onClick={() => handleDecline(invite.id)}
+                        onClick={() => handleDeclineGameInvite(invite.id)}
                       >
                         Decline
                       </Button>
@@ -132,6 +194,7 @@ export function InviteNotification({ invites: initialInvites, characters }: Invi
                 ))}
               </div>
             )}
+
           </div>
         )}
       </div>
@@ -142,6 +205,15 @@ export function InviteNotification({ invites: initialInvites, characters }: Invi
           onSelect={handleCharacterSelected}
           onClose={() => setSelectingForInvite(null)}
           onCreateNew={handleCreateNewCharacter}
+        />
+      )}
+
+      {viewingRequest && (
+        <FriendRequestModal
+          request={viewingRequest}
+          onClose={() => setViewingRequest(null)}
+          onApprove={handleFriendRequestApprove}
+          onDecline={handleFriendRequestDecline}
         />
       )}
     </>

@@ -9,7 +9,8 @@
     "lint": "pnpm --recursive lint",
     "db:types": "supabase gen types typescript --project-id saejphxigsjpbeaakqez > packages/web/components/types/supabase.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "gen-types": "supabase gen types typescript --project-id saejphxigsjpbeaakqez > packages/web/components/types/supabase.ts"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

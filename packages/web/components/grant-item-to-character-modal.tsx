@@ -35,7 +35,7 @@ export function GrantItemToCharacterModal({
     setError(null)
     try {
       for (const characterId of selectedIds) {
-        await stagePendingOffer(gameId, characterId, "item", item.id, 1)
+        await stagePendingOffer(gameId, characterId, "item", item.id, 1, item.condition ?? null)
         onGranted(item.id, characterId)
       }
       onClose()

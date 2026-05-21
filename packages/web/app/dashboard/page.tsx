@@ -1,12 +1,13 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { DashboardContent } from "@/components/dashboard-content"
+import { fetchIncomingFriendRequests, fetchFriends } from "@/lib/friend-logic"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
-  
+
   const { data: { user } } = await supabase.auth.getUser()
-  
+
   if (!user) {
     redirect("/")
   }
@@ -71,6 +72,12 @@ export default async function DashboardPage() {
     starting_level: (row.games as { name: string; starting_level: number } | null)?.starting_level ?? 0,
   }))
 
+  // Fetch pending friend requests and confirmed friends
+  const [friendRequests, friends] = await Promise.all([
+    fetchIncomingFriendRequests(supabase, user.id),
+    fetchFriends(supabase, user.id),
+  ])
+
   const isDev = profile?.is_dev ?? false
 
   return (
@@ -82,6 +89,8 @@ export default async function DashboardPage() {
       userId={user.id}
       username={profile?.username ?? "Unknown Traveler"}
       fullName={profile?.full_name ?? "New Legend"}
+      friendRequests={friendRequests}
+      friends={friends}
     />
   )
 }

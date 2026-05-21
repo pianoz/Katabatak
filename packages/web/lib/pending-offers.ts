@@ -10,7 +10,9 @@ export async function stagePendingOffer(
   characterId: string,
   type: OfferType,
   sourceId: string | null,
-  quantity: number
+  quantity: number,
+  condition?: number | null,
+  giverInventoryId?: string | null
 ): Promise<void> {
   const supabase = createClient()
   const { error } = await supabase.from("pending_offers").insert({
@@ -19,6 +21,8 @@ export async function stagePendingOffer(
     type,
     source_id: sourceId,
     quantity,
+    condition: condition ?? null,
+    giver_inventory_id: giverInventoryId ?? null,
   })
   if (error) throw new Error(error.message)
 }
@@ -50,7 +54,13 @@ export async function resolvePendingOffer(
         character_id: offer.character_id,
         item_id: offer.source_id,
         quantity: offer.quantity ?? 1,
+        condition: offer.condition ?? null,
       })
+      // For peer transfers: delete the giver's inventory entry before removing the
+      // offer row (the RLS policy on character_inventory checks pending_offers).
+      if (offer.giver_inventory_id) {
+        await supabase.from("character_inventory").delete().eq("id", offer.giver_inventory_id)
+      }
       break
 
     case "spell":

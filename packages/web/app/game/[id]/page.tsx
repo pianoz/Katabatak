@@ -295,8 +295,31 @@ function InvitePanel({
   const [inviting, setInviting] = useState(false)
 
   useEffect(() => {
-    createClient().from("profiles").select("id, username").order("username")
-      .then(({ data }) => { if (data) setProfiles(data.filter((p): p is { id: string; username: string } => p.username !== null)) })
+    async function fetchFriendProfiles() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: friendRows } = await (supabase as any)
+        .from("friends")
+        .select("friend_1, friend_2")
+        .or(`friend_1.eq.${user.id},friend_2.eq.${user.id}`)
+        .eq("status", "friend")
+
+      const friendIds = (friendRows ?? []).map((row: { friend_1: string; friend_2: string }) =>
+        row.friend_1 === user.id ? row.friend_2 : row.friend_1
+      )
+
+      if (friendIds.length === 0) return
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, username")
+        .in("id", friendIds)
+        .order("username")
+      if (data) setProfiles(data.filter((p): p is { id: string; username: string } => p.username !== null))
+    }
+    fetchFriendProfiles()
   }, [])
 
   const available = profiles.filter((p) => !memberProfileIds.has(p.id))

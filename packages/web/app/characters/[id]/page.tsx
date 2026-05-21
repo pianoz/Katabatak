@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { CharacterDashboard } from "@/components/character-dashboard"
 import type { SkillEffect } from "@/lib/skill-engine"
+import type { ActionSkill } from "@/components/action-skill-modal"
 
 interface CharacterPageProps {
   params: Promise<{ id: string }>
@@ -99,6 +100,16 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
 
   const level = characterSkills?.length ?? 0
 
+  // 6. Fetch character action skills
+  const { data: characterActionSkills } = await supabase
+    .from("character_action_skills")
+    .select("action_skill_id, action_skills(*)")
+    .eq("character_id", characterId)
+
+  const actionSkills: ActionSkill[] = (characterActionSkills ?? [])
+    .map((row) => (Array.isArray(row.action_skills) ? row.action_skills[0] : row.action_skills))
+    .filter((s): s is ActionSkill => s !== null && s !== undefined)
+
   return (
     <CharacterDashboard
       character={character}
@@ -108,6 +119,7 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
       activeSkills={activeSkills}
       isDev={isDev}
       level={level}
+      actionSkills={actionSkills}
     />
   )
 }

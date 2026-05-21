@@ -24,9 +24,10 @@ interface InspectItemModalProps {
   onClose: () => void;
   onAccept?: () => void;
   onDecline?: () => void;
+  onGiveToAlly?: () => void;
 }
 
-export function InspectItemModal({ item, onClose, onAccept, onDecline }: InspectItemModalProps) {
+export function InspectItemModal({ item, onClose, onAccept, onDecline, onGiveToAlly }: InspectItemModalProps) {
   if (!item) return null
 
   const skipFields = ['id', 'character_id', 'image_url', 'name', 'description', 'action_text', 'short_description']
@@ -122,8 +123,16 @@ export function InspectItemModal({ item, onClose, onAccept, onDecline }: Inspect
           </div>
 
         </div>
-        {(onAccept || onDecline) && (
+        {(onAccept || onDecline || onGiveToAlly) && (
           <div className="shrink-0 border-t border-border p-4 flex gap-3 bg-card">
+            {onGiveToAlly && (
+              <button
+                onClick={onGiveToAlly}
+                className="flex-1 border border-yellow-600 text-yellow-500 text-[0.65rem] uppercase tracking-widest py-2.5 hover:bg-yellow-950/30 transition-colors"
+              >
+                Give to Ally
+              </button>
+            )}
             {onAccept && (
               <button
                 onClick={onAccept}

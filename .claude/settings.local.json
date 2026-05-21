@@ -40,7 +40,12 @@
       "Bash(grep -E \"\\(page|route\\)\\\\.\\(tsx|ts\\)$\")",
       "Bash(mkdir -p \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\dev\\\\users\")",
       "Bash(supabase db *)",
-      "Bash(node_modules/.bin/vitest run *)"
+      "Bash(node_modules/.bin/vitest run *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\" -Directory)",
+      "Bash(xargs ls -la)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\" -Recurse -Directory)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\" -Directory | ForEach-Object { $_.Name })",
+      "PowerShell(ls \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\supabase\\\\migrations\" | Where-Object { $_.Name -match \"^202605\" } | Sort-Object Name | Select-Object -First 10)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

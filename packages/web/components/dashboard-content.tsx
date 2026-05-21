@@ -7,9 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LogOut, Plus, Swords, Users, Wrench } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { Switch } from "@/components/ui/switch"
 import { SettingsModal } from "@/components/settings-modal"
 import { InviteNotification, GameInvite } from "@/components/invite-notification"
 import { CharacterForSelect } from "@/components/character-select-modal"
+import { FriendsModal } from "@/components/friends-modal"
+import { FriendRequest, Friend } from "@/lib/friend-logic"
 
 interface Game {
   id: string
@@ -39,9 +42,11 @@ interface DashboardContentProps {
   userId: string
   username: string
   fullName: string
+  friendRequests: FriendRequest[]
+  friends: Friend[]
 }
 
-export function DashboardContent({ games, characters, invites, isDev, userId, username, fullName }: DashboardContentProps) {
+export function DashboardContent({ games, characters, invites, isDev, userId, username, fullName, friendRequests: initialFriendRequests, friends: initialFriends }: DashboardContentProps) {
   const charactersForSelect: CharacterForSelect[] = characters.map((c) => ({
     id: c.id,
     name: c.name,
@@ -50,6 +55,14 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
   }))
   const router = useRouter()
   const [activeTab, setActiveTab] = useState("games")
+  const [friendsOpen, setFriendsOpen] = useState(false)
+  const [devModeEnabled, setDevModeEnabled] = useState(false)
+  const [friends, setFriends] = useState<Friend[]>(initialFriends)
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(initialFriendRequests)
+
+  const handleFriendRequestResolved = (requestId: string) => {
+    setFriendRequests((prev) => prev.filter((r) => r.id !== requestId))
+  }
 
   const handleSignOut = async () => {
     const supabase = createClient()
@@ -78,7 +91,36 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
               />
             </div>
 
-            <InviteNotification invites={invites} characters={charactersForSelect} />
+            <InviteNotification
+              invites={invites}
+              characters={charactersForSelect}
+              friendRequests={friendRequests}
+              onFriendRequestResolved={handleFriendRequestResolved}
+            />
+
+            <button
+              onClick={() => setFriendsOpen(true)}
+              className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Friends"
+            >
+              <Users className="w-5 h-5" />
+            </button>
+
+            {isDev && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={devModeEnabled}
+                  onCheckedChange={setDevModeEnabled}
+                  id="dev-mode-toggle"
+                />
+                <label
+                  htmlFor="dev-mode-toggle"
+                  className="text-xs uppercase tracking-widest text-muted-foreground cursor-pointer select-none"
+                >
+                  Dev
+                </label>
+              </div>
+            )}
 
             <Button
               variant="ghost"
@@ -90,6 +132,14 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
           </div>
         </div>
       </header>
+
+      {friendsOpen && (
+        <FriendsModal
+          currentUserId={userId}
+          initialFriends={friends}
+          onClose={() => setFriendsOpen(false)}
+        />
+      )}
 
       <main className="px-6 md:px-12 lg:px-20 py-8">
         {/* Mobile Tabs */}
@@ -129,7 +179,7 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
         </div>
 
         {/* Dev Tools Section */}
-        {isDev && (
+        {devModeEnabled && (
           <div className="mt-16 pt-8 border-t border-border">
             <div className="flex items-center gap-3 mb-6">
               <Wrench className="w-5 h-5 text-muted-foreground" />

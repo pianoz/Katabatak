@@ -30,8 +30,15 @@ WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
 -- Enables: INSERT ... ON CONFLICT (game_id, profile_id) DO UPDATE ...
 -- This is what allows re-inviting without creating a second row.
 
-ALTER TABLE public.game_members
-  ADD CONSTRAINT game_members_game_profile_unique UNIQUE (game_id, profile_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'game_members_game_profile_unique'
+  ) THEN
+    ALTER TABLE public.game_members
+      ADD CONSTRAINT game_members_game_profile_unique UNIQUE (game_id, profile_id);
+  END IF;
+END $$;
 
 -- ─── Step 3: RLS ────────────────────────────────────────────────────────────
 -- If game_members already has RLS disabled and operations work, this is still
@@ -39,6 +46,11 @@ ALTER TABLE public.game_members
 -- policies once RLS is enabled.
 
 ALTER TABLE public.game_members ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "gm_manage_members" ON public.game_members;
+DROP POLICY IF EXISTS "member_select_game_members" ON public.game_members;
+DROP POLICY IF EXISTS "player_update_own_membership" ON public.game_members;
+DROP POLICY IF EXISTS "player_delete_own_membership" ON public.game_members;
 
 -- GMs can fully manage membership for games they own.
 CREATE POLICY "gm_manage_members"

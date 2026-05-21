@@ -127,16 +127,31 @@ function PlayerDropdown({ invitedIds, onAdd }: { invitedIds: Set<string>; onAdd:
   const [selectedId, setSelectedId] = useState<string>("");
 
   useEffect(() => {
-    async function fetchProfiles() {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, username, avatar_url")
-        .order("username");
+    async function fetchFriendProfiles() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
 
-      if (!error && data) setProfiles(data as Profile[]);
+      const { data: friendRows } = await (supabase as any)
+        .from("friends")
+        .select("friend_1, friend_2")
+        .or(`friend_1.eq.${user.id},friend_2.eq.${user.id}`)
+        .eq("status", "friend");
+
+      const friendIds = (friendRows ?? []).map((row: { friend_1: string; friend_2: string }) =>
+        row.friend_1 === user.id ? row.friend_2 : row.friend_1
+      );
+
+      if (friendIds.length > 0) {
+        const { data } = await supabase
+          .from("profiles")
+          .select("id, username, avatar_url")
+          .in("id", friendIds)
+          .order("username");
+        if (data) setProfiles(data as Profile[]);
+      }
       setLoading(false);
     }
-    fetchProfiles();
+    fetchFriendProfiles();
   }, []);
 
   const available = profiles.filter((p) => !invitedIds.has(p.id));
@@ -156,7 +171,7 @@ function PlayerDropdown({ invitedIds, onAdd }: { invitedIds: Set<string>; onAdd:
         style={{ ...inputStyle, flex: 1 }}
         disabled={loading}
       >
-        <option value="">{loading ? "Loading players..." : "Select a player..."}</option>
+        <option value="">{loading ? "Loading friends..." : available.length === 0 ? "No friends to invite" : "Select a friend..."}</option>
         {available.map((p) => (
           <option key={p.id} value={p.id}>{p.username}</option>
         ))}

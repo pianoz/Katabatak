@@ -4,14 +4,17 @@
 import { useState, useTransition, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Bell, ChevronLeft, Check, Info, Minus, Package, Pencil, Plus, Shield, Sword, Trash2, X } from "lucide-react"
+import { Bell, ChevronLeft, Check, Info, Minus, Package, Pencil, Plus, Shield, Sword, Trash2, Wrench, X } from "lucide-react"
 
 // ─── Internal imports ─────────────────────────────────────────────────────────
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { createClient } from "@/lib/supabase/client"
 import { AddItemModal } from "@/components/add-item-modal"
 import { AddSpellModal } from "@/components/add-spell-modal"
 import { InspectItemModal } from "./inspect-item-modal"
+import { GiveToAllyModal } from "./give-to-ally-modal"
 import { SkillTreeViewer } from "@/components/skill-tree-viewer"
 import { NotificationOverlay, type PendingOfferData } from "@/components/notification-overlay"
 import { getConditionStyle } from "@/lib/utils"
@@ -24,9 +27,11 @@ import { resolvePendingOffer } from "@/lib/pending-offers"
 import type { Tables } from "@/components/types/supabase"
 import { evaluateSkillEffects, type SkillEffect, type ActionContext } from "@/lib/skill-engine"
 import { SkillCheckPanel } from "@/components/skill-check-panel"
+import { ActionSkillModal, type ActionSkill } from "@/components/action-skill-modal"
 
 interface Item {
   id: string
+  base_id?: string
   name: string
   type: string
   subtype?: string
@@ -113,26 +118,6 @@ function PoolCounter({ label, value, max, onIncrement, onDecrement, disabled, lo
           <Plus className="w-4 h-4" />
         </Button>
       </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface AttributeRowProps {
-  label: string
-  value: string | number
-  /** Reserved for future use; currently renders identically either way. */
-  highlight?: boolean
-}
-
-function AttributeRow({ label, value, highlight }: AttributeRowProps) {
-  return (
-    <div className="flex justify-between items-center">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={`text-sm ${highlight ? "text-foreground font-medium" : "text-foreground"}`}>
-        {value}
-      </span>
     </div>
   )
 }
@@ -288,6 +273,7 @@ interface CharacterDashboardProps {
   activeSkills: Array<{ effects: SkillEffect[]; current_rank: number }>
   isDev: boolean
   level: number
+  actionSkills: ActionSkill[]
 }
 
 export function CharacterDashboard({
@@ -298,15 +284,18 @@ export function CharacterDashboard({
   activeSkills,
   isDev,
   level,
+  actionSkills,
 }: CharacterDashboardProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
+  const [devModeEnabled, setDevModeEnabled] = useState(false)
 
   const [character,      setCharacter]      = useState(initialCharacter)
   const [updating,       setUpdating]       = useState<string | null>(null)
   const [isDeleting,     setIsDeleting]     = useState(false)
   const [lastRoll,       setLastRoll]       = useState<{ label: string; value: number } | null>(null)
   const [inspectingItem, setInspectingItem] = useState<Item | null>(null)
+  const [givingItem,     setGivingItem]     = useState<Item | null>(null)
   const [notification,   setNotification]   = useState<Notification | null>(null)
   const [repairPopup,    setRepairPopup]    = useState<string | null>(null)
   const [pendingOffers,      setPendingOffers]      = useState<PendingOfferData[]>([])
@@ -314,6 +303,7 @@ export function CharacterDashboard({
   const [activeOfferItem,    setActiveOfferItem]    = useState<Item | null>(null)
   const [bellOpen,           setBellOpen]           = useState(false)
   const [actionError,        setActionError]        = useState<string | null>(null)
+  const [actionSkillsOpen,   setActionSkillsOpen]   = useState(false)
 
   // ── Pending offers: initial load + real-time subscription ───────────────────
 
@@ -669,6 +659,22 @@ export function CharacterDashboard({
             )}
           </div>
           <div className="flex items-center gap-4">
+            {isDev && (
+              <div className="flex items-center gap-2">
+                <Wrench className="w-3.5 h-3.5 text-muted-foreground" />
+                <Switch
+                  checked={devModeEnabled}
+                  onCheckedChange={setDevModeEnabled}
+                  id="dev-mode-char-toggle"
+                />
+                <label
+                  htmlFor="dev-mode-char-toggle"
+                  className="text-xs uppercase tracking-widest text-muted-foreground cursor-pointer select-none"
+                >
+                  Dev
+                </label>
+              </div>
+            )}
             {isOwner && (
               <div className="relative">
                 <button
@@ -793,258 +799,308 @@ export function CharacterDashboard({
           </div>
         </section>
 
-        {/* Actions */}
-        <section className="mb-10">
-          {repairPopup && <RepairToast message={repairPopup} />}
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Actions</h2>
-            <InfoTooltip text="Execute combat using equipped weapons and armor. Attack rolls your weapon's dice for damage; Defend applies flat damage reduction from your armor." />
-          </div>
+        {repairPopup && <RepairToast message={repairPopup} />}
 
-          {actionError && (
-            <div className="mb-4 p-3 bg-red-950/60 border border-red-700/70 text-center animate-in fade-in slide-in-from-top-1">
-              <span className="text-xs uppercase tracking-widest text-red-400">
-                {actionError}
-              </span>
+        <Tabs defaultValue="actions">
+          <TabsList className="w-full bg-secondary mb-8">
+            <TabsTrigger value="actions" className="flex-1 uppercase tracking-widest text-xs data-[state=active]:bg-card">
+              Actions
+            </TabsTrigger>
+            <TabsTrigger value="skills" className="flex-1 uppercase tracking-widest text-xs data-[state=active]:bg-card">
+              Skills & Attributes
+            </TabsTrigger>
+            <TabsTrigger value="items" className="flex-1 uppercase tracking-widest text-xs data-[state=active]:bg-card">
+              Items
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Tab 1: Actions */}
+          <TabsContent value="actions">
+            <div className="flex items-center gap-2 mb-4">
+              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Actions</h2>
+              <InfoTooltip text="Execute combat using equipped weapons and armor. Attack rolls your weapon's dice for damage; Defend applies flat damage reduction from your armor." />
             </div>
-          )}
 
-          {lastRoll && (
-            <div className="mb-4 p-3 bg-secondary/30 border border-border text-center animate-in fade-in slide-in-from-top-1">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                {lastRoll.label} Result:
-              </span>
-              <span className="ml-2 font-serif text-2xl text-foreground">{lastRoll.value}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <ActionCard
-              label="Attack"
-              items={effectiveAttackItems}
-              selectedId={selectedAttackId}
-              onSelect={setSelectedAttackId}
-              onAction={(isStrong) => handleAction("Attack", selectedAttackId, isStrong)}
-              isFlat={false}
-            />
-            <ActionCard
-              label="Defend"
-              items={effectiveDefendItems}
-              selectedId={selectedDefendId}
-              onSelect={setSelectedDefendId}
-              onAction={(isStrong) => handleAction("Defend", selectedDefendId, isStrong)}
-              isFlat={true}
-            />
-            <div className="relative border border-border bg-card p-4 flex flex-col overflow-hidden">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground mb-3">Modules</p>
-              <select
-                disabled
-                className="w-full bg-background border border-border text-muted-foreground text-xs uppercase tracking-widest px-3 py-2 focus:outline-none appearance-none cursor-not-allowed opacity-50"
-              >
-                <option>— No modules unlocked —</option>
-              </select>
-              <span
-                className="absolute inset-0 flex items-center justify-center font-serif text-[4rem] font-bold text-muted-foreground/[0.07] select-none pointer-events-none leading-none tracking-wide"
-                aria-hidden
-              >
-                MODULES
-              </span>
-            </div>
-          </div>
-        </section>
-
-        {/* Two-column layout: attributes | skill tree */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
-          {/* Left: Attributes */}
-          <div className="lg:col-span-1 space-y-6">
-            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
-              Attributes
-            </h2>
-
-            <div className="border border-border bg-card p-6 space-y-4">
-              <AttributeRow label="Speed"             value={character.speed            ?? "—"} />
-              <AttributeRow label="Height"            value={character.height           ?? "—"} />
-              <AttributeRow label="Weight"            value={character.weight_kgs       ?? "—"} />
-              <AttributeRow label="Carrying Capacity" value={character.carrying_capacity != null ? effectiveCarryCapacity : "—"} />
-
-              {/* Denarius */}
-              <div className="flex items-center justify-between py-2 border-t border-border">
-                <span className="text-sm text-muted-foreground font-medium uppercase tracking-wider">
-                  Denarius
+            {actionError && (
+              <div className="mb-4 p-3 bg-red-950/60 border border-red-700/70 text-center animate-in fade-in slide-in-from-top-1">
+                <span className="text-xs uppercase tracking-widest text-red-400">
+                  {actionError}
                 </span>
-                <div className="flex items-center gap-3">
-                  {isOwner && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 rounded-md border border-border"
-                      onClick={() => updateMoney(-1)}
-                      disabled={updating === "denarius" || (character.denarius ?? 0) < 1}
-                    >
-                      <Minus className="w-3 h-3" />
-                    </Button>
-                  )}
-                  <span className="font-serif text-lg text-foreground min-w-[3ch] text-center">
-                    {character.denarius ?? 0}
-                  </span>
-                  {isOwner && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 rounded-md border border-border"
-                      onClick={() => updateMoney(1)}
-                      disabled={updating === "denarius"}
-                    >
-                      <Plus className="w-3 h-3" />
-                    </Button>
+              </div>
+            )}
+
+            {lastRoll && (
+              <div className="mb-4 p-3 bg-secondary/30 border border-border text-center animate-in fade-in slide-in-from-top-1">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  {lastRoll.label} Result:
+                </span>
+                <span className="ml-2 font-serif text-2xl text-foreground">{lastRoll.value}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4 mb-10">
+              <ActionCard
+                label="Attack"
+                items={effectiveAttackItems}
+                selectedId={selectedAttackId}
+                onSelect={setSelectedAttackId}
+                onAction={(isStrong) => handleAction("Attack", selectedAttackId, isStrong)}
+                isFlat={false}
+              />
+              <ActionCard
+                label="Defend"
+                items={effectiveDefendItems}
+                selectedId={selectedDefendId}
+                onSelect={setSelectedDefendId}
+                onAction={(isStrong) => handleAction("Defend", selectedDefendId, isStrong)}
+                isFlat={true}
+              />
+            </div>
+
+            {/* Active Skills */}
+            <div className="mb-10">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Active Skills</h2>
+                <button
+                  onClick={() => setActionSkillsOpen(true)}
+                  className="text-[9px] uppercase tracking-widest border border-amber-700/40 text-amber-500/70 px-3 py-1.5 hover:bg-amber-950/20 transition-colors"
+                >
+                  {actionSkills.length > 0 ? `${actionSkills.length} skill${actionSkills.length === 1 ? "" : "s"}` : "View"}
+                </button>
+              </div>
+              {actionSkills.length === 0 ? (
+                <p className="font-serif text-xs text-muted-foreground/40 italic border border-border/30 p-3">
+                  No active skills assigned.
+                </p>
+              ) : (
+                <div className="border border-border/30 divide-y divide-border/20">
+                  {actionSkills.slice(0, 3).map((s) => (
+                    <div key={s.id} className="flex items-center justify-between px-3 py-2">
+                      <span className="font-serif text-sm text-foreground truncate">{s.name}</span>
+                      {s.type && (
+                        <span className="text-[9px] uppercase tracking-widest text-muted-foreground/50 shrink-0 ml-2">
+                          {s.type}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {actionSkills.length > 3 && (
+                    <div className="px-3 py-2">
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/40">
+                        +{actionSkills.length - 3} more
+                      </span>
+                    </div>
                   )}
                 </div>
+              )}
+            </div>
+
+            {/* Grimoire */}
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <AddSpellModal characterId={character.id} />
+                <Sword className="w-5 h-5 text-cyan-400 rotate-45 drop-shadow-[0_0_5px_rgba(34,211,238,0.6)]" />
+                <h2 className="text-sm uppercase tracking-[0.3em] text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">
+                  Grimoire
+                </h2>
+                <InfoTooltip text="Spells cost Essence to cast. Some require a focus item — casting degrades that item's condition. Maintain your focus or lose access to its magic." />
+              </div>
+              <SpellTable
+                spells={spells}
+                inventory={items}
+                characterId={character.id}
+                isOwner={isOwner}
+                character={character}
+                updatePool={updatePool}
+              />
+            </div>
+          </TabsContent>
+
+          {/* Tab 2: Skills & Attributes */}
+          <TabsContent value="skills">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
+              {/* Left: Attributes + descriptions */}
+              <div className="lg:col-span-1 space-y-6">
+                <div>
+                  <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-3">Attributes</h2>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: "Speed",  value: character.speed      ?? "—" },
+                      { label: "Height", value: character.height     ?? "—" },
+                      { label: "Weight", value: character.weight_kgs ?? "—" },
+                      { label: "Carry",  value: character.carrying_capacity != null ? effectiveCarryCapacity : "—" },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="border border-border bg-card p-3 text-center">
+                        <p className="font-serif text-xl text-foreground leading-none">{value}</p>
+                        <p className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground mt-1.5">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-2 border border-border bg-card px-4 py-3 flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Denarius</span>
+                    <div className="flex items-center gap-2">
+                      {isOwner && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 rounded-md border border-border"
+                          onClick={() => updateMoney(-1)}
+                          disabled={updating === "denarius" || (character.denarius ?? 0) < 1}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                      )}
+                      <span className="font-serif text-lg text-foreground min-w-[3ch] text-center">
+                        {character.denarius ?? 0}
+                      </span>
+                      {isOwner && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 rounded-md border border-border"
+                          onClick={() => updateMoney(1)}
+                          disabled={updating === "denarius"}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <DescriptionBlock label="Primary Background"   text={character.background_primary ?? undefined}   />
+                  <DescriptionBlock label="Secondary Background" text={character.background_secondary ?? undefined} />
+                  <DescriptionBlock label="Physical Description" text={character.physical_description ?? undefined} onSave={isOwner ? (v) => handleSaveDescription("physical_description", v) : undefined} />
+                  <DescriptionBlock label="Backstory"            text={character.backstory ?? undefined} expandable onSave={isOwner ? (v) => handleSaveDescription("backstory", v) : undefined} />
+                </div>
+                <div className="text-xs text-muted-foreground pt-4 border-t border-border">
+                  Created {character.created_at ? new Date(character.created_at).toLocaleDateString() : "Unknown"}
+                </div>
+              </div>
+
+              {/* Right: Skill Tree */}
+              <div className="lg:col-span-2">
+                <div className="flex items-center gap-2 mb-4">
+                  <InfoTooltip text="Spend skill points to unlock new abilities. Skills are interconnected — unlocking one may open paths to deeper, more powerful abilities gained through discovery and level-ups." />
+                </div>
+                <SkillTreeViewer
+                  isDev={devModeEnabled}
+                  characterId={character.id}
+                  unused_skill_points={character.unused_skill_points}
+                  onSkillChange={async () => {
+                    await refreshCharacter()
+                    startTransition(() => router.refresh())
+                  }}
+                />
               </div>
             </div>
 
-            {/* Text descriptions */}
-            <div className="space-y-4">
-              <DescriptionBlock label="Primary Background"   text={character.background_primary ?? undefined}   />
-              <DescriptionBlock label="Secondary Background" text={character.background_secondary ?? undefined} />
-              <DescriptionBlock label="Physical Description" text={character.physical_description ?? undefined} onSave={isOwner ? (v) => handleSaveDescription("physical_description", v) : undefined} />
-              <DescriptionBlock label="Backstory"            text={character.backstory ?? undefined} expandable onSave={isOwner ? (v) => handleSaveDescription("backstory", v) : undefined} />
-            </div>
-            <div className="text-xs text-muted-foreground pt-4 border-t border-border">
-              Created {character.created_at ? new Date(character.created_at).toLocaleDateString() : "Unknown"}
-            </div>
-          </div>
+            {isOwner && (
+              <section className="mt-20 pt-8 border-t border-red-900/20">
+                <div className="flex flex-col items-center justify-center space-y-4">
+                  <h2 className="text-[10px] uppercase tracking-[0.4em] text-red-500/50 font-bold">
+                    Danger Zone
+                  </h2>
+                  <Button
+                    variant="ghost"
+                    onClick={handleDeleteCharacter}
+                    disabled={isDeleting}
+                    className="group border border-red-900/30 hover:bg-red-950/30 hover:border-red-600 transition-all duration-300 px-8"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2 text-red-500 group-hover:text-red-400" />
+                    <span className="text-xs uppercase tracking-widest text-red-500 group-hover:text-red-400">
+                      {isDeleting ? "Deleting..." : "Delete Character"}
+                    </span>
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground/40 italic">
+                    This will remove all associated inventory, spells, and progress.
+                  </p>
+                </div>
+              </section>
+            )}
+          </TabsContent>
 
-          {/* Right: Skill Tree */}
-          <div className="lg:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <InfoTooltip text="Spend skill points to unlock new abilities. Skills are interconnected — unlocking one may open paths to deeper, more powerful abilities gained through discovery and level-ups." />
-            </div>
-            <SkillTreeViewer
-              isDev={isDev}
-              characterId={character.id}
-              unused_skill_points={character.unused_skill_points}
-              onSkillChange={async () => {
-                await refreshCharacter()
-                startTransition(() => router.refresh())
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Grimoire */}
-        <section className="mt-12 space-y-8">
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <AddSpellModal characterId={character.id} />
-              <Sword className="w-5 h-5 text-cyan-400 rotate-45 drop-shadow-[0_0_5px_rgba(34,211,238,0.6)]" />
-              <h2 className="text-sm uppercase tracking-[0.3em] text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">
-                Grimoire
-              </h2>
-              <InfoTooltip text="Spells cost Essence to cast. Some require a focus item — casting degrades that item's condition. Maintain your focus or lose access to its magic." />
-            </div>
-            <SpellTable
-              spells={spells}
-              inventory={items}
-              characterId={character.id}
-              isOwner={isOwner}
-              character={character}
-              updatePool={updatePool}
-            />
-          </div>
-        </section>
-
-        {/* All Items */}
-        <section className="mt-8">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">All Items</h2>
-              <AddItemModal characterId={character.id} type="all" />
-              <Package className="w-5 h-5 text-muted-foreground" />
-              <InfoTooltip text="Your carried inventory, tracked against your carrying capacity. Consumables are used once; other items degrade with use and can be repaired." />
-            </div>
-            <span className="text-sm text-muted-foreground">
-              Weight:{" "}
-              <span className="text-foreground font-medium">{totalWeight}</span>
-              {character.carrying_capacity && (
-                <span className="text-muted-foreground"> / {effectiveCarryCapacity}</span>
-              )}
-            </span>
-          </div>
-          <ItemTable
-            items={otherItems}
-            columns={["name", "weight", "condition", "short_description"]}
-            emptyMessage="No items in inventory"
-            onRepair={handleRepair}
-            onConsume={handleConsume}
-            onDrop={handleDrop}
-            onInspect={setInspectingItem}
-          />
-        </section>
-
-        {/* Weapons */}
-        <section className="mt-8">
-          <div className="flex items-center gap-3 mb-4">
-            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Weapons</h2>
-            <AddItemModal characterId={character.id} type="weapon" />
-            <Sword className="w-5 h-5 text-muted-foreground" />
-            <InfoTooltip text="Equipped weapons power your Attack action. Each has a damage die and modifier. All weapons degrade with use and must be repaired to stay effective." />
-          </div>
-          <ItemTable
-            items={weapons}
-            columns={["name", "damage", "weight", "condition", "short_description"]}
-            emptyMessage="No weapons equipped"
-            onRepair={handleRepair}
-            onConsume={handleConsume}
-            onDrop={handleDrop}
-            onInspect={setInspectingItem}
-          />
-        </section>
-
-        {/* Armor */}
-        <section className="mt-8">
-          <div className="flex items-center gap-3 mb-4">
-            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Armor</h2>
-            <AddItemModal characterId={character.id} type="armor" />
-            <Shield className="w-5 h-5 text-muted-foreground" />
-          </div>
-          <ItemTable
-            items={armor}
-            columns={["name", "defence", "weight", "condition", "short_description"]}
-            emptyMessage="No armor equipped"
-            onRepair={handleRepair}
-            onConsume={handleConsume}
-            onDrop={handleDrop}
-            onInspect={setInspectingItem}
-          />
-        </section>
-
-        {isOwner && (
-          <section className="mt-20 pt-8 border-t border-red-900/20">
-            <div className="flex flex-col items-center justify-center space-y-4">
-              <h2 className="text-[10px] uppercase tracking-[0.4em] text-red-500/50 font-bold">
-                Danger Zone
-              </h2>
-              <Button
-                variant="ghost"
-                onClick={handleDeleteCharacter}
-                disabled={isDeleting}
-                className="group border border-red-900/30 hover:bg-red-950/30 hover:border-red-600 transition-all duration-300 px-8"
-              >
-                <Trash2 className="w-4 h-4 mr-2 text-red-500 group-hover:text-red-400" />
-                <span className="text-xs uppercase tracking-widest text-red-500 group-hover:text-red-400">
-                  {isDeleting ? "Deleting..." : "Delete Character"}
+          {/* Tab 3: Items */}
+          <TabsContent value="items">
+            <section className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">All Items</h2>
+                  <AddItemModal characterId={character.id} type="all" />
+                  <Package className="w-5 h-5 text-muted-foreground" />
+                  <InfoTooltip text="Your carried inventory, tracked against your carrying capacity. Consumables are used once; other items degrade with use and can be repaired." />
+                </div>
+                <span className="text-sm text-muted-foreground">
+                  Weight:{" "}
+                  <span className="text-foreground font-medium">{totalWeight}</span>
+                  {character.carrying_capacity && (
+                    <span className="text-muted-foreground"> / {effectiveCarryCapacity}</span>
+                  )}
                 </span>
-              </Button>
-              <p className="text-[10px] text-muted-foreground/40 italic">
-                This will remove all associated inventory, spells, and progress.
-              </p>
-            </div>
-          </section>
-        )}
+              </div>
+              <ItemTable
+                items={otherItems}
+                columns={["name", "weight", "condition", "short_description"]}
+                emptyMessage="No items in inventory"
+                onRepair={handleRepair}
+                onConsume={handleConsume}
+                onDrop={handleDrop}
+                onInspect={setInspectingItem}
+              />
+            </section>
+
+            <section className="mb-8">
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Weapons</h2>
+                <AddItemModal characterId={character.id} type="weapon" />
+                <Sword className="w-5 h-5 text-muted-foreground" />
+                <InfoTooltip text="Equipped weapons power your Attack action. Each has a damage die and modifier. All weapons degrade with use and must be repaired to stay effective." />
+              </div>
+              <ItemTable
+                items={weapons}
+                columns={["name", "damage", "weight", "condition", "short_description"]}
+                emptyMessage="No weapons equipped"
+                onRepair={handleRepair}
+                onConsume={handleConsume}
+                onDrop={handleDrop}
+                onInspect={setInspectingItem}
+              />
+            </section>
+
+            <section>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Armor</h2>
+                <AddItemModal characterId={character.id} type="armor" />
+                <Shield className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <ItemTable
+                items={armor}
+                columns={["name", "defence", "weight", "condition", "short_description"]}
+                emptyMessage="No armor equipped"
+                onRepair={handleRepair}
+                onConsume={handleConsume}
+                onDrop={handleDrop}
+                onInspect={setInspectingItem}
+              />
+            </section>
+          </TabsContent>
+        </Tabs>
       </main>
 
       {/* Overlays */}
-      <InspectItemModal item={inspectingItem} onClose={() => setInspectingItem(null)} />
+      <ActionSkillModal
+        isOpen={actionSkillsOpen}
+        onClose={() => setActionSkillsOpen(false)}
+        skills={actionSkills}
+        characterId={character.id}
+      />
+      <InspectItemModal
+        item={inspectingItem}
+        onClose={() => setInspectingItem(null)}
+        onGiveToAlly={isOwner ? () => { setGivingItem(inspectingItem); setInspectingItem(null) } : undefined}
+      />
       {notification && (
         <NotificationOverlay notification={notification} onDismiss={() => setNotification(null)} />
       )}
@@ -1062,6 +1118,22 @@ export function CharacterDashboard({
           onAccept={handleOfferAccept}
         />
       ) : null}
+      {givingItem && (
+        <GiveToAllyModal
+          item={{
+            id: givingItem.id,
+            base_id: givingItem.base_id,
+            name: givingItem.name,
+            condition: givingItem.condition,
+          }}
+          characterId={character.id}
+          onClose={() => setGivingItem(null)}
+          onGiven={() => {
+            setGivingItem(null)
+            startTransition(() => router.refresh())
+          }}
+        />
+      )}
     </div>
   )
 }

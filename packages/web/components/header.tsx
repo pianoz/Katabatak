@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { SettingsModal } from "./settings-modal"
 import { InviteNotification, GameInvite } from "./invite-notification"
 import { CharacterForSelect } from "./character-select-modal"
+import { FriendRequest } from "@/lib/friend-logic"
 
 interface HeaderProps {
   characterPage?: boolean;
@@ -13,6 +14,7 @@ interface HeaderProps {
   handleSignOut?: () => void;
   invites?: GameInvite[];
   characters?: CharacterForSelect[];
+  friendRequests?: FriendRequest[];
 }
 
 export function Header({
@@ -23,6 +25,7 @@ export function Header({
   handleSignOut,
   invites = [],
   characters = [],
+  friendRequests = [],
 }: HeaderProps) {
   return (
     <header className="fixed inset-x-0 top-0 z-50 w-full bg-background/80 backdrop-blur-sm border-b border-border/50">
@@ -52,7 +55,12 @@ export function Header({
               />
             </div>
 
-            <InviteNotification invites={invites} characters={characters} />
+            <InviteNotification
+              invites={invites}
+              characters={characters}
+              friendRequests={friendRequests}
+              onFriendRequestResolved={() => {}}
+            />
 
             {/* Logout Button */}
             <Button

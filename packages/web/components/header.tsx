@@ -3,8 +3,8 @@ import { LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SettingsModal } from "./settings-modal"
 import { InviteNotification, GameInvite } from "./invite-notification"
-import { CharacterForSelect } from "./character-select-modal"
-import { FriendRequest } from "@/lib/friend-logic"
+import { CharacterForSelect } from "@/features/characters/components/character-select-modal"
+import { FriendRequest } from "@/lib/services/friend-service"
 
 interface HeaderProps {
   characterPage?: boolean;
@@ -31,7 +31,7 @@ export function Header({
     <header className="fixed inset-x-0 top-0 z-50 w-full bg-background/80 backdrop-blur-sm border-b border-border/50">
       <div className="w-full px-4 sm:px-6 lg:px-8 py-3 md:py-4 flex items-center justify-between">
 
-        {/* Logo / Brand Link */}
+        <link rel="icon" type="image/png" href="/katabatak-icon-small.png"/>
         <Link
           href={characterPage ? "/dashboard" : "/"}
           className="font-serif text-xl md:text-2xl tracking-wide text-foreground hover:text-foreground/80 transition-colors shrink-0"

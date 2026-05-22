@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { updateProfile } from "@/lib/services/profile-service"
 import { useRouter } from "next/navigation"
 import { Settings } from "lucide-react"
 import {
@@ -51,14 +52,11 @@ export function SettingsModal({ userId, initialProfile }: SettingsModalProps) {
     setLoading(true)
     const supabase = createClient()
 
-    const { error } = await supabase
-      .from('profiles')
-      .upsert({
-        id: userId,
-        username: formData.username,
-        full_name: formData.fullName,
-        updated_at: new Date().toISOString(),
-      })
+    const { error } = await updateProfile(supabase, userId, {
+      username: formData.username,
+      full_name: formData.fullName,
+      updated_at: new Date().toISOString(),
+    })
 
     setLoading(false)
     if (!error) {

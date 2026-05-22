@@ -1,6 +1,6 @@
 ﻿import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { CharacterCreation } from "@/components/character-creation"
+import { CharacterCreation } from "@/features/characters/components/character-creation"
 
 interface PageProps {
   searchParams: Promise<{ inviteMemberId?: string; startingLevel?: string }>

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
-import { SkillTreeEditor } from "@/components/skill-tree-editor"
+import { SkillTreeEditor } from "@/features/skills/components/skill-tree-editor"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft } from "lucide-react"
 

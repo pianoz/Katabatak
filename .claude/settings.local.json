@@ -45,7 +45,22 @@
       "Bash(xargs ls -la)",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\" -Recurse -Directory)",
       "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\" -Directory | ForEach-Object { $_.Name })",
-      "PowerShell(ls \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\supabase\\\\migrations\" | Where-Object { $_.Name -match \"^202605\" } | Sort-Object Name | Select-Object -First 10)"
+      "PowerShell(ls \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\supabase\\\\migrations\" | Where-Object { $_.Name -match \"^202605\" } | Sort-Object Name | Select-Object -First 10)",
+      "Bash(pnpm tsc *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\components\\\\\" -Recurse -File | Select-Object FullName)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\components\\\\skill-tree-viewer.tsx\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\components\\\\skill-tree-editor.tsx\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\hooks\\\\useSkillTree.ts\" -Force)",
+      "Bash(Write-Output \"Deleted old skills files\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\features\\\\characters\\\\components\\\\pools\")",
+      "Bash(Out-Null)",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\features\\\\characters\\\\components\\\\inventory\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\features\\\\characters\\\\components\\\\spells\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\features\\\\characters\\\\components\\\\actions\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\features\\\\characters\\\\components\\\\offers\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\features\\\\characters\\\\hooks\")",
+      "Bash(Write-Host \"Directories created\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\lib\\\\services\" -Filter \"*.ts\" -File)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

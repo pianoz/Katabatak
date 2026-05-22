@@ -5,6 +5,8 @@ import { X, Info, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Spell } from "@/components/types/types";
+import { getCatalogItems } from "@/lib/services/item-service";
+import { getSkillsCatalog } from "@/lib/services/skill-service";
 
 interface CreateSpellModalProps {
   isOpen: boolean;
@@ -140,22 +142,11 @@ export function CreateSpellModal({ isOpen, onClose, onSubmit }: CreateSpellModal
   const [items, setItems] = useState<ItemOption[]>([]);
   const [skills, setSkills] = useState<SkillOption[]>([]);
 
-  // Fetch item and skill catalogs once on open
   useEffect(() => {
     if (!isOpen) return;
     const supabase = createClient();
-
-    supabase
-      .from("items")
-      .select("id, name, type")
-      .order("name")
-      .then(({ data }) => { if (data) setItems(data as ItemOption[]); });
-
-    supabase
-      .from("skills")
-      .select("id, name")
-      .order("name")
-      .then(({ data }) => { if (data) setSkills(data as SkillOption[]); });
+    getCatalogItems(supabase).then((data) => setItems(data as ItemOption[]));
+    getSkillsCatalog(supabase).then((data) => setSkills(data as SkillOption[]));
   }, [isOpen]);
 
   if (!isOpen) return null;

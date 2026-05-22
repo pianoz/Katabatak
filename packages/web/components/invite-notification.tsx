@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation"
 import { Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
-import { CharacterSelectModal, CharacterForSelect } from "./character-select-modal"
+import { CharacterSelectModal, CharacterForSelect } from "@/features/characters/components/character-select-modal"
 import { FriendRequestModal } from "./friend-request-modal"
-import { acceptInvite, declineInvite } from "@/lib/invite-logic"
-import { FriendRequest } from "@/lib/friend-logic"
+import { acceptInvite, declineInvite } from "@/lib/services/invite-service"
+import { FriendRequest } from "@/lib/services/friend-service"
+import { getCharacterSkillPoints } from "@/lib/services/character-service"
 
 export interface GameInvite {
   id: string
@@ -62,15 +63,7 @@ export function InviteNotification({
     if (!selectingForInvite) return
     const supabase = createClient()
     const startingLevel = selectingForInvite.starting_level ?? 0
-
-    const { data: charData } = await supabase
-      .from("characters")
-      .select("unused_skill_points")
-      .eq("id", characterId)
-      .single()
-
-    const currentPoints = charData?.unused_skill_points ?? 0
-
+    const currentPoints = await getCharacterSkillPoints(supabase, characterId)
     await acceptInvite(supabase, selectingForInvite.id, characterId, currentPoints, startingLevel)
     setInvites((prev) => prev.filter((i) => i.id !== selectingForInvite.id))
     setSelectingForInvite(null)

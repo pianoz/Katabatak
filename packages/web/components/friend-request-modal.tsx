@@ -3,7 +3,7 @@
 import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
-import { approveFriendRequest, removeFriendRow, FriendRequest } from "@/lib/friend-logic"
+import { approveFriendRequest, removeFriendRow, FriendRequest } from "@/lib/services/friend-service"
 
 interface FriendRequestModalProps {
   request: FriendRequest

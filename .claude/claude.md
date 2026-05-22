@@ -59,7 +59,17 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-style for this project is described as follows:
+### TypeScript Guidelines
+
+- **Strict Typing:** Never use `any`. Use `unknown` and perform type narrowing.
+- **Naming:** Follow `camelCase` for variables/functions, `PascalCase` for types/interfaces.
+- **Safety:** Use optional chaining (`?.`) and nullish coalescing (`??`) extensively.
+- **Exports:** Prefer named exports over default exports for better tree-shaking and refactoring support.
+- **Formatting:** Adhere to Prettier default settings (2 spaces, trailing commas).
+- **Documentation:** Use JSDoc (`/** ... */`) for all public-facing functions and complex logic.
+
+## Project Style
+
 Design Style: "Brutalist Dark Fantasy"
 The visual language leans heavily into a gritty, atmospheric tabletop RPG or dark fantasy aesthetic (likely inspired by games like Darkest Dungeon or MÖRK BORG).
 
@@ -72,3 +82,4 @@ Cyan/Neon Blue: Used to denote magic, glowing elements, and the "Grimoire".
 Muted Grays/Crimson: Used for standard gear, mechanical elements, and the "Danger Zone".
 
 Borders over Shadows: Features heavily structured layouts built using sharp, flat borders (border border-border) and boxy, square-jawed components over smooth gradients or soft dropshadows.
+

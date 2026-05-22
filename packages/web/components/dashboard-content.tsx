@@ -5,14 +5,16 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { LogOut, Plus, Swords, Users, Wrench } from "lucide-react"
+import { LogOut, Plus, Swords, Users } from "lucide-react"
+import { DevToolsSection } from "@/features/devtools/components/devtools-section"
 import { createClient } from "@/lib/supabase/client"
+import { archiveGame, deleteGame } from "@/lib/services/game-service"
 import { Switch } from "@/components/ui/switch"
 import { SettingsModal } from "@/components/settings-modal"
 import { InviteNotification, GameInvite } from "@/components/invite-notification"
-import { CharacterForSelect } from "@/components/character-select-modal"
+import { CharacterForSelect } from "@/features/characters/components/character-select-modal"
 import { FriendsModal } from "@/components/friends-modal"
-import { FriendRequest, Friend } from "@/lib/friend-logic"
+import { FriendRequest, Friend } from "@/lib/services/friend-service"
 
 interface Game {
   id: string
@@ -178,44 +180,7 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
           <CharactersList characters={characters} />
         </div>
 
-        {/* Dev Tools Section */}
-        {devModeEnabled && (
-          <div className="mt-16 pt-8 border-t border-border">
-            <div className="flex items-center gap-3 mb-6">
-              <Wrench className="w-5 h-5 text-muted-foreground" />
-              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
-                Dev Tools
-              </h2>
-            </div>
-            <div className="flex flex-wrap gap-4">
-              <Link href="/dev/skill-tree">
-                <Button 
-                  variant="outline" 
-                  className="border-border text-foreground hover:bg-card uppercase tracking-widest text-xs"
-                >
-                  Modify Skill Tree
-                </Button>
-              </Link>
-              <Button
-                asChild
-                variant="outline"
-                className="border-border text-foreground hover:bg-card uppercase tracking-widest text-xs"
-              >
-                <Link href="/dev/items">
-                  Modify Items
-                </Link>
-              </Button>
-              <Link href="/dev/users">
-                <Button 
-                  variant="outline" 
-                  className="border-border text-foreground hover:bg-card uppercase tracking-widest text-xs"
-                >
-                  Modify Users
-                </Button>
-              </Link>
-            </div>
-          </div>
-        )}
+        {devModeEnabled && <DevToolsSection />}
       </main>
     </div>
   )
@@ -234,8 +199,7 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
   const handleArchive = async (gameId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setArchiving(true)
-    const supabase = createClient()
-    await supabase.from("games").update({ archived: true }).eq("id", gameId)
+    await archiveGame(createClient(), gameId)
     setArchiving(false)
     setConfirmingId(null)
     router.refresh()
@@ -244,8 +208,7 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
   const handleDelete = async (gameId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setDeleting(true)
-    const supabase = createClient()
-    const { error } = await supabase.from("games").delete().eq("id", gameId)
+    const { error } = await deleteGame(createClient(), gameId)
     setDeleting(false)
     if (error) {
       console.error("Delete failed:", error.message)

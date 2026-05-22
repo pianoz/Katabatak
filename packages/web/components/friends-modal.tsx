@@ -4,7 +4,8 @@ import { useState, useCallback } from "react"
 import { X, UserPlus, UserMinus, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
-import { sendFriendRequest, removeFriendRow, Friend } from "@/lib/friend-logic"
+import { sendFriendRequest, removeFriendRow, Friend } from "@/lib/services/friend-service"
+import { searchProfiles } from "@/lib/services/profile-service"
 
 interface SearchProfile {
   id: string
@@ -31,13 +32,8 @@ export function FriendsModal({ currentUserId, initialFriends, onClose }: Friends
     if (!q) return
     setSearching(true)
     const supabase = createClient()
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, username, full_name")
-      .ilike("username", `%${q}%`)
-      .neq("id", currentUserId)
-      .limit(20)
-    setResults(data ?? [])
+    const data = await searchProfiles(supabase, q, currentUserId)
+    setResults(data as SearchProfile[])
     setSearching(false)
   }, [query, currentUserId])
 

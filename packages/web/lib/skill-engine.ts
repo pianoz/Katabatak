@@ -1,24 +1,30 @@
 export type ResourcePool = 'will' | 'essence' | 'power' | 'health';
 
 export interface SkillEffect {
-  type: 'stat_modifier' | 'pool_conversion' | 'resource_gain' | 'weight_reduction' | 'utility';
+  type: 'stat_modifier' | 'grant_spell' | 'grant_item' | 'grant_active_skill' | 'reminder' | 'combat_modifier' | 'mechanic_unlock';
+  is_skeng?: boolean;
   target?: string;
-  source?: ResourcePool;
-  destination?: ResourcePool;
+  stat?: string;
   add?: number;
+  per_rank_add?: number;
   multiply?: number;
+  per_rank_multiply?: number;
   condition?: {
     weapon_type?: string;
     armor_type?: string;
     item_type?: string;
     is_combat?: boolean;
+    trigger_event?: string;
   };
   limit?: {
     amount: number;
-    period: 'day' | 'rest';
+    period: string;
   };
-  grant_spell?: string;
-  grant_item?: string;
+  grant_spell?: string[];
+  grant_item?: string[];
+  grant_active_skill?: string[];
+  reminder_text?: string;
+  mechanic_flag?: string;
 }
 
 export interface ActionContext {
@@ -80,14 +86,11 @@ function matchesCondition(effect: SkillEffect, context: ActionContext): boolean 
   return true;
 }
 
-// Scale the additive bonus linearly with rank.
-// Scale the multiplicative bonus by growing its delta: rank 1 = base, rank 2 = double delta, etc.
-function scaleEffect(
-  effect: SkillEffect,
-  rank: number,
-): { add: number; multiply: number } {
-  const add = (effect.add ?? 0) * rank;
-  const multiply = effect.multiply !== undefined ? 1 + (effect.multiply - 1) * rank : 1;
+function scaleEffect(effect: SkillEffect, rank: number): { add: number; multiply: number } {
+  const add = (effect.add ?? 0) + (effect.per_rank_add ?? 0) * rank;
+  const multiply = effect.multiply !== undefined
+    ? effect.multiply + (effect.per_rank_multiply ?? 0) * (rank - 1)
+    : 1;
   return { add, multiply };
 }
 
@@ -116,70 +119,46 @@ export function evaluateSkillEffects(
       const { add, multiply } = scaleEffect(effect, skill.current_rank);
 
       switch (effect.type) {
-        case 'stat_modifier': {
-          if (effect.target === 'damage') {
-            result.modifiers.damage.add += add;
-            result.modifiers.damage.multiply *= multiply;
-          } else if (effect.target === 'defense') {
-            result.modifiers.defense.add += add;
-            result.modifiers.defense.multiply *= multiply;
-          } else if (effect.target === 'carry_capacity') {
-            result.modifiers.carryCapacity.add += add;
-            result.modifiers.carryCapacity.multiply *= multiply;
-          }
-          break;
-        }
-
-        case 'weight_reduction': {
-          // target names the item type reduced; omitting target means all items
-          const key = effect.target ?? 'all';
-          result.modifiers.weightReduction[key] = (result.modifiers.weightReduction[key] ?? 0) + add;
-          break;
-        }
-
-        case 'pool_conversion': {
-          if (effect.source && effect.destination) {
-            // Map destination (required pool) -> source (pool actually spent)
-            result.poolOverrides.substitutedPools[effect.destination] = effect.source;
-            if (add !== 0 || multiply !== 1) {
-              result.poolOverrides.conversionRates.push({
-                from: effect.source,
-                to: effect.destination,
-                rate: multiply,
-                flat: add,
-              });
+        case 'stat_modifier':
+        case 'combat_modifier': {
+          switch (effect.stat) {
+            case 'damage':
+              result.modifiers.damage.add += add;
+              result.modifiers.damage.multiply *= multiply;
+              break;
+            case 'defense':
+              result.modifiers.defense.add += add;
+              result.modifiers.defense.multiply *= multiply;
+              break;
+            case 'carrying_capacity':
+              result.modifiers.carryCapacity.add += add;
+              result.modifiers.carryCapacity.multiply *= multiply;
+              break;
+            case 'weight': {
+              const wkey = effect.target ?? 'all';
+              result.modifiers.weightReduction[wkey] = (result.modifiers.weightReduction[wkey] ?? 0) + add;
+              break;
             }
           }
           break;
         }
 
-        case 'resource_gain': {
-          if (context.actionType === 'rest' && effect.destination) {
-            result.poolOverrides.restGains[effect.destination] =
-              (result.poolOverrides.restGains[effect.destination] ?? 0) + add;
+        case 'grant_spell':
+          if (Array.isArray(effect.grant_spell)) {
+            result.grantedMechanics.spells.push(...effect.grant_spell);
           }
           break;
-        }
 
-        case 'utility': {
-          if (effect.grant_spell) result.grantedMechanics.spells.push(effect.grant_spell);
-          if (effect.grant_item) result.grantedMechanics.items.push(effect.grant_item);
-
-          // Condition removal: target names the status condition (e.g. 'poison')
-          // limit.amount encodes remaining uses for this rest/day period
-          if (effect.target && context.conditionToRemove === effect.target) {
-            const trackerKey = `s${si}_e${ei}`;
-            const used = dailyTracker[trackerKey] ?? 0;
-            const cap = effect.limit?.amount ?? 1;
-            if (used < cap) {
-              result.grantedMechanics.allowedRemovals.push({
-                condition: effect.target,
-                remainingUses: cap - used,
-              });
-            }
+        case 'grant_item':
+          if (Array.isArray(effect.grant_item)) {
+            result.grantedMechanics.items.push(...effect.grant_item);
           }
           break;
-        }
+
+        case 'grant_active_skill':
+        case 'reminder':
+        case 'mechanic_unlock':
+          break;
       }
     }
   }

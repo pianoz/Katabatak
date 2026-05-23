@@ -64,12 +64,12 @@ export async function declineInvite(supabase: SupabaseClient, inviteId: string) 
  * Kicks a player: deletes their game_members row and marks their character not in game.
  */
 export async function kickPlayer(supabase: SupabaseClient, gameId: string, characterId: string) {
-  return Promise.all([
-    supabase.from("characters").update({ in_game: false }).eq("id", characterId),
-    supabase
-      .from("game_members")
-      .delete()
-      .eq("game_id", gameId)
-      .eq("character_id", characterId),
-  ])
+  // Update character first so the GM→character relationship still exists in game_members
+  // when the RLS USING check runs, then remove the membership.
+  await supabase.from("characters").update({ in_game: false }).eq("id", characterId)
+  return supabase
+    .from("game_members")
+    .delete()
+    .eq("game_id", gameId)
+    .eq("character_id", characterId)
 }

@@ -20,28 +20,48 @@ import type { SkillEffect } from "@/lib/skill-engine"
 const EFFECT_SKELETON = JSON.stringify(
   [
     {
-      type: "",
-      target: null,
-      source: null,
-      destination: null,
-      add: null,
-      multiply: null,
-      condition: {
-        weapon_type: null,
-        armor_type: null,
-        item_type: null,
-        is_combat: null,
+      "effect_id": "",
+      "trait": "",
+      "trigger": "",
+      "cost": {
+        "pool": "",
+        "value": null
       },
-      limit: {
-        amount: null,
-        period: null,
+      "display": {
+        "prompt_text": "",
+        "reminder_text": "",
+        "type": "",
+        "target": "",
+        "math": "",
+        "value": null,
+        "per_rank_add": null,
+        "per_rank_multiply": null
       },
-      grant_spell: null,
-      grant_item: null,
+      "actions": [
+        {
+          "type": "",
+          "target": "",
+          "math": "",
+          "value": null,
+          "per_rank_add": null,
+          "per_rank_multiply": null
+        }
+      ]
     },
-  ],
-  null,
-  2
+    {
+      "effect_id": "",
+      "trait": "",
+      "trigger": "",
+      "actions": [
+        {
+          "type": "",
+          "target": "",
+          "target_value": "",
+          "value": null
+        }
+      ]
+    }
+  ]
 )
 
 type ViewMode = "tree" | "list"

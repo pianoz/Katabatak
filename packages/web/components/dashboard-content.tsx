@@ -58,7 +58,13 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
   const router = useRouter()
   const [activeTab, setActiveTab] = useState("games")
   const [friendsOpen, setFriendsOpen] = useState(false)
-  const [devModeEnabled, setDevModeEnabled] = useState(false)
+  const [devModeEnabled, setDevModeEnabled] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('devModeEnabled') === 'true'
+  )
+  const toggleDevMode = (val: boolean) => {
+    localStorage.setItem('devModeEnabled', String(val))
+    setDevModeEnabled(val)
+  }
   const [friends, setFriends] = useState<Friend[]>(initialFriends)
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(initialFriendRequests)
 
@@ -112,7 +118,7 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
               <div className="flex items-center gap-2">
                 <Switch
                   checked={devModeEnabled}
-                  onCheckedChange={setDevModeEnabled}
+                  onCheckedChange={toggleDevMode}
                   id="dev-mode-toggle"
                 />
                 <label

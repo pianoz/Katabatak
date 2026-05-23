@@ -244,7 +244,7 @@ describe("skill-service", () => {
 
       const { data } = await admin
         .from("character_skills")
-        .select("id")
+        .select("character_id")
         .eq("character_id", aliceCharId)
         .eq("skill_id", otherSkill)
       expect(data).toHaveLength(0)
@@ -313,7 +313,7 @@ describe("skill-service", () => {
 
       const { data } = await admin
         .from("character_skills")
-        .select("id")
+        .select("character_id")
         .eq("character_id", aliceCharId)
         .eq("skill_id", skillId)
       expect(data).toHaveLength(0)
@@ -329,7 +329,7 @@ describe("skill-service", () => {
 
       const { data } = await admin
         .from("character_skills")
-        .select("id")
+        .select("character_id")
         .eq("character_id", aliceCharId)
         .eq("skill_id", skillId)
       expect(data).toHaveLength(1)

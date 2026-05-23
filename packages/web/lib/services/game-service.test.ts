@@ -73,21 +73,12 @@ describe("game-service", () => {
       expect(games.some((g: { id: string }) => g.id === sharedGameId)).toBe(true)
     })
 
-    it("active member sees games they belong to (not GM)", async () => {
+    it("member-only user does not see games they did not create", async () => {
       const games = await getDashboardGames(bob, bobId)
-      expect(games.some((g: { id: string }) => g.id === sharedGameId)).toBe(true)
+      expect(games.some((g: { id: string }) => g.id === sharedGameId)).toBe(false)
     })
 
-    it("deduplicates when user is both GM and member of the same game", async () => {
-      // Make Alice also a member of her own game
-      const membId = await seedGameMember(sharedGameId, aliceId, "active", aliceCharId)
-      const games = await getDashboardGames(alice, aliceId)
-      const hits = games.filter((g: { id: string }) => g.id === sharedGameId)
-      expect(hits).toHaveLength(1)
-      await admin.from("game_members").delete().eq("id", membId)
-    })
-
-    it("returns [] when user is in no games", async () => {
+    it("returns [] when user has created no games", async () => {
       const games = await getDashboardGames(charlie, charlieId)
       expect(games).toEqual([])
     })
@@ -124,11 +115,14 @@ describe("game-service", () => {
     })
 
     it("RLS: Bob cannot fetch Charlies invites by passing her userId", async () => {
-      const invMembId = await seedGameMember(sharedGameId, charlieId, "invited")
+      // Use a game Bob is NOT a member of so is_game_member policy doesn't expose the row
+      const privateGameId = await seedGame(aliceId, { name: "Private Game" })
+      const invMembId = await seedGameMember(privateGameId, charlieId, "invited")
       const invites = await getGameInvites(bob, charlieId)
       // RLS filters to rows where profile_id = auth.uid() (bob), so Charlie's invite won't appear
       expect(invites.some((i) => i.id === invMembId)).toBe(false)
       await admin.from("game_members").delete().eq("id", invMembId)
+      await admin.from("games").delete().eq("id", privateGameId)
     })
   })
 

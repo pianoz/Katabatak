@@ -67,7 +67,7 @@ export async function getFullCharacter(supabase: SupabaseClient, characterId: st
     .map((row) => {
       const itemDetails = Array.isArray(row.items) ? row.items[0] : row.items
       if (!itemDetails) return null
-      return { ...itemDetails, id: row.id, base_id: itemDetails.id, condition: row.condition }
+      return { ...itemDetails, id: row.id, base_id: itemDetails.id, condition: row.condition, is_equipped: (row.is_equipped as boolean) ?? false }
     })
     .filter(Boolean)
 

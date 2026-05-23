@@ -1,13 +1,19 @@
 "use client"
 
 import { useState } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { logRollEvent } from "@/lib/services/roll-service"
 
 const ghostBtnClass =
   "font-sans text-[0.65rem] tracking-widest uppercase bg-transparent border border-border text-muted-foreground px-3 py-1.5 cursor-pointer"
 
 type RollEntry = { die: number; count: number; rolls: number[]; sum: number }
 
-export function DicePanel() {
+interface DicePanelProps {
+  characterId?: string
+}
+
+export function DicePanel({ characterId }: DicePanelProps) {
   const [diceCount, setDiceCount] = useState(1)
   const [history, setHistory] = useState<RollEntry[]>([])
 
@@ -17,6 +23,16 @@ export function DicePanel() {
     const rolls = Array.from({ length: diceCount }, () => Math.floor(Math.random() * sides) + 1)
     const sum = rolls.reduce((a, b) => a + b, 0)
     setHistory((prev) => [{ die: sides, count: diceCount, rolls, sum }, ...prev].slice(0, 5))
+    if (characterId) {
+      logRollEvent(createClient(), {
+        character_id: characterId,
+        type: "check",
+        base_roll: sum,
+        modifier: 0,
+        total: sum,
+        context: { dice: `${diceCount}d${sides}`, rolls },
+      })
+    }
   }
 
   return (

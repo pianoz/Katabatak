@@ -169,7 +169,7 @@ describe("encounter-service", () => {
       }
       // Should not throw — null maxes default to current_ = 0
       await expect(
-        addCreaturesToEncounter(alice, gameId, nullCreature as never)
+        addCreaturesToEncounter(alice, gameId, [nullCreature] as never[])
       ).resolves.not.toThrow()
     })
 

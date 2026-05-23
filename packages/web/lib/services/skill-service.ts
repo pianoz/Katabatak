@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Json } from "@/components/types/supabase"
 import type { SkillEffect } from "@/lib/skill-engine"
+import { parseSkillEffects } from "@/lib/schemas/skill-effect"
 
 export interface Skill {
   id: string
@@ -12,7 +13,7 @@ export interface Skill {
   max_rank?: number | null
   min_level?: number | null
   in_development?: boolean | null
-  effects?: unknown
+  effects: SkillEffect[]
 }
 
 export interface SkillEdge {
@@ -27,7 +28,11 @@ export async function fetchSkillTree(supabase: SupabaseClient): Promise<{ skills
     supabase.from("skills").select("*").order("name"),
     supabase.from("skill_edges").select("*"),
   ])
-  return { skills: (skillsRes.data ?? []) as Skill[], edges: (edgesRes.data ?? []) as SkillEdge[] }
+  const skills: Skill[] = (skillsRes.data ?? []).map((row) => {
+    const effects = parseSkillEffects(row.effects ?? [])
+    return { ...(row as Omit<Skill, "effects">), effects }
+  })
+  return { skills, edges: (edgesRes.data ?? []) as SkillEdge[] }
 }
 
 export async function fetchCharacterSkillData(supabase: SupabaseClient, characterId: string) {

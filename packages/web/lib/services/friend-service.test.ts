@@ -264,21 +264,20 @@ describe("friend-service", () => {
     })
 
     it("heavy path: user with many friends returns all of them", async () => {
-      // Seed several friendships for Alice
-      const ids: string[] = []
-      for (let i = 0; i < 5; i++) {
-        ids.push(await seedFriendship(aliceId, i % 2 === 0 ? bobId : charlieId, "friend"))
-      }
+      // Remove any pre-existing Alice-Charlie row (may exist from sendFriendRequest tests)
+      await admin.from("friends").delete().eq("friend_1", aliceId).eq("friend_2", charlieId)
+      await admin.from("friends").delete().eq("friend_1", charlieId).eq("friend_2", aliceId)
+      const id1 = await seedFriendship(aliceId, bobId, "friend")
+      const id2 = await seedFriendship(aliceId, charlieId, "friend")
       const friends = await fetchFriends(alice, aliceId)
-      // Should contain bob and charlie (deduped by profile — rows may have dupes
-      // in seed but profile-level should include both)
       expect(friends.some((f) => f.profile_id === bobId || f.profile_id === charlieId)).toBe(true)
-      for (const id of ids) {
-        await admin.from("friends").delete().eq("id", id)
-      }
+      await admin.from("friends").delete().eq("id", id1)
+      await admin.from("friends").delete().eq("id", id2)
     })
 
     it("RLS: Bob cannot fetch Alices friend list", async () => {
+      await admin.from("friends").delete().eq("friend_1", aliceId).eq("friend_2", charlieId)
+      await admin.from("friends").delete().eq("friend_1", charlieId).eq("friend_2", aliceId)
       const rowId = await seedFriendship(aliceId, charlieId, "friend")
       const friends = await fetchFriends(bob, aliceId)
       // RLS should filter: Bob gets only his own friends, not Alice's

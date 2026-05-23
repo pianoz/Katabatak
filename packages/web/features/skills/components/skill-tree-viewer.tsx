@@ -447,7 +447,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
                             : "border-border bg-secondary/50 text-foreground hover:bg-secondary hover:border-foreground/30"}
                         `}
                         >
-                        {parent.name}{isUnlocked && ` ${toRoman(skillRanks.get(parent.id) ?? 1)}`}
+                        {parent.name}{isUnlocked && (parent.max_rank ?? 1) > 1 && ` ${toRoman(skillRanks.get(parent.id) ?? 1)}`}
                         </button>
                         {isDev && (
                         <Button
@@ -524,7 +524,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
             font-serif text-2xl mb-2 transition-colors duration-1000
             ${isUnlocked ? "text-cyan-100 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : "text-foreground"}
             `}>
-            {currentSkill.name}{isUnlocked && ` ${toRoman(skillRanks.get(currentSkill.id) ?? 1)}`}
+            {currentSkill.name}{isUnlocked && (currentSkill.max_rank ?? 1) > 1 && ` ${toRoman(skillRanks.get(currentSkill.id) ?? 1)}`}
             </h3>
 
             {showDetails ? (
@@ -686,7 +686,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
                         `}
                         >
                         {!isParentUnlocked && (<Lock className="w-3 h-3 mr-2 text-muted-foreground" strokeWidth={2.5} />  )}
-                        {child.name}{isUnlocked && ` ${toRoman(skillRanks.get(child.id) ?? 1)}`}
+                        {child.name}{isUnlocked && (child.max_rank ?? 1) > 1 && ` ${toRoman(skillRanks.get(child.id) ?? 1)}`}
                         </button>
                         {isDev && (
                         <Button
@@ -858,25 +858,24 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
 function formatEffect(e: unknown): string {
   const effect = e as SkillEffect
   switch (effect.type) {
-    case "stat_modifier": {
+    case "stat_modifier":
+    case "combat_modifier": {
       const parts: string[] = []
       if (effect.add != null) parts.push(`+${effect.add}`)
+      if (effect.per_rank_add != null) parts.push(`+${effect.per_rank_add}/rank`)
       if (effect.multiply != null && effect.multiply !== 1) parts.push(`×${effect.multiply}`)
-      return `${parts.join(", ")} ${effect.target ?? "stat"}`
+      return `${parts.join(", ")} ${effect.stat ?? effect.target ?? "stat"}`
     }
-    case "pool_conversion":
-      return `${effect.source} → ${effect.destination}${effect.multiply != null ? ` ×${effect.multiply}` : ""}${effect.add != null ? ` +${effect.add}` : ""}`
-    case "resource_gain":
-      return `on rest: +${effect.add ?? 0} ${effect.destination ?? "pool"}`
-    case "weight_reduction":
-      return `weight −${effect.add ?? 0}${effect.target ? ` (${effect.target})` : ""}`
-    case "utility": {
-      const parts: string[] = []
-      if (effect.grant_spell) parts.push(`grants spell: ${effect.grant_spell}`)
-      if (effect.grant_item) parts.push(`grants item: ${effect.grant_item}`)
-      if (effect.target) parts.push(`removes: ${effect.target}`)
-      return parts.join(", ") || "utility"
-    }
+    case "grant_spell":
+      return `grants spell${effect.grant_spell?.length ? `: ${effect.grant_spell.join(", ")}` : ""}`
+    case "grant_item":
+      return `grants item${effect.grant_item?.length ? `: ${effect.grant_item.join(", ")}` : ""}`
+    case "grant_active_skill":
+      return `grants skill${effect.grant_active_skill?.length ? `: ${effect.grant_active_skill.join(", ")}` : ""}`
+    case "reminder":
+      return `reminder: ${effect.reminder_text ?? ""}`
+    case "mechanic_unlock":
+      return `unlocks: ${effect.mechanic_flag ?? ""}`
     default:
       return (effect as { type: string }).type
   }

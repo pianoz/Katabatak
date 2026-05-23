@@ -59,10 +59,13 @@ export async function resolvePendingOffer(offerId: string, accept: boolean): Pro
         quantity: offer.quantity ?? 1,
         condition: offer.condition ?? null,
       })
-      // For peer transfers: delete the giver's inventory entry before removing the
-      // offer row (the RLS policy on character_inventory checks pending_offers).
+      // For peer transfers: delete the giver's inventory entry via SECURITY DEFINER
+      // function (direct DELETE is blocked by RLS for rows owned by other users).
       if (offer.giver_inventory_id) {
-        await supabase.from("character_inventory").delete().eq("id", offer.giver_inventory_id)
+        await supabase.rpc("delete_giver_inventory_for_offer", {
+          p_offer_id: offerId,
+          p_giver_inventory_id: offer.giver_inventory_id,
+        })
       }
       break
 

@@ -1,0 +1,62 @@
+# Katabatak — AI Development Rules
+
+## Architecture
+
+### Database Access
+- ALL Supabase queries must go through a service file in `packages/web/lib/services/*.ts`.
+- Components and hooks must never import `supabase` and call `.from()` directly.
+- Exception: one-off imperative calls inside async event handlers in hooks (e.g., a commit flush) are allowed, but should be extracted to a service if reused.
+
+### JSONB Validation
+- Any JSONB column that encodes game logic (e.g., `skills.effects`) must be parsed through a Zod schema in `packages/web/lib/schemas/`.
+- Raw casts (`as SkillEffect[]`, `as unknown`) are forbidden on JSONB reads; call the schema's parse function instead.
+- Schema files are named after the DB column they validate (e.g., `skill-effect.ts` for `skills.effects`).
+
+### State Management
+- Client-side state lives in Zustand stores inside `packages/web/features/<domain>/hooks/use-<name>-store.ts`.
+- Stores are the single source of truth for live/optimistic UI state.
+- Do not duplicate store state into `useState` in a component; derive from the store or use a selector.
+
+### Component Purity
+- Components render data; they do not compute it.
+- All stat math, skill effect evaluation, and game-rule logic belongs in `packages/web/lib/skill-engine.ts` or a service in `lib/services/`.
+- If a component is doing arithmetic beyond `+` for layout math, move the calculation out.
+
+### Sync / DB Writes
+- Optimistic updates go into the Zustand store immediately.
+- DB writes are committed via the sync hook (`use-character-sync.ts` or equivalent).
+- Always call `markCommitted()` (or equivalent) after a confirmed DB write so `isDirty` resets.
+
+---
+
+## TypeScript
+
+- Never use `any`. Use `unknown` and narrow it, or model the type properly.
+- Prefer named exports over default exports.
+- Use `?.` and `??` over manual null checks.
+- Zod `safeParse` for external/JSONB data; throw with a descriptive message if the shape is wrong.
+
+---
+
+## UI & Styling
+
+### Fonts
+- **Playfair Display** (`font-serif` / `var(--font-serif)`): character names, stat values, headings, primary data.
+- **Josefin Sans** (`font-sans` / `var(--font-sans)`): labels, metadata, uppercase tracking tags, all secondary text.
+- All new components must use one of these two. Do not introduce other typefaces.
+
+### Design Language — Brutalist Dark Fantasy
+- Dark backgrounds (`bg-background`, `bg-card`), flat borders (`border border-border`), no drop-shadows.
+- Cyan/neon (`text-cyan-400`, `border-cyan-500`) for magic, spells, and the Grimoire.
+- Muted gray and crimson for gear and danger.
+- Labels: `uppercase tracking-widest` or `tracking-[0.3em]` in `font-sans`.
+- Prefer sharp, boxy layouts. No rounded corners on primary containers.
+
+---
+
+## What to Avoid
+- Do not create abstractions for single-use code.
+- Do not add error handling for scenarios that cannot happen.
+- Do not "improve" code that is not part of the current task.
+- Do not introduce new dependencies without flagging it — check `packages/web/package.json` first.
+- Do not write migration files. Schema changes must be reviewed by the developer.

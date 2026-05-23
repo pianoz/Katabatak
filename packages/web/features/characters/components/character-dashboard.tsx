@@ -12,12 +12,13 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { createClient } from "@/lib/supabase/client"
 import {
-  updateCharacterPool as svcUpdatePool,
-  updateCharacterMoney as svcUpdateMoney,
   refreshCharacter as svcRefreshCharacter,
   updateCharacter,
   deleteCharacter,
 } from "@/lib/services/character-service"
+import { useCharacterStore } from "@/features/characters/hooks/use-character-store"
+import { useCharacterSync } from "@/features/characters/hooks/use-character-sync"
+import type { CharacterSnapshot, InventorySnapshot } from "@/lib/services/snapshot-service"
 import {
   updateInventoryItem,
   removeInventoryItem,
@@ -55,6 +56,7 @@ interface Item {
   strong_cost?: number | null
   character_id?: string | null
   condition?: number | null
+  is_equipped?: boolean
   consumable: boolean
   die_count?: number
   modifier?: number
@@ -70,6 +72,70 @@ interface Item {
 }
 
 type PoolKey = "current_essence" | "current_power" | "current_will" | "current_health"
+
+const STORE_POOL_MAP: Record<PoolKey, "health" | "essence" | "power" | "will"> = {
+  current_health: "health",
+  current_essence: "essence",
+  current_power: "power",
+  current_will: "will",
+}
+
+function buildSnapshot(char: Character, items: Item[]): CharacterSnapshot {
+  return {
+    character_id: char.id,
+    taken_at: new Date().toISOString(),
+    name: char.name,
+    class_archetype: char.class_archetype ?? null,
+    level: char.level ?? null,
+    health_max: char.health_max ?? null,
+    current_health: char.current_health ?? null,
+    essence_max: char.essence_max ?? null,
+    current_essence: char.current_essence ?? null,
+    power_max: char.power_max ?? null,
+    current_power: char.current_power ?? null,
+    will_max: char.will_max ?? null,
+    current_will: char.current_will ?? null,
+    denarius: char.denarius ?? null,
+    unused_skill_points: char.unused_skill_points ?? 0,
+    speed: char.speed ?? null,
+    height: char.height ?? null,
+    weight_kgs: char.weight_kgs ?? null,
+    carrying_capacity: char.carrying_capacity ?? null,
+    current_carry_weight: null,
+    current_location_region: char.current_location_region ?? "Tuur-Thalen",
+    current_location_polis: char.current_location_polis ?? null,
+    current_location_building: char.current_location_building ?? null,
+    current_location_local: char.current_location_local ?? null,
+    current_location_text: char.current_location_text ?? null,
+    background_primary: char.background_primary ?? null,
+    background_secondary: char.background_secondary ?? null,
+    physical_description: char.physical_description ?? null,
+    backstory: char.backstory ?? null,
+    notes: null,
+    condition_text: char.condition_text ?? null,
+    inventory: items.map((item): InventorySnapshot => ({
+      inventory_id: item.id,
+      item_id: item.base_id ?? item.id,
+      condition: item.condition ?? 100,
+      quantity: 1,
+      is_equipped: item.is_equipped ?? false,
+      custom_notes: null,
+      name: item.name,
+      type: item.type ?? null,
+      subtype: item.subtype ?? null,
+      damage: null,
+      defence: item.defence ?? 0,
+      cost_gold: 0,
+      weight: item.weight ?? 0,
+      is_magical: false,
+      consumable: item.consumable,
+      rarity: null,
+      short_description: item.short_description ?? null,
+    })),
+    skills: [],
+    spells: [],
+  }
+}
 
 type ActionType = "Attack" | "Defend" | "Cast"
 
@@ -254,12 +320,29 @@ export function CharacterDashboard({
 }: CharacterDashboardProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
-  const [devModeEnabled, setDevModeEnabled] = useState(false)
+  const [devModeEnabled, setDevModeEnabled] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('devModeEnabled') === 'true'
+  )
+  const toggleDevMode = (val: boolean) => {
+    localStorage.setItem('devModeEnabled', String(val))
+    setDevModeEnabled(val)
+  }
   const [activeTab,      setActiveTab]      = useState("actions")
 
   const [character,      setCharacter]      = useState(initialCharacter)
-  const [updating,       setUpdating]       = useState<string | null>(null)
   const [isDeleting,     setIsDeleting]     = useState(false)
+
+  // ── Store wiring ───────────────────────────────────────────────────────────
+  const storeUpdatePool    = useCharacterStore(s => s.updatePool)
+  const storeModifyStat    = useCharacterStore(s => s.modifyStat)
+  const storeLoadFromSnap  = useCharacterStore(s => s.loadFromSnapshot)
+  useCharacterSync()
+
+  // Seed the store once per character load. _committed baseline is set here.
+  useEffect(() => {
+    storeLoadFromSnap(buildSnapshot(character, items))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [character.id])
   const [lastRoll,       setLastRoll]       = useState<{ label: string; value: number } | null>(null)
   const [inspectingItem, setInspectingItem] = useState<Item | null>(null)
   const [givingItem,     setGivingItem]     = useState<Item | null>(null)
@@ -313,7 +396,11 @@ export function CharacterDashboard({
   const refreshCharacter = async () => {
     const supabase = createClient()
     const data = await svcRefreshCharacter(supabase, character.id)
-    if (data) setCharacter(data as Character)
+    if (data) {
+      const fresh = data as Character
+      setCharacter(fresh)
+      storeLoadFromSnap(buildSnapshot(fresh, items))
+    }
   }
 
   // ── Pending offers ──────────────────────────────────────────────────────────
@@ -339,21 +426,15 @@ export function CharacterDashboard({
   const updatePool = async (pool: PoolKey, delta: number) => {
     if (!isOwner) return
     const newValue = Math.max(0, (character[pool] ?? 0) + delta)
-    setUpdating(pool)
-    const supabase = createClient()
-    const { error } = await svcUpdatePool(supabase, character.id, pool, newValue)
-    if (!error) setCharacter((prev) => ({ ...prev, [pool]: newValue }))
-    setUpdating(null)
+    storeUpdatePool(STORE_POOL_MAP[pool], newValue)
+    setCharacter(prev => ({ ...prev, [pool]: newValue }))
   }
 
-  const updateMoney = async (delta: number) => {
+  const updateMoney = (delta: number) => {
     if (!isOwner) return
+    storeModifyStat("denarius", delta)
     const newValue = Math.max(0, (character.denarius ?? 0) + delta)
-    setUpdating("denarius")
-    const supabase = createClient()
-    const { error } = await svcUpdateMoney(supabase, character.id, newValue)
-    if (!error) setCharacter((prev) => ({ ...prev, denarius: newValue }))
-    setUpdating(null)
+    setCharacter(prev => ({ ...prev, denarius: newValue }))
   }
 
   const handleAction = async (actionType: ActionType, itemId: string, isStrong = false) => {
@@ -422,18 +503,25 @@ export function CharacterDashboard({
     }
   }
 
-  const handleRest = async () => {
+  const handleRest = () => {
     if (!isOwner) return
     const restFx = evaluateSkillEffects(activeSkills, { actionType: 'rest' })
     const BASE_REST = 7
-    const updates = {
-      current_health:  Math.min(character.health_max  ?? 0, (character.current_health  ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['health']  ?? 0)),
-      current_essence: Math.min(character.essence_max ?? 0, (character.current_essence ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['essence'] ?? 0)),
-      current_power:   Math.min(character.power_max   ?? 0, (character.current_power   ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['power']   ?? 0)),
-      current_will:    Math.min(character.will_max    ?? 0, (character.current_will    ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['will']    ?? 0)),
-    }
-    const { error } = await updateCharacter(createClient(), character.id, updates)
-    if (!error) setCharacter((prev) => ({ ...prev, ...updates }))
+    const newHealth  = Math.min(character.health_max  ?? 0, (character.current_health  ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['health']  ?? 0))
+    const newEssence = Math.min(character.essence_max ?? 0, (character.current_essence ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['essence'] ?? 0))
+    const newPower   = Math.min(character.power_max   ?? 0, (character.current_power   ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['power']   ?? 0))
+    const newWill    = Math.min(character.will_max    ?? 0, (character.current_will    ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['will']    ?? 0))
+    storeUpdatePool("health",  newHealth)
+    storeUpdatePool("essence", newEssence)
+    storeUpdatePool("power",   newPower)
+    storeUpdatePool("will",    newWill)
+    setCharacter(prev => ({
+      ...prev,
+      current_health:  newHealth,
+      current_essence: newEssence,
+      current_power:   newPower,
+      current_will:    newWill,
+    }))
   }
 
   const handleConsume = async (item: Item) => {
@@ -513,7 +601,7 @@ export function CharacterDashboard({
                 <Wrench className="w-3.5 h-3.5 text-muted-foreground" />
                 <Switch
                   checked={devModeEnabled}
-                  onCheckedChange={setDevModeEnabled}
+                  onCheckedChange={toggleDevMode}
                   id="dev-mode-char-toggle"
                 />
                 <label
@@ -626,7 +714,6 @@ export function CharacterDashboard({
               onIncrement={() => updatePool("current_essence", 1)}
               onDecrement={() => updatePool("current_essence", -1)}
               disabled={!isOwner}
-              loading={updating === "current_essence"}
             />
             <PoolCounter
               label={`Power (${character.power_max})`}
@@ -635,7 +722,6 @@ export function CharacterDashboard({
               onIncrement={() => updatePool("current_power", 1)}
               onDecrement={() => updatePool("current_power", -1)}
               disabled={!isOwner}
-              loading={updating === "current_power"}
             />
             <PoolCounter
               label={`Will (${character.will_max})`}
@@ -644,7 +730,6 @@ export function CharacterDashboard({
               onIncrement={() => updatePool("current_will", 1)}
               onDecrement={() => updatePool("current_will", -1)}
               disabled={!isOwner}
-              loading={updating === "current_will"}
             />
             <PoolCounter
               label={`Health (${character.health_max})`}
@@ -653,7 +738,6 @@ export function CharacterDashboard({
               onIncrement={() => updatePool("current_health", 1)}
               onDecrement={() => updatePool("current_health", -1)}
               disabled={!isOwner}
-              loading={updating === "current_health"}
             />
           </div>
         </section>
@@ -805,7 +889,7 @@ export function CharacterDashboard({
                           size="icon"
                           className="h-6 w-6 rounded-md border border-border"
                           onClick={() => updateMoney(-1)}
-                          disabled={updating === "denarius" || (character.denarius ?? 0) < 1}
+                          disabled={(character.denarius ?? 0) < 1}
                         >
                           <Minus className="w-3 h-3" />
                         </Button>
@@ -819,7 +903,6 @@ export function CharacterDashboard({
                           size="icon"
                           className="h-6 w-6 rounded-md border border-border"
                           onClick={() => updateMoney(1)}
-                          disabled={updating === "denarius"}
                         >
                           <Plus className="w-3 h-3" />
                         </Button>

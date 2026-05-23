@@ -3,7 +3,8 @@
 import { useState } from "react"
 import { Character } from "@/components/types/types"
 import { createClient } from "@/lib/supabase/client"
-import { updateCharacterPool } from "@/lib/services/character-service"
+import { useCharacterStore } from "@/features/characters/hooks/use-character-store"
+import { logRollEvent } from "@/lib/services/roll-service"
 
 interface RollEntry {
   skill: string
@@ -171,10 +172,21 @@ export function SkillCheckPanel({ character, onCharacterUpdate }: SkillCheckPane
       const field = (pending.pool === "Power" ? "current_power"
         : pending.pool === "Will" ? "current_will"
         : "current_essence") as "current_power" | "current_will" | "current_essence"
+      const storePool = pending.pool === "Power" ? "power" : pending.pool === "Will" ? "will" : "essence"
       const newVal = (character[field] ?? 0) - sacrifice
-      const { error } = await updateCharacterPool(createClient(), character.id, field, newVal)
-      if (!error) onCharacterUpdate?.({ [field]: newVal })
+      useCharacterStore.getState().updatePool(storePool as "power" | "will" | "essence", newVal)
+      onCharacterUpdate?.({ [field]: newVal })
     }
+
+    const supabase = createClient()
+    await logRollEvent(supabase, {
+      character_id: character.id,
+      type: "check",
+      base_roll: pending.die,
+      modifier: pending.base + sacrifice,
+      total,
+      context: { skill: pending.skill, pool: pending.pool, sacrifice },
+    })
 
     setPending(null)
   }

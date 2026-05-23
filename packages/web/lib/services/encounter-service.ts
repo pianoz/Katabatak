@@ -44,7 +44,8 @@ export async function removeEncounterCreature(supabase: SupabaseClient, creature
 }
 
 export async function createCreature(supabase: SupabaseClient, payload: Record<string, unknown>) {
-  return supabase.from("creatures").insert(payload).select().single()
+  const { data: { user } } = await supabase.auth.getUser()
+  return supabase.from("creatures").insert({ ...payload, created_by: user?.id }).select().single()
 }
 
 export async function getCreatures(supabase: SupabaseClient) {

@@ -60,7 +60,27 @@
       "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\features\\\\characters\\\\components\\\\offers\")",
       "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\features\\\\characters\\\\hooks\")",
       "Bash(Write-Host \"Directories created\")",
-      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\lib\\\\services\" -Filter \"*.ts\" -File)"
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\lib\\\\services\" -Filter \"*.ts\" -File)",
+      "Bash(npx vitest *)",
+      "Bash(psql \"postgresql://postgres:postgres@localhost:54322/postgres\" -c \"\\\\dt public.*\")",
+      "Bash(psql \"postgresql://postgres:postgres@localhost:54322/postgres\" -c \"\\\\dt\")",
+      "Bash(psql \"postgresql://postgres:postgres@localhost:54322/postgres\" -c \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;\")",
+      "Bash(psql \"postgresql://postgres:postgres@localhost:54322/postgres\" -c \"SELECT current_database\\(\\), version\\(\\);\")",
+      "Bash(psql \"postgresql://postgres:postgres@localhost:54322/postgres\" -c \"SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN \\('information_schema', 'pg_catalog'\\) ORDER BY table_schema, table_name;\")",
+      "Bash(supabase status *)",
+      "Bash(psql postgresql://postgres:postgres@localhost:54322/postgres -c ' *)",
+      "Bash(psql \"postgresql://postgres:postgres@localhost:54322/postgres\" -c \"SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='characters' ORDER BY ordinal_position;\")",
+      "Bash(psql \"postgresql://postgres:postgres@localhost:54322/postgres\" -f supabase/seed.sql)",
+      "Bash(psql \"postgresql://postgres:postgres@localhost:54322/postgres\" -f \"supabase/migrations/20260522175154_add_notes_to_characters.sql\")",
+      "Bash(Get-ChildItem \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\lib\\\\services\\\\\" | Select-Object Name)",
+      "Bash(node -e ' *)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\" -Force | Select-Object Name, @{N=\"Type\"; E={if \\($_.PSIsContainer\\) {\"DIR\"} else {\"FILE\"}}} | Format-Table -AutoSize)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\" -Force | Select-Object Name, @{N=\"Type\"; E={if \\($_.PSIsContainer\\) {\"DIR\"} else {\"FILE\"}}} | Format-Table -AutoSize)",
+      "Bash(grep -E '\\\\.\\(js|ts\\)$')",
+      "Bash(pnpm --filter web exec tsc --noEmit --project packages/web/tsconfig.json)",
+      "Bash(ls -la .cursorrules)",
+      "Bash(ls packages/web/app/layout.tsx)",
+      "Bash(pnpm --filter web exec tsc --noEmit)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

@@ -1,35 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 export async function getDashboardGames(supabase: SupabaseClient, userId: string) {
-  const { data: memberRows } = await supabase
-    .from("game_members")
-    .select("game_id")
-    .eq("profile_id", userId)
-    .eq("member_status", "active")
-
-  const memberGameIds = (memberRows ?? []).map((r) => r.game_id as string)
-
-  const { data: gmGames } = await supabase
+  const { data } = await supabase
     .from("games")
     .select("*")
     .eq("gm_id", userId)
     .order("created_at", { ascending: false })
-
-  const gmGameIds = new Set((gmGames ?? []).map((g) => g.id))
-  const memberOnlyIds = memberGameIds.filter((id) => !gmGameIds.has(id))
-
-  let memberGames: typeof gmGames = []
-  if (memberOnlyIds.length > 0) {
-    const { data } = await supabase
-      .from("games")
-      .select("*")
-      .in("id", memberOnlyIds)
-      .order("created_at", { ascending: false })
-    memberGames = data ?? []
-  }
-
-  return [...(gmGames ?? []), ...(memberGames ?? [])]
+  return data ?? []
 }
 
 export async function getGameInvites(supabase: SupabaseClient, userId: string) {

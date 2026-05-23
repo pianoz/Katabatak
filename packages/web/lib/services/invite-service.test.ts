@@ -196,8 +196,14 @@ describe("invite-service (RLS)", () => {
 
   describe("declineInvite", () => {
     it("invited player can decline and the row is deleted", async () => {
-      // Ensure Bob has an invite row
-      const membId = await seedGameMember(gameId, bobId, "invited")
+      // Bob's row from acceptInvite tests exists with 'invited' status — reuse it
+      const { data: existingRow } = await admin
+        .from("game_members")
+        .select("id")
+        .eq("game_id", gameId)
+        .eq("profile_id", bobId)
+        .single()
+      const membId = (existingRow as { id: string }).id
 
       await declineInvite(bob, membId)
 
@@ -227,12 +233,11 @@ describe("invite-service (RLS)", () => {
 
   describe("kickPlayer", () => {
     it("GM can kick an active player", async () => {
-      // Set Bob as active member
-      await admin
-        .from("game_members")
-        .update({ member_status: "active", character_id: bobCharId })
-        .eq("game_id", gameId)
-        .eq("profile_id", bobId)
+      // Delete any stale Bob row, then insert fresh to guarantee character_id is set
+      await admin.from("game_members").delete().eq("game_id", gameId).eq("profile_id", bobId)
+      await admin.from("game_members").insert({
+        game_id: gameId, profile_id: bobId, character_id: bobCharId, role: "player", member_status: "active",
+      })
       await admin.from("characters").update({ in_game: true }).eq("id", bobCharId)
 
       await kickPlayer(alice, gameId, bobCharId)

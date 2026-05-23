@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Interactive GM chat REPL — usage: npm run chat <character_id>
 import readline from 'readline'
 import supabase from './gm/tools/db.js'
 import { handleGMMessage } from './gm/handler.js'
+import type { CharacterRow, ConversationTurn, ToolResult } from './gm/types.js'
 
 const characterId = process.argv[2]
 if (!characterId) {
@@ -21,18 +21,18 @@ if (error || !char) {
   process.exit(1)
 }
 
-const dim = (s) => `\x1b[90m${s}\x1b[0m`
-const bold = (s) => `\x1b[1m${s}\x1b[0m`
-const cyan = (s) => `\x1b[36m${s}\x1b[0m`
-const magenta = (s) => `\x1b[35m${s}\x1b[0m`
-const yellow = (s) => `\x1b[33m${s}\x1b[0m`
-const red = (s) => `\x1b[31m${s}\x1b[0m`
+const dim = (s: string) => `\x1b[90m${s}\x1b[0m`
+const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
+const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`
+const magenta = (s: string) => `\x1b[35m${s}\x1b[0m`
+const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`
+const red = (s: string) => `\x1b[31m${s}\x1b[0m`
 
-function statLine(c) {
-  return `HP ${c.current_health}/${c.health_max}  Essence ${c.current_essence}/${c.essence_max}  Power ${c.current_power}/${c.power_max}  Will ${c.current_will}/${c.will_max}  Denarius ${c.denarius}`
+function statLine(c: CharacterRow): string {
+  return `HP ${c.current_health ?? '?'}/${c.health_max ?? '?'}  Essence ${c.current_essence ?? '?'}/${c.essence_max ?? '?'}  Power ${c.current_power ?? '?'}/${c.power_max ?? '?'}  Will ${c.current_will ?? '?'}/${c.will_max ?? '?'}  Denarius ${c.denarius ?? '?'}`
 }
 
-async function fetchStats() {
+async function fetchStats(): Promise<CharacterRow | null> {
   const { data } = await supabase.from('characters').select('*').eq('id', characterId).single()
   return data
 }
@@ -43,11 +43,11 @@ console.log(dim('─'.repeat(60)))
 console.log(dim('Commands: /stats  /quit'))
 console.log()
 
-const history = []
+const history: ConversationTurn[] = []
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 
-function ask() {
+function ask(): void {
   rl.question(`${cyan('You')} > `, async (line) => {
     const msg = line.trim()
     if (!msg) return ask()
@@ -64,18 +64,18 @@ function ask() {
       return ask()
     }
 
-    const toolCalls = []
+    const toolCalls: Array<{ name: string; input: Record<string, unknown>; result: ToolResult }> = []
 
-    let reply
+    let reply: string
     try {
       reply = await handleGMMessage({
         message: msg,
         conversationHistory: history,
-        characterContext: char,
+        characterContext: char ?? undefined,
         onToolCall: (name, input, result) => toolCalls.push({ name, input, result }),
       })
     } catch (err) {
-      console.error(red(`[Error] ${err.message}`))
+      console.error(red(`[Error] ${err instanceof Error ? err.message : String(err)}`))
       return ask()
     }
 

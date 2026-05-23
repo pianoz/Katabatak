@@ -7,10 +7,10 @@
     "build": "pnpm --filter web build",
     "start": "pnpm --filter web start",
     "lint": "pnpm --recursive lint",
-    "db:types": "supabase gen types typescript --project-id saejphxigsjpbeaakqez > packages/web/components/types/supabase.ts",
+    "db:types": "supabase gen types typescript --project-id saejphxigsjpbeaakqez > database.types.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen-types": "supabase gen types typescript --project-id saejphxigsjpbeaakqez > packages/web/components/types/supabase.ts"
+    "gen-types": "supabase gen types typescript --project-id saejphxigsjpbeaakqez > database.types.ts"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

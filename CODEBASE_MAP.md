@@ -46,6 +46,8 @@ katabatak/
 | `/game/[id]` | `app/game/[id]/page.tsx` | Active game session (combat, encounters, players) |
 | `/dev/skill-tree` | `app/dev/skill-tree/page.tsx` | Skill tree editor (dev flag required) |
 | `/dev/items` | `app/dev/items/page.tsx` | Item editor |
+| `/dev/spells` | `app/dev/spells/page.tsx` | Spell editor (dev flag required) |
+| `/dev/active-skills` | `app/dev/active-skills/page.tsx` | Active skill editor (dev flag required) |
 | `/dev/users` | `app/dev/users/page.tsx` | User management |
 | `/about` | `app/about/page.tsx` | About page |
 | `/auth/error` | `app/auth/error/page.tsx` | Auth error |
@@ -85,6 +87,8 @@ Character sheet, creation, and management.
 | `components/pools/` | `pool-counter` (essence, power, will, health) |
 | `components/offers/` | `notification-overlay` — pending item/spell/reward offers |
 | `hooks/use-pending-offers.ts` | Track and refresh pending game rewards |
+| `hooks/use-character-store.ts` | Character state management (optimistic updates) |
+| `hooks/use-character-sync.ts` | Real-time character sync with DB |
 
 #### `features/games/`
 
@@ -99,8 +103,10 @@ Game session view with combat, encounters, and GM tools.
 | `dice-panel.tsx` | Dice rolling interface |
 | `kick-player-modal.tsx` | Remove player from session |
 | `create-creature-modal.tsx`, `inspect-creature-modal.tsx` | Creature management |
-| `grant-reward-modal.tsx` | Award XP, skill points, currency, items, spells |
-| `grant-to-character-modal.tsx` | Grant items/spells to a specific character |
+| `modals/grant-reward-modal.tsx` | Award XP, skill points, currency, items, spells |
+| `modals/grant-to-character-modal.tsx` | Grant items/spells to a specific character |
+| `modals/grant-item-to-character-modal.tsx` | Grant a specific item to a character |
+| `modals/grant-spell-to-character-modal.tsx` | Grant a specific spell to a character |
 | `panels/logs-panel.tsx` | Combat log viewer |
 | `panels/settings-panel.tsx` | Game settings |
 | `panels/creatures-panel.tsx` | Active creatures/NPCs |
@@ -121,7 +127,9 @@ Game session view with combat, encounters, and GM tools.
 
 | File | Purpose |
 |------|---------|
-| `devtools-section.tsx` | Admin panel for testing, requires `is_dev` profile flag |
+| `components/devtools-section.tsx` | Admin panel for testing, requires `is_dev` profile flag |
+| `components/edit-active-skill-modal.tsx` | Edit active skill definitions (dev only) |
+| `components/edit-spell-modal.tsx` | Edit spell definitions (dev only) |
 
 ---
 
@@ -139,6 +147,8 @@ Game session view with combat, encounters, and GM tools.
 | `invite-notification.tsx` | In-app game invite toast |
 | `create-item-modal.tsx` | Item creation (dev/GM) |
 | `create-spell-modal.tsx` | Spell creation (dev/GM) |
+| `active-skill-viewer.tsx` | View active skill details and effects |
+| `effect-editor-modal.tsx` | Edit effect arrays on skills, spells, and items |
 | `narrative-excerpts.tsx` | Lore/flavor text display |
 | `theme-provider.tsx` | Dark/light theme via next-themes |
 
@@ -152,6 +162,7 @@ All database access goes through typed service functions. No raw Supabase calls 
 |---------|----------------|
 | `character-service.ts` | Character CRUD, stat updates, skill/spell/inventory operations |
 | `skill-service.ts` | Skill tree queries, unlock operations, edge management |
+| `active-skill-service.ts` | Active skill definitions — CRUD for contextual combat actions |
 | `item-service.ts` | Item CRUD, generation, trading between characters |
 | `spell-service.ts` | Spell management, granting, removal |
 | `game-service.ts` | Game session CRUD, combat turn order, player membership |
@@ -160,6 +171,8 @@ All database access goes through typed service functions. No raw Supabase calls 
 | `friend-service.ts` | Friend request → pending → accepted workflow |
 | `profile-service.ts` | User profile reads and updates |
 | `pending-offer-service.ts` | Track and apply pending item/spell/reward offers |
+| `snapshot-service.ts` | Character state snapshots for undo/history |
+| `roll-service.ts` | Dice roll events — record and replay |
 | `test-helpers.ts` | Shared mock utilities for all service tests |
 
 All services have co-located `.test.ts` files. Tests use Vitest.
@@ -170,11 +183,12 @@ All services have co-located `.test.ts` files. Tests use Vitest.
 
 | File | Purpose |
 |------|---------|
-| `lib/skill-engine.ts` | Evaluates skill effects (stat modifiers, pool conversions, resource gains). Scales by rank. Context-aware (weapon type, combat status). |
+| `lib/effect-engine.ts` | Evaluates effect arrays on skills, spells, and items. Replaces the old `skill-engine.ts`. Scales by rank, context-aware (weapon type, combat status). |
 | `lib/friend-logic.ts` | Friend request state machine |
 | `lib/invite-logic.ts` | Game join code and member status transitions |
 | `lib/pending-offers.ts` | Utilities for tracking/applying pending rewards |
 | `lib/utils.ts` | `cn()` class merging, misc helpers |
+| `lib/schemas/skill-effect.ts` | Zod schemas for the effect JSONB structure |
 
 ---
 
@@ -239,8 +253,9 @@ Claude tool use is the core pattern — the GM calls tools to read/modify game s
 | `character_action_skills` | Contextual combat action skills |
 | `skills` | Skill definitions. `max_rank`, `effects` (JSONB), `unlock_key`, `is_passive` |
 | `skill_edges` | Skill tree prerequisite graph. `parent_id → child_id` |
-| `items` | Item templates. Damage, defense, cost, weight, modifiers (JSONB) |
-| `spells` | Spell definitions. Damage, AOE, range, cast_time, cooldown |
+| `items` | Item templates. Damage, defense, cost, weight, `effects` (JSONB) |
+| `spells` | Spell definitions. Damage, AOE, range, cast_time, cooldown, `effects` (JSONB) |
+| `active_skills` | Named contextual combat actions with `effects` (JSONB) |
 | `games` | Game sessions. `gm_id`, `join_code`, combat state |
 | `game_members` | Player membership. `character_id`, `role`, `status` |
 | `creatures` | Enemy/NPC templates |
@@ -250,7 +265,8 @@ Claude tool use is the core pattern — the GM calls tools to read/modify game s
 | `npcs` | Game NPCs. Faction, personality, disposition |
 | `campaign_facts` | Session lore facts. `gm_only` flag |
 | `world_lore` | World encyclopedia. `lore_type` enum |
-| `action_skills` | Named contextual combat actions |
+| `character_snapshots` | Point-in-time character state for undo/history |
+| `roll_events` | Dice roll log per game session |
 
 ### Key Enums
 
@@ -269,6 +285,24 @@ offer_type:  item | denarius | skill_point | spell
 | `auth_user_is_game_member(game_id)` | Includes invited status |
 | `save_skill_edges_delta(removed[], added jsonb)` | Batch skill tree edge update |
 | `search_world_lore(query text)` | Full-text lore search |
+
+### Migrations
+
+| File | Purpose |
+|------|---------|
+| `20260522150053_remote_schema.sql` | Initial schema |
+| `20260522175154_add_notes_to_characters.sql` | Notes field on characters |
+| `20260522200000_fix_rls_policies.sql` | RLS policy corrections |
+| `20260522210000_fix_character_select_and_policies.sql` | Character select + policy fixes |
+| `20260522220000_add_giver_inventory_delete_fn.sql` | Helper for item trading |
+| `20260522230000_add_character_snapshots.sql` | `character_snapshots` table |
+| `20260522240000_add_roll_events.sql` | `roll_events` table |
+| `20260522250000_add_effects_to_spells_items.sql` | `effects` JSONB column on `spells` and `items` |
+| `20260523000000_add_active_skills.sql` | `active_skills` table with effects |
+| `20260523100000_fix_security_warnings.sql` | Security hardening |
+| `20260523110000_add_missing_rls_policies.sql` | Fill RLS gaps |
+| `20260523120000_grant_active_skills_to_authenticated.sql` | RLS grants for `active_skills` |
+| `20260523130000_fix_skills_rls_for_devs.sql` | Dev-role RLS bypass for skill editing |
 
 ---
 
@@ -336,10 +370,8 @@ node --env-file=.env.local packages/server/chat.js    # Interactive GM REPL
 
 ## In Progress / Planned
 
-- Skill engine integration into game mechanics
 - Body-part armor loadout system
 - Scavenge module (timed item discovery)
 - Crafting mechanic
 - Finalize skill tree node design
 - Revise item/creature/spell stat blocks
-- Skill check system (player-facing dice rolls)

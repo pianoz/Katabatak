@@ -206,6 +206,22 @@ export async function seedCreature(overrides: Record<string, unknown> = {}): Pro
   return (data as { id: string }).id
 }
 
+export async function seedActiveSkill(overrides: Record<string, unknown> = {}): Promise<string> {
+  const { data, error } = await admin
+    .from("active_skills")
+    .insert({
+      name: `Test Active Skill ${Date.now()}`,
+      description: null,
+      cooldown: null,
+      effects: [],
+      ...overrides,
+    })
+    .select()
+    .single()
+  if (error) throw new Error(`seedActiveSkill failed: ${error.message}`)
+  return (data as { id: string }).id
+}
+
 /** Convenience — unique email per test run to avoid collisions. */
 export function uniqueEmail(label: string): string {
   return `${label}+${Date.now()}@test.local`

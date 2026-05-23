@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase/client"
 import { removeInventoryItem } from "@/lib/services/item-service"
 import { Character, Spell } from "@/components/types/types"
 import { GrantToCharacterModal } from "@/features/games/modals/grant-to-character-modal"
+import type { Effect } from "@/lib/effect-engine"
+
+type SpellE = Spell & { effects?: Effect[] }
 
 /** Minimal item shape needed to check inventory. */
 interface InventoryItem {
@@ -18,7 +21,7 @@ type SpellCasterPools = Pick<Character, "current_power" | "current_will" | "curr
 type PoolKey = "current_essence"| "current_power" | "current_will" | "current_health"
 
 interface SpellTableProps {
-  spells: Spell[]
+  spells: SpellE[]
   /** The casting character's inventory — used to gate and consume required items. */
   inventory?: InventoryItem[]
   characterId?: string
@@ -62,14 +65,28 @@ function resolveRequiredItems(
   }
 }
 
-function formatCost(spell: Spell): string {
+const POOL_SUFFIX: Record<string, string> = { power: 'P', will: 'W', health: 'H', essence: 'E' }
+
+function formatCost(spell: SpellE): string {
+  const eff = spell.effects?.[0]
+  if (eff?.cost) {
+    const suffix = POOL_SUFFIX[eff.cost.pool] ?? ''
+    return `${eff.cost.value}${suffix}`
+  }
   if (!spell.cost) return "—"
-  const attr = spell.cost_attribute_name
-  const suffix = attr === "power" ? "P" : attr === "will" ? "W" : ""
+  const suffix = POOL_SUFFIX[spell.cost_attribute_name ?? ''] ?? ''
   return `${spell.cost}${suffix}`
 }
 
-function formatDamage(spell: Spell): string {
+function formatDamage(spell: SpellE): string {
+  const eff = spell.effects?.[0]
+  if (eff) {
+    const addVal = eff.actions.find(a => a.math === 'add' && a.type === 'stat_modifier')?.Value
+    const multVal = eff.actions.find(a => a.math === 'multiply' && a.type === 'stat_modifier')?.Value
+    if (addVal == null && multVal == null) return "—"
+    const coeff = multVal && multVal !== 1 ? ` x${multVal}` : ""
+    return addVal != null ? `${addVal}${coeff}` : coeff.trim() || "—"
+  }
   if (!spell.damage) return "—"
   const mod = spell.modifier
     ? spell.modifier > 0 ? `+${spell.modifier}` : `${spell.modifier}`
@@ -113,17 +130,17 @@ function RequirementBadge({ item, id }: RequirementBadgeProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface SpellRowProps {
-  spell: Spell
+  spell: SpellE
   inventory: InventoryItem[]
   isOwner: boolean
-  onCast: (spell: Spell) => Promise<void>
+  onCast: (spell: SpellE) => Promise<void>
   casting: boolean
   is_gm: boolean
-  onGrant: (spell: Spell) => void
+  onGrant: (spell: SpellE) => void
 }
 
 // Shared derived data hook — keeps both row variants in sync
-function useSpellRowData(spell: Spell, inventory: InventoryItem[], isOwner: boolean) {
+function useSpellRowData(spell: SpellE, inventory: InventoryItem[], isOwner: boolean) {
   const { resolved, allPresent } = resolveRequiredItems(spell, inventory)
   const requiredIds = [spell.req_item_1, spell.req_item_2, spell.req_item_3].filter(Boolean) as string[]
   return { resolved, requiredIds, canCast: isOwner && allPresent }
@@ -258,15 +275,22 @@ export function SpellTable({ spells, inventory = [], characterId = "", isOwner =
   const router = useRouter()
   const [castingId, setCastingId] = useState<number | null>(null)
   const [lastCast, setLastCast] = useState<{ name: string; value: number } | null>(null)
-  const [grantSpell, setGrantSpell] = useState<Spell | null>(null)
+  const [grantSpell, setGrantSpell] = useState<SpellE | null>(null)
 
-  const handleCast = async (spell: Spell) => {
+  const handleCast = async (spell: SpellE) => {
     const { allPresent, resolved } = resolveRequiredItems(spell, inventory)
     if (!allPresent) return
 
-    if (spell.cost && spell.cost_attribute_name && character) {
-      const pool = resolvePool(spell.cost_attribute_name)
-      if ((character[pool] ?? 0) < spell.cost) return
+    const eff = spell.effects?.[0]
+
+    if (character) {
+      if (eff?.cost) {
+        const poolKey = `current_${eff.cost.pool}` as PoolKey
+        if ((character[poolKey] ?? 0) < eff.cost.value) return
+      } else if (spell.cost && spell.cost_attribute_name) {
+        const pool = resolvePool(spell.cost_attribute_name)
+        if ((character[pool] ?? 0) < spell.cost) return
+      }
     }
 
     setCastingId(spell.id)
@@ -274,9 +298,15 @@ export function SpellTable({ spells, inventory = [], characterId = "", isOwner =
     try {
       const supabase = createClient()
 
-      // 1. Roll damage
-      const base = spell.damage ?? 0
-      const total = (base + (spell.modifier ?? 0)) * (spell.coefficient ?? 1)
+      // 1. Compute outcome value
+      let total: number
+      if (eff) {
+        const addVal = eff.actions.find(a => a.math === 'add' && a.type === 'stat_modifier')?.Value ?? 0
+        const multVal = eff.actions.find(a => a.math === 'multiply' && a.type === 'stat_modifier')?.Value ?? 1
+        total = addVal * multVal
+      } else {
+        total = ((spell.damage ?? 0) + (spell.modifier ?? 0)) * (spell.coefficient ?? 1)
+      }
       setLastCast({ name: spell.name ?? "", value: total })
 
       // 2. Delete each required item from character_inventory
@@ -286,9 +316,14 @@ export function SpellTable({ spells, inventory = [], characterId = "", isOwner =
       }
 
       // 3. Deduct pool cost
-      if (spell.cost && spell.cost_attribute_name && updatePool) {
-        const pool = resolvePool(spell.cost_attribute_name)
-        await updatePool(pool, -spell.cost)
+      if (updatePool) {
+        if (eff?.cost) {
+          const poolKey = `current_${eff.cost.pool}` as PoolKey
+          await updatePool(poolKey, -eff.cost.value)
+        } else if (spell.cost && spell.cost_attribute_name) {
+          const pool = resolvePool(spell.cost_attribute_name)
+          await updatePool(pool, -spell.cost)
+        }
       }
 
       router.refresh()

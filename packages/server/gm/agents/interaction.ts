@@ -1,7 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { update_stat as dbUpdateStat, restore_pools as dbRestorePools } from '../tools/character.js'
+import { update_stat, restore_pools } from '../tools/character.js'
+import type { ToolResult } from '../types.js'
 
 const client = new Anthropic()
+
+interface DifficultyResult {
+  difficulty: number
+  pool: string
+  reason: string
+}
 
 const DIFFICULTY_SYSTEM = `You are a difficulty arbiter for Katabatak, a dark fantasy tabletop RPG.
 
@@ -17,7 +24,8 @@ Pool choice should fit the action thematically:
 Respond with only a JSON object — no explanation, no markdown:
 {"difficulty":<1-20>,"pool":"<health|power|essence|will>","reason":"<one sentence>"}`
 
-export async function resolveCheckDifficulty({ action, context }) {
+export async function resolveCheckDifficulty(input: Record<string, unknown>): Promise<DifficultyResult | ToolResult> {
+  const { action, context } = input as { action: string; context: string }
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 80,
@@ -25,18 +33,18 @@ export async function resolveCheckDifficulty({ action, context }) {
     messages: [{ role: 'user', content: `Action: ${action}\nContext: ${context}` }],
   })
 
-  const text = response.content.find(b => b.type === 'text')?.text ?? ''
+  const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   try {
-    return JSON.parse(text)
+    return JSON.parse(text) as DifficultyResult
   } catch {
     return { error: 'Could not parse difficulty', raw: text }
   }
 }
 
-export async function updateStat(input) {
-  return dbUpdateStat(input)
+export async function updateStat(input: Record<string, unknown>): Promise<ToolResult> {
+  return update_stat(input)
 }
 
-export async function restorePools(input) {
-  return dbRestorePools(input)
+export async function restorePools(input: Record<string, unknown>): Promise<ToolResult> {
+  return restore_pools(input)
 }

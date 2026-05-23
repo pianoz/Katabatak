@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useSkillTree, type Skill, type SkillEdge } from "@/features/skills/hooks/use-skill-tree"
+import { EffectEditorModal } from "@/components/effect-editor-modal"
 import { Button } from "@/components/ui/button"
 import {
   Plus,
@@ -13,56 +14,10 @@ import {
   GitBranch,
   Pencil,
   X,
-  Check
+  Check,
+  Wand2,
 } from "lucide-react"
-import type { SkillEffect } from "@/lib/skill-engine"
-
-const EFFECT_SKELETON = JSON.stringify(
-  [
-    {
-      "effect_id": "",
-      "trait": "",
-      "trigger": "",
-      "cost": {
-        "pool": "",
-        "value": null
-      },
-      "display": {
-        "prompt_text": "",
-        "reminder_text": "",
-        "type": "",
-        "target": "",
-        "math": "",
-        "value": null,
-        "per_rank_add": null,
-        "per_rank_multiply": null
-      },
-      "actions": [
-        {
-          "type": "",
-          "target": "",
-          "math": "",
-          "value": null,
-          "per_rank_add": null,
-          "per_rank_multiply": null
-        }
-      ]
-    },
-    {
-      "effect_id": "",
-      "trait": "",
-      "trigger": "",
-      "actions": [
-        {
-          "type": "",
-          "target": "",
-          "target_value": "",
-          "value": null
-        }
-      ]
-    }
-  ]
-)
+import type { Effect } from "@/lib/effect-engine"
 
 type ViewMode = "tree" | "list"
 
@@ -86,50 +41,54 @@ export function SkillTreeEditor() {
     })
   }, [skills, edges, loading])
 
-  // Modal states
+  // Modal visibility
   const [showAddSkill, setShowAddSkill] = useState(false)
   const [showAddEdge, setShowAddEdge] = useState(false)
   const [showRemoveEdge, setShowRemoveEdge] = useState(false)
   const [edgeError, setEdgeError] = useState<string | null>(null)
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null)
-  const [editingEffectsJson, setEditingEffectsJson] = useState("[]")
-  const [effectsJsonError, setEffectsJsonError] = useState<string | null>(null)
 
-  // Form states
-  const [newSkill, setNewSkill] = useState({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, in_development: false, max_rank: 1, min_level: 0, effects_json: EFFECT_SKELETON, edge_parent_id: "", edge_child_id: "" })
+  // Effect editor modal — shared for both add and edit flows
+  const [effectEditorOpen, setEffectEditorOpen] = useState(false)
+  const [effectEditorTarget, setEffectEditorTarget] = useState<"new" | "edit">("new")
+
+  // New skill form
+  const [newSkill, setNewSkill] = useState({
+    name: "",
+    skill_text: "",
+    unlock_hint: "",
+    unlock_key: "",
+    is_passive: false,
+    in_development: false,
+    max_rank: 1,
+    min_level: 0,
+    effects: [] as Effect[],
+    edge_parent_id: "",
+    edge_child_id: "",
+  })
+
+  // Edge form
   const [newEdge, setNewEdge] = useState({ parent_skill_id: "", child_skill_id: "", edge_type: "unlocks" })
 
   const getParents = (skillId: string): Skill[] => {
-    const parentIds = edges.filter(e => e.child_skill_id === skillId).map(e => e.parent_skill_id)
-    return skills.filter(s => parentIds.includes(s.id))
+    const parentIds = edges.filter((e) => e.child_skill_id === skillId).map((e) => e.parent_skill_id)
+    return skills.filter((s) => parentIds.includes(s.id))
   }
 
   const getChildren = (skillId: string): Skill[] => {
-    const childIds = edges.filter(e => e.parent_skill_id === skillId).map(e => e.child_skill_id)
-    return skills.filter(s => childIds.includes(s.id))
+    const childIds = edges.filter((e) => e.parent_skill_id === skillId).map((e) => e.child_skill_id)
+    return skills.filter((s) => childIds.includes(s.id))
   }
 
   const getEdgeType = (parentId: string, childId: string): string => {
-    const edge = edges.find(e => e.parent_skill_id === parentId && e.child_skill_id === childId)
+    const edge = edges.find((e) => e.parent_skill_id === parentId && e.child_skill_id === childId)
     return edge?.edge_type || "unlocks"
   }
 
-  const navigateTo = (skill: Skill) => {
-    setCurrentSkill(skill)
-  }
+  const navigateTo = (skill: Skill) => setCurrentSkill(skill)
 
   const handleAddSkill = async () => {
     if (!newSkill.name.trim()) return
-
-    let effects: SkillEffect[] | null = null
-    const trimmed = newSkill.effects_json.trim()
-    if (trimmed && trimmed !== "[]") {
-      try {
-        const parsed = JSON.parse(trimmed)
-        if (Array.isArray(parsed)) effects = parsed
-      } catch { /* skip invalid effects */ }
-    }
-
     const { success } = await addSkill(
       {
         name: newSkill.name,
@@ -140,35 +99,19 @@ export function SkillTreeEditor() {
         in_development: newSkill.in_development,
         max_rank: newSkill.max_rank || null,
         min_level: newSkill.min_level ?? 0,
-        effects,
+        effects: newSkill.effects.length > 0 ? newSkill.effects : null,
       },
       newSkill.edge_parent_id || undefined,
       newSkill.edge_child_id || undefined
     )
-
     if (success) {
-      setNewSkill({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, in_development: false, max_rank: 1, min_level: 0, effects_json: EFFECT_SKELETON, edge_parent_id: "", edge_child_id: "" })
+      setNewSkill({ name: "", skill_text: "", unlock_hint: "", unlock_key: "", is_passive: false, in_development: false, max_rank: 1, min_level: 0, effects: [], edge_parent_id: "", edge_child_id: "" })
       setShowAddSkill(false)
     }
   }
 
   const handleUpdateSkill = async () => {
     if (!editingSkill || !editingSkill.name.trim()) return
-
-    let effects: SkillEffect[] | null = null
-    const trimmed = editingEffectsJson.trim()
-    if (trimmed && trimmed !== "[]") {
-      try {
-        const parsed = JSON.parse(trimmed)
-        if (!Array.isArray(parsed)) throw new Error()
-        effects = parsed
-      } catch {
-        setEffectsJsonError("Must be a valid JSON array")
-        return
-      }
-    }
-    setEffectsJsonError(null)
-
     const ok = await updateSkill(editingSkill.id, {
       name: editingSkill.name,
       skill_text: editingSkill.skill_text || null,
@@ -178,25 +121,20 @@ export function SkillTreeEditor() {
       in_development: editingSkill.in_development ?? false,
       max_rank: editingSkill.max_rank ?? null,
       min_level: editingSkill.min_level ?? 0,
-      effects,
+      effects: editingSkill.effects.length > 0 ? editingSkill.effects : null,
     })
-
     if (ok) setEditingSkill(null)
   }
 
   const handleOpenEditSkill = (skill: Skill) => {
     setEditingSkill(skill)
-    setEditingEffectsJson(skill.effects ? JSON.stringify(skill.effects, null, 2) : "[]")
-    setEffectsJsonError(null)
   }
 
   const handleAddEdge = async () => {
     if (!newEdge.parent_skill_id || !newEdge.child_skill_id) return
     if (newEdge.parent_skill_id === newEdge.child_skill_id) return
-
     setEdgeError(null)
     const result = await addEdge(newEdge.parent_skill_id, newEdge.child_skill_id, newEdge.edge_type)
-
     if (result.success) {
       setNewEdge({ parent_skill_id: "", child_skill_id: "", edge_type: "unlocks" })
       setShowAddEdge(false)
@@ -211,20 +149,26 @@ export function SkillTreeEditor() {
     await deleteSkill(skillId)
   }
 
-  const handleBatchSetDev = async (ids: string[], inDev: boolean) => {
-    await batchSetDev(ids, inDev)
-  }
-
-  const handleBatchDelete = async (ids: string[]) => {
-    if (!confirm(`Delete ${ids.length} skill${ids.length > 1 ? "s" : ""} and all their connections?`)) return
-    if (currentSkill && ids.includes(currentSkill.id)) setCurrentSkill(null)
-    await batchDelete(ids)
-  }
-
   const handleDeleteEdge = async (parentId: string, childId: string) => {
     const ok = await deleteEdge(parentId, childId)
     if (!ok) console.error("Delete edge failed")
   }
+
+  const openEffectEditor = (target: "new" | "edit") => {
+    setEffectEditorTarget(target)
+    setEffectEditorOpen(true)
+  }
+
+  const handleEffectEditorSave = (saved: Effect[]) => {
+    if (effectEditorTarget === "new") {
+      setNewSkill((prev) => ({ ...prev, effects: saved }))
+    } else if (editingSkill) {
+      setEditingSkill((prev) => (prev ? { ...prev, effects: saved } : prev))
+    }
+  }
+
+  const effectsForEditor =
+    effectEditorTarget === "new" ? newSkill.effects : (editingSkill?.effects ?? [])
 
   if (loading) {
     return (
@@ -249,7 +193,6 @@ export function SkillTreeEditor() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* View Mode Toggle */}
           <div className="flex border border-border">
             <button
               onClick={() => setViewMode("tree")}
@@ -323,8 +266,12 @@ export function SkillTreeEditor() {
           getParents={getParents}
           getChildren={getChildren}
           onDeleteSkill={handleDeleteSkill}
-          onBatchDelete={handleBatchDelete}
-          onBatchSetDev={handleBatchSetDev}
+          onBatchDelete={async (ids) => {
+            if (!confirm(`Delete ${ids.length} skill${ids.length > 1 ? "s" : ""} and all their connections?`)) return
+            if (currentSkill && ids.includes(currentSkill.id)) setCurrentSkill(null)
+            await batchDelete(ids)
+          }}
+          onBatchSetDev={async (ids, inDev) => { await batchSetDev(ids, inDev) }}
           onEditSkill={handleOpenEditSkill}
           onNavigate={(skill) => {
             setCurrentSkill(skill)
@@ -415,26 +362,18 @@ export function SkillTreeEditor() {
                 </div>
               </Field>
             </div>
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs uppercase tracking-widest text-muted-foreground">Effects (JSON)</label>
-                <a
-                  href="/Skill-Effects-Reference.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs uppercase tracking-widest text-cyan-400 hover:text-cyan-300 border border-cyan-800 hover:border-cyan-500 px-2 py-0.5 transition-colors"
-                >
-                  Reference
-                </a>
-              </div>
-              <textarea
-                value={newSkill.effects_json}
-                onChange={(e) => setNewSkill({ ...newSkill, effects_json: e.target.value })}
-                rows={4}
-                spellCheck={false}
-                className="w-full bg-secondary border border-border text-foreground text-xs px-3 py-2 font-mono resize-none"
-              />
-            </div>
+            <Field label="Effects">
+              <Button
+                variant="outline"
+                onClick={() => openEffectEditor("new")}
+                className="w-full border-cyan-800 text-cyan-400 hover:border-cyan-500 hover:text-cyan-300 uppercase tracking-widest text-xs justify-start gap-2"
+              >
+                <Wand2 className="w-4 h-4" />
+                {newSkill.effects.length > 0
+                  ? `${newSkill.effects.length} effect${newSkill.effects.length !== 1 ? "s" : ""} configured`
+                  : "Open Effect Editor"}
+              </Button>
+            </Field>
             <div className="border-t border-border pt-4 space-y-3">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Connect (optional)</p>
               <Field label="Parent Skill">
@@ -444,7 +383,7 @@ export function SkillTreeEditor() {
                   className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2"
                 >
                   <option value="">None</option>
-                  {skills.map(s => (
+                  {skills.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
@@ -456,7 +395,7 @@ export function SkillTreeEditor() {
                   className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2"
                 >
                   <option value="">None</option>
-                  {skills.map(s => (
+                  {skills.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
@@ -494,7 +433,7 @@ export function SkillTreeEditor() {
                 className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2"
               >
                 <option value="">Select parent...</option>
-                {skills.map(s => (
+                {skills.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
@@ -506,7 +445,7 @@ export function SkillTreeEditor() {
                 className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2"
               >
                 <option value="">Select child...</option>
-                {skills.filter(s => s.id !== newEdge.parent_skill_id).map(s => (
+                {skills.filter((s) => s.id !== newEdge.parent_skill_id).map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
@@ -632,29 +571,18 @@ export function SkillTreeEditor() {
                 </div>
               </Field>
             </div>
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs uppercase tracking-widest text-muted-foreground">Effects (JSON)</label>
-                <a
-                  href="/Skill-Effects-Reference.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs uppercase tracking-widest text-cyan-400 hover:text-cyan-300 border border-cyan-800 hover:border-cyan-500 px-2 py-0.5 transition-colors"
-                >
-                  Reference
-                </a>
-              </div>
-              <textarea
-                value={editingEffectsJson}
-                onChange={(e) => { setEditingEffectsJson(e.target.value); setEffectsJsonError(null) }}
-                rows={10}
-                spellCheck={false}
-                className={`w-full bg-secondary border text-foreground text-xs px-3 py-2 font-mono resize-y ${effectsJsonError ? "border-red-500" : "border-border"}`}
-              />
-              {effectsJsonError && (
-                <p className="text-xs text-red-400 mt-1 uppercase tracking-widest">{effectsJsonError}</p>
-              )}
-            </div>
+            <Field label="Effects">
+              <Button
+                variant="outline"
+                onClick={() => openEffectEditor("edit")}
+                className="w-full border-cyan-800 text-cyan-400 hover:border-cyan-500 hover:text-cyan-300 uppercase tracking-widest text-xs justify-start gap-2"
+              >
+                <Wand2 className="w-4 h-4" />
+                {Array.isArray(editingSkill.effects) && editingSkill.effects.length > 0
+                  ? `${editingSkill.effects.length} effect${editingSkill.effects.length !== 1 ? "s" : ""} configured`
+                  : "Open Effect Editor"}
+              </Button>
+            </Field>
             <div className="flex gap-3 pt-2">
               <Button
                 onClick={handleUpdateSkill}
@@ -674,11 +602,22 @@ export function SkillTreeEditor() {
           </div>
         </Modal>
       )}
+
+      {/* Effect Editor Modal (global, sits above all other modals) */}
+      <EffectEditorModal
+        isOpen={effectEditorOpen}
+        effects={effectsForEditor}
+        onSave={handleEffectEditorSave}
+        onClose={() => setEffectEditorOpen(false)}
+      />
     </div>
   )
 }
 
-// Remove Edge Modal Component
+// ---------------------------------------------------------------------------
+// Remove Edge Modal
+// ---------------------------------------------------------------------------
+
 function RemoveEdgeModal({
   edges,
   skills,
@@ -693,10 +632,10 @@ function RemoveEdgeModal({
   const [query, setQuery] = useState("")
   const q = query.toLowerCase()
 
-  const filtered = edges.filter(edge => {
+  const filtered = edges.filter((edge) => {
     if (!q) return true
-    const parent = skills.find(s => s.id === edge.parent_skill_id)
-    const child = skills.find(s => s.id === edge.child_skill_id)
+    const parent = skills.find((s) => s.id === edge.parent_skill_id)
+    const child = skills.find((s) => s.id === edge.child_skill_id)
     return (
       parent?.name.toLowerCase().includes(q) ||
       child?.name.toLowerCase().includes(q) ||
@@ -721,9 +660,9 @@ function RemoveEdgeModal({
         </p>
       ) : (
         <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-          {filtered.map(edge => {
-            const parent = skills.find(s => s.id === edge.parent_skill_id)
-            const child = skills.find(s => s.id === edge.child_skill_id)
+          {filtered.map((edge) => {
+            const parent = skills.find((s) => s.id === edge.parent_skill_id)
+            const child = skills.find((s) => s.id === edge.child_skill_id)
             if (!parent || !child) return null
             return (
               <div key={edge.id} className="flex items-center justify-between border border-border bg-secondary/30 px-3 py-2">
@@ -761,7 +700,10 @@ function RemoveEdgeModal({
   )
 }
 
-// Tree View Component
+// ---------------------------------------------------------------------------
+// Tree View
+// ---------------------------------------------------------------------------
+
 function TreeView({
   skills,
   edges,
@@ -808,42 +750,36 @@ function TreeView({
           <Home className="w-4 h-4 text-muted-foreground" />
           <span className="text-xs uppercase tracking-widest text-muted-foreground">Root:</span>
           <select
-            value={rootSkills.find(r => r.id === currentSkill?.id)?.id || ""}
+            value={rootSkills.find((r) => r.id === currentSkill?.id)?.id || ""}
             onChange={(e) => {
-              const root = rootSkills.find(r => r.id === e.target.value)
+              const root = rootSkills.find((r) => r.id === e.target.value)
               if (root) navigateTo(root)
             }}
             className="bg-secondary border border-border text-foreground text-sm px-2 py-1"
           >
             {rootSkills.length === 0 && <option value="">No root skills</option>}
-            {rootSkills.map(root => (
+            {rootSkills.map((root) => (
               <option key={root.id} value={root.id}>{root.name}</option>
             ))}
           </select>
         </div>
-
         <div className="h-4 w-px bg-border" />
-
-        <span className="text-xs text-muted-foreground">
-          Click a parent or child to navigate
-        </span>
+        <span className="text-xs text-muted-foreground">Click a parent or child to navigate</span>
       </div>
 
       {/* Tree Visualization */}
       <div className="p-8 space-y-8">
-        {/* Parents Section */}
+        {/* Parents */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-muted-foreground">
             <ChevronUp className="w-4 h-4" />
             <span className="text-xs uppercase tracking-[0.2em]">Parents ({parents.length})</span>
           </div>
           {parents.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic font-serif pl-6">
-              This is a root skill
-            </p>
+            <p className="text-sm text-muted-foreground italic font-serif pl-6">This is a root skill</p>
           ) : (
             <div className="flex flex-wrap gap-3 pl-6">
-              {parents.map(parent => (
+              {parents.map((parent) => (
                 <div key={parent.id} className="group flex items-center gap-1">
                   <button
                     onClick={() => navigateTo(parent)}
@@ -865,7 +801,6 @@ function TreeView({
           )}
         </div>
 
-        {/* Connecting Line */}
         {parents.length > 0 && (
           <div className="flex justify-center">
             <div className="w-px h-8 bg-border" />
@@ -876,26 +811,24 @@ function TreeView({
         {currentSkill && (
           <div className="flex justify-center">
             <div className="border-2 border-foreground bg-card px-8 py-6 text-center min-w-70 max-w-md relative group">
-              <h3 className="font-serif text-2xl text-foreground mb-1">
-                {currentSkill.name}
-              </h3>
+              <h3 className="font-serif text-2xl text-foreground mb-1">{currentSkill.name}</h3>
               <div className="flex justify-center gap-3 mb-2">
                 {currentSkill.is_passive && (
-                  <span className="text-[10px] uppercase tracking-widest text-cyan-400/70 border border-cyan-400/30 px-2 py-0.5">Passive</span>
+                  <span className="text-[10px] uppercase tracking-widest text-cyan-400/70 border border-cyan-400/30 px-2 py-0.5">
+                    Passive
+                  </span>
                 )}
                 {currentSkill.max_rank != null && currentSkill.max_rank > 1 && (
-                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground border border-border px-2 py-0.5">Rank {currentSkill.max_rank}</span>
+                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground border border-border px-2 py-0.5">
+                    Rank {currentSkill.max_rank}
+                  </span>
                 )}
               </div>
               {currentSkill.skill_text && (
-                <p className="text-sm text-muted-foreground italic mb-2">
-                  {currentSkill.skill_text}
-                </p>
+                <p className="text-sm text-muted-foreground italic mb-2">{currentSkill.skill_text}</p>
               )}
               {currentSkill.unlock_hint && (
-                <p className="text-sm text-muted-foreground italic mb-2">
-                  &quot;{currentSkill.unlock_hint}&quot;
-                </p>
+                <p className="text-sm text-muted-foreground italic mb-2">&quot;{currentSkill.unlock_hint}&quot;</p>
               )}
               {currentSkill.unlock_key && (
                 <p className="text-xs text-muted-foreground uppercase tracking-widest">
@@ -907,8 +840,6 @@ function TreeView({
                   {currentSkill.effects.length} effect{currentSkill.effects.length !== 1 ? "s" : ""}
                 </p>
               )}
-
-              {/* Edit/Delete buttons */}
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Button
                   variant="ghost"
@@ -931,27 +862,23 @@ function TreeView({
           </div>
         )}
 
-        {/* Connecting Line */}
         {children.length > 0 && (
           <div className="flex justify-center">
             <div className="w-px h-8 bg-border" />
           </div>
         )}
 
-        {/* Children Section */}
+        {/* Children */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-muted-foreground">
             <ChevronDown className="w-4 h-4" />
             <span className="text-xs uppercase tracking-[0.2em]">Children ({children.length})</span>
           </div>
-
           {children.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic font-serif pl-6">
-              No skills branch from here
-            </p>
+            <p className="text-sm text-muted-foreground italic font-serif pl-6">No skills branch from here</p>
           ) : (
             <div className="flex flex-wrap gap-3 pl-6">
-              {children.map(child => (
+              {children.map((child) => (
                 <div key={child.id} className="group flex items-center gap-1">
                   <button
                     onClick={() => navigateTo(child)}
@@ -980,7 +907,10 @@ function TreeView({
   )
 }
 
-// List View Component
+// ---------------------------------------------------------------------------
+// List View
+// ---------------------------------------------------------------------------
+
 function ListView({
   skills,
   edges,
@@ -1015,32 +945,28 @@ function ListView({
     )
   }
 
-  const sortedSkills = sortBy === "name"
-    ? skills
-    : [...skills].sort((a, b) => {
-        const aParents = getParents(a.id)
-        const bParents = getParents(b.id)
-        if (aParents.length === 0 && bParents.length === 0) return a.name.localeCompare(b.name)
-        if (aParents.length === 0) return -1
-        if (bParents.length === 0) return 1
-        return aParents[0].name.localeCompare(bParents[0].name) || a.name.localeCompare(b.name)
-      })
+  const sortedSkills =
+    sortBy === "name"
+      ? skills
+      : [...skills].sort((a, b) => {
+          const aParents = getParents(a.id)
+          const bParents = getParents(b.id)
+          if (aParents.length === 0 && bParents.length === 0) return a.name.localeCompare(b.name)
+          if (aParents.length === 0) return -1
+          if (bParents.length === 0) return 1
+          return aParents[0].name.localeCompare(bParents[0].name) || a.name.localeCompare(b.name)
+        })
 
   const allSelected = selectedIds.size === skills.length
   const someSelected = selectedIds.size > 0
 
   const toggleSelect = (id: string) => {
-    setSelectedIds(prev => {
+    setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
-  }
-
-  const toggleSelectAll = () => {
-    if (allSelected) setSelectedIds(new Set())
-    else setSelectedIds(new Set(skills.map(s => s.id)))
   }
 
   return (
@@ -1054,10 +980,7 @@ function ListView({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                onBatchSetDev(Array.from(selectedIds), false)
-                setSelectedIds(new Set())
-              }}
+              onClick={() => { onBatchSetDev(Array.from(selectedIds), false); setSelectedIds(new Set()) }}
               className="text-xs uppercase tracking-widest text-green-400 hover:text-green-300 hover:bg-green-400/10"
             >
               <Check className="w-3 h-3 mr-1" />
@@ -1066,10 +989,7 @@ function ListView({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                onBatchSetDev(Array.from(selectedIds), true)
-                setSelectedIds(new Set())
-              }}
+              onClick={() => { onBatchSetDev(Array.from(selectedIds), true); setSelectedIds(new Set()) }}
               className="text-xs uppercase tracking-widest text-orange-400 hover:text-orange-300 hover:bg-orange-400/10"
             >
               Shelve
@@ -1078,10 +998,7 @@ function ListView({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                onBatchDelete(Array.from(selectedIds))
-                setSelectedIds(new Set())
-              }}
+              onClick={() => { onBatchDelete(Array.from(selectedIds)); setSelectedIds(new Set()) }}
               className="text-xs uppercase tracking-widest text-red-400 hover:text-red-300 hover:bg-red-400/10"
             >
               <Trash2 className="w-3 h-3 mr-1" />
@@ -1092,13 +1009,12 @@ function ListView({
       )}
 
       <div className="border border-border bg-card">
-        {/* Table Header */}
         <div className="border-b border-border px-4 py-3 grid grid-cols-12 gap-4 text-xs uppercase tracking-widest text-muted-foreground">
           <div className="col-span-1 flex items-center">
             <input
               type="checkbox"
               checked={allSelected}
-              onChange={toggleSelectAll}
+              onChange={() => setSelectedIds(allSelected ? new Set() : new Set(skills.map((s) => s.id)))}
               className="w-3.5 h-3.5 accent-cyan-500"
             />
           </div>
@@ -1107,23 +1023,19 @@ function ListView({
           <div className="col-span-1">FX</div>
           <div className="col-span-2">
             <button
-              onClick={() => setSortBy(s => s === "parents" ? "name" : "parents")}
+              onClick={() => setSortBy((s) => (s === "parents" ? "name" : "parents"))}
               className={`flex items-center gap-1 hover:text-foreground transition-colors ${sortBy === "parents" ? "text-foreground" : ""}`}
             >
               Parents
-              {sortBy === "parents"
-                ? <ChevronUp className="w-3 h-3" />
-                : <ChevronDown className="w-3 h-3 opacity-30" />
-              }
+              {sortBy === "parents" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3 opacity-30" />}
             </button>
           </div>
           <div className="col-span-2">Children</div>
           <div className="col-span-1">Actions</div>
         </div>
 
-        {/* Table Body */}
         <div className="divide-y divide-border">
-          {sortedSkills.map(skill => {
+          {sortedSkills.map((skill) => {
             const parents = getParents(skill.id)
             const children = getChildren(skill.id)
             const isSelected = selectedIds.has(skill.id)
@@ -1149,29 +1061,26 @@ function ListView({
                     {skill.name}
                   </button>
                   {skill.in_development && (
-                    <span className="text-[9px] uppercase tracking-widest text-orange-400/70 border border-orange-400/30 px-1 py-0.5 shrink-0">Dev</span>
+                    <span className="text-[9px] uppercase tracking-widest text-orange-400/70 border border-orange-400/30 px-1 py-0.5 shrink-0">
+                      Dev
+                    </span>
                   )}
                 </div>
                 <div className="col-span-3 text-sm text-muted-foreground truncate">
                   {skill.unlock_hint || "—"}
                 </div>
                 <div className="col-span-1 text-xs text-muted-foreground">
-                  {Array.isArray(skill.effects) && skill.effects.length > 0
-                    ? <span className="text-cyan-400/60">{skill.effects.length}</span>
-                    : "—"
-                  }
+                  {Array.isArray(skill.effects) && skill.effects.length > 0 ? (
+                    <span className="text-cyan-400/60">{skill.effects.length}</span>
+                  ) : (
+                    "—"
+                  )}
                 </div>
                 <div className="col-span-2 text-xs text-muted-foreground">
-                  {parents.length === 0
-                    ? <span className="italic">Root</span>
-                    : parents.map(p => p.name).join(", ")
-                  }
+                  {parents.length === 0 ? <span className="italic">Root</span> : parents.map((p) => p.name).join(", ")}
                 </div>
                 <div className="col-span-2 text-xs text-muted-foreground">
-                  {children.length === 0
-                    ? <span className="italic">Leaf</span>
-                    : children.map(c => c.name).join(", ")
-                  }
+                  {children.length === 0 ? <span className="italic">Leaf</span> : children.map((c) => c.name).join(", ")}
                 </div>
                 <div className="col-span-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button
@@ -1200,8 +1109,19 @@ function ListView({
   )
 }
 
-// Reusable Modal Component
-function Modal({ children, onClose, className }: { children: React.ReactNode; onClose: () => void; className?: string }) {
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function Modal({
+  children,
+  onClose,
+  className,
+}: {
+  children: React.ReactNode
+  onClose: () => void
+  className?: string
+}) {
   return (
     <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-50">
       <div className={`border border-border bg-card p-6 w-full max-w-md relative ${className ?? ""}`}>
@@ -1219,7 +1139,6 @@ function Modal({ children, onClose, className }: { children: React.ReactNode; on
   )
 }
 
-// Reusable Field Component
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>

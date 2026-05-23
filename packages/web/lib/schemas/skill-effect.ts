@@ -1,38 +1,36 @@
 import { z } from "zod"
-import type { SkillEffect } from "@/lib/skill-engine"
+import type { Effect } from "@/lib/effect-engine"
 
-const SkillEffectSchema = z.object({
-  type: z.enum(["stat_modifier", "grant_spell", "grant_item", "grant_active_skill", "reminder", "combat_modifier", "mechanic_unlock"]),
-  is_skeng: z.boolean().optional(),
-  target: z.string().optional(),
-  stat: z.string().optional(),
-  add: z.number().optional(),
-  per_rank_add: z.number().optional(),
-  multiply: z.number().optional(),
-  per_rank_multiply: z.number().optional(),
-  condition: z.object({
-    weapon_type: z.string().optional(),
-    armor_type: z.string().optional(),
-    item_type: z.string().optional(),
-    is_combat: z.boolean().optional(),
-    trigger_event: z.string().optional(),
-  }).optional(),
-  limit: z.object({
-    amount: z.number(),
-    period: z.string(),
-  }).optional(),
-  grant_spell: z.array(z.string()).optional(),
-  grant_item: z.array(z.string()).optional(),
-  grant_active_skill: z.array(z.string()).optional(),
-  reminder_text: z.string().optional(),
-  mechanic_flag: z.string().optional(),
+const EffectActionSchema = z.object({
+  type: z.enum(["stat_modifier", "weight_negation", "grant_spell", "grant_item", "grant_active_skill", "rest_modifier"]),
+  target: z.string(),
+  math: z.enum(["add", "multiply"]),
+  Value: z.number(),
+  per_rank_add: z.number().nullable(),
+  per_rank_multiply: z.number().nullable(),
+  target_value: z.string().nullable().optional(),
 })
 
-export const SkillEffectsSchema = z.array(SkillEffectSchema)
+const EffectSchema = z.object({
+  effect_id: z.string(),
+  trait: z.enum(["none", "pure_narrative", "partial_narrative", "passive", "skeng", "one_time"]),
+  trigger: z.enum(["activated", "passive", "reactive"]),
+  cost: z.object({
+    pool: z.enum(["essence", "power", "will", "health"]),
+    value: z.number(),
+  }).nullable(),
+  display: z.object({
+    prompt_text: z.string(),
+    reminder_text: z.string(),
+  }).nullable(),
+  actions: z.array(EffectActionSchema),
+})
 
-export function parseSkillEffects(data: unknown): SkillEffect[] {
+export const EffectsSchema = z.array(EffectSchema)
+
+export function parseEffects(data: unknown): Effect[] {
   if (!Array.isArray(data) || data.length === 0) return []
-  const result = SkillEffectsSchema.safeParse(data)
+  const result = EffectsSchema.safeParse(data)
   if (!result.success) return []
-  return result.data as SkillEffect[]
+  return result.data as Effect[]
 }

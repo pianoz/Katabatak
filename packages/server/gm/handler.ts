@@ -1,9 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { tools, executeTool } from './tools/index.js'
+import type { GMMessageInput, CharacterContext } from './types.js'
 
 const client = new Anthropic()
 
-function logAPICall(label, system, messages, toolNames) {
+function logAPICall(
+  label: string,
+  system: string,
+  messages: Anthropic.Messages.MessageParam[],
+  toolNames: string[],
+): void {
   console.log(`\n${'─'.repeat(60)}`)
   console.log(`[GM API] ${label}`)
   console.log('─'.repeat(60))
@@ -20,16 +26,17 @@ function logAPICall(label, system, messages, toolNames) {
   console.log('─'.repeat(60))
 }
 
-function logAPIResponse(label, response) {
+function logAPIResponse(label: string, response: Anthropic.Messages.Message): void {
   console.log(`\n[GM RESPONSE] ${label} — stop_reason: ${response.stop_reason}`)
   for (const block of response.content) {
-    if (block.type === 'text') console.log(`  [TEXT]: ${block.text.slice(0, 200)}${block.text.length > 200 ? '…' : ''}`)
+    if (block.type === 'text')
+      console.log(`  [TEXT]: ${block.text.slice(0, 200)}${block.text.length > 200 ? '…' : ''}`)
     if (block.type === 'tool_use') console.log(`  [TOOL_USE]: ${block.name}`, block.input)
   }
   console.log('─'.repeat(60))
 }
 
-function logToolResult(name, result) {
+function logToolResult(name: string, result: Record<string, unknown>): void {
   console.log(`\n[TOOL RESULT] ${name}`)
   if (result.error) {
     console.log(`  ERROR: ${result.error}`)
@@ -41,10 +48,15 @@ function logToolResult(name, result) {
   console.log('─'.repeat(60))
 }
 
-export async function handleGMMessage({ message, conversationHistory = [], characterContext = {}, onToolCall }) {
+export async function handleGMMessage({
+  message,
+  conversationHistory = [],
+  characterContext = {},
+  onToolCall,
+}: GMMessageInput): Promise<string> {
   const system = buildSystemPrompt(characterContext)
   const messages = buildMessages(conversationHistory, message)
-  const toolNames = tools.map(t => t.name)
+  const toolNames = tools.map((t) => t.name)
 
   logAPICall('Initial request', system, messages, toolNames)
   let response = await client.messages.create({
@@ -56,23 +68,28 @@ export async function handleGMMessage({ message, conversationHistory = [], chara
   })
   logAPIResponse('Initial response', response)
 
-  // Tool use loop — Claude may call multiple tools before producing narrative
   let toolRound = 0
   while (response.stop_reason === 'tool_use') {
     toolRound++
-    const toolUseBlocks = response.content.filter(b => b.type === 'tool_use')
+    const toolUseBlocks = response.content.filter(
+      (b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use',
+    )
 
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block) => {
-        const result = await executeTool(block.name, block.input, characterContext.id)
+        const result = await executeTool(
+          block.name,
+          block.input as Record<string, unknown>,
+          characterContext.id,
+        )
         logToolResult(block.name, result)
-        onToolCall?.(block.name, block.input, result)
+        onToolCall?.(block.name, block.input as Record<string, unknown>, result)
         return {
-          type: 'tool_result',
+          type: 'tool_result' as const,
           tool_use_id: block.id,
           content: JSON.stringify(result),
         }
-      })
+      }),
     )
 
     messages.push({ role: 'assistant', content: response.content })
@@ -89,21 +106,24 @@ export async function handleGMMessage({ message, conversationHistory = [], chara
     logAPIResponse(`Tool round ${toolRound} response`, response)
   }
 
-  const textBlock = response.content.find(b => b.type === 'text')
-  return textBlock?.text ?? ''
+  const textBlock = response.content.find((b) => b.type === 'text')
+  return textBlock?.type === 'text' ? textBlock.text : ''
 }
 
-function buildMessages(history, message) {
-  const mapped = history.map(msg => ({
-    role: msg.role === 'player' ? 'user' : 'assistant',
+function buildMessages(
+  history: GMMessageInput['conversationHistory'],
+  message: string,
+): Anthropic.Messages.MessageParam[] {
+  const mapped = (history ?? []).map((msg) => ({
+    role: msg.role === 'player' ? ('user' as const) : ('assistant' as const),
     content: msg.content,
   }))
-  return [...mapped, { role: 'user', content: message }]
+  return [...mapped, { role: 'user' as const, content: message }]
 }
 
-const DEBUG_MODE = false // set true to echo raw character data instead of running as GM
+const DEBUG_MODE = false
 
-function buildSystemPrompt(character) {
+function buildSystemPrompt(character: CharacterContext): string {
   if (DEBUG_MODE) {
     return `You are a debug breakpoint. Return all character info passed to you verbatim.`
   }
@@ -139,6 +159,7 @@ resolve_difficulty
 get_npc_response
   npc_name, personality, situation, player_input.
   Weave the returned dialogue into your narration — do not quote it as a block.`
+
   if (character?.name) {
     prompt += `\n\nPlayer Character:
 - Name: ${character.name}

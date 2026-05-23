@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ChevronUp, ChevronDown, Plus, Home, Pencil, Trash2, Lock } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { StatIncreaseModal } from "@/features/characters/components/attribute-increase-popup"
-import type { SkillEffect } from "@/lib/skill-engine"
+import type { Effect } from "@/lib/effect-engine"
 import {
   fetchSkillTree,
   fetchCharacterSkillData,
@@ -146,7 +146,7 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
   const handleAddSkill = async () => {
     if (!newSkill.name.trim()) return
 
-    let effects: SkillEffect[] | null = null
+    let effects: Effect[] | null = null
     const trimmed = newSkill.effects_json.trim()
     if (trimmed && trimmed !== "[]") {
       try {
@@ -856,29 +856,20 @@ export function SkillTreeViewer({ isDev = false, initialSkillId, characterId, un
 }
 
 function formatEffect(e: unknown): string {
-  const effect = e as SkillEffect
-  switch (effect.type) {
-    case "stat_modifier":
-    case "combat_modifier": {
-      const parts: string[] = []
-      if (effect.add != null) parts.push(`+${effect.add}`)
-      if (effect.per_rank_add != null) parts.push(`+${effect.per_rank_add}/rank`)
-      if (effect.multiply != null && effect.multiply !== 1) parts.push(`×${effect.multiply}`)
-      return `${parts.join(", ")} ${effect.stat ?? effect.target ?? "stat"}`
+  const effect = e as Effect
+  const actionParts = effect.actions.map(a => {
+    if (a.type === 'stat_modifier') {
+      const val = a.math === 'add' ? `+${a.Value}` : `×${a.Value}`
+      const scale = a.per_rank_add != null ? `/+${a.per_rank_add}` : a.per_rank_multiply != null ? `/×${a.per_rank_multiply}` : ''
+      return `${val}${scale} ${a.target}`
     }
-    case "grant_spell":
-      return `grants spell${effect.grant_spell?.length ? `: ${effect.grant_spell.join(", ")}` : ""}`
-    case "grant_item":
-      return `grants item${effect.grant_item?.length ? `: ${effect.grant_item.join(", ")}` : ""}`
-    case "grant_active_skill":
-      return `grants skill${effect.grant_active_skill?.length ? `: ${effect.grant_active_skill.join(", ")}` : ""}`
-    case "reminder":
-      return `reminder: ${effect.reminder_text ?? ""}`
-    case "mechanic_unlock":
-      return `unlocks: ${effect.mechanic_flag ?? ""}`
-    default:
-      return (effect as { type: string }).type
-  }
+    if (a.type === 'weight_negation') return `negate weight: ${a.target_value ?? a.target}`
+    if (a.type === 'grant_spell') return `grants spell: ${a.target}`
+    if (a.type === 'grant_item') return `grants item: ${a.target}`
+    return a.type
+  })
+  const summary = actionParts.length > 0 ? actionParts.join(', ') : (effect.display?.reminder_text ?? '')
+  return `[${effect.trait}] ${summary || effect.effect_id}`
 }
 
 type NewSkillState = { name: string; skill_text: string; unlock_hint: string; unlock_key: string; is_passive: boolean; max_rank: number; effects_json: string }

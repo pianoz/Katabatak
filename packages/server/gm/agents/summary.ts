@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { ConversationTurn } from '../types.js'
 
 const client = new Anthropic()
 
@@ -14,13 +15,19 @@ Rules:
 - Never include meta-game details (dice rolls, difficulty numbers, tool calls) — describe outcomes only
 - Do not speculate about what comes next — only record what has happened`
 
-export async function summarizeHistory({ history, existingSummary }) {
+export async function summarizeHistory({
+  history,
+  existingSummary,
+}: {
+  history: ConversationTurn[]
+  existingSummary: string | null
+}): Promise<string> {
   const priorBlock = existingSummary
     ? `PRIOR SUMMARY:\n${existingSummary}\n\nNEW TURNS TO INCORPORATE:\n`
     : `TURNS TO SUMMARIZE:\n`
 
   const turns = history
-    .map(msg => `[${msg.role === 'player' ? 'PLAYER' : 'GM'}]: ${msg.content}`)
+    .map((msg) => `[${msg.role === 'player' ? 'PLAYER' : 'GM'}]: ${msg.content}`)
     .join('\n\n')
 
   const response = await client.messages.create({
@@ -30,5 +37,5 @@ export async function summarizeHistory({ history, existingSummary }) {
     messages: [{ role: 'user', content: priorBlock + turns }],
   })
 
-  return response.content.find(b => b.type === 'text')?.text ?? ''
+  return response.content.find((b) => b.type === 'text')?.text ?? ''
 }

@@ -35,7 +35,7 @@ import { ActionCard } from "@/features/characters/components/actions/action-card
 import { SpellTable } from "@/features/characters/components/spells/spell-section"
 import VirtualGMComponent from "@/components/virtual-gm-component"
 import { Character, Spell } from "@/components/types/types"
-import { evaluateSkillEffects, type SkillEffect, type ActionContext } from "@/lib/skill-engine"
+import { evaluateEffects, type Effect } from "@/lib/effect-engine"
 import { SkillCheckPanel } from "@/features/characters/components/actions/skill-check-panel"
 import { ActionSkillModal, type ActionSkill } from "@/features/characters/components/actions/action-skill-modal"
 import { PoolCounter } from "@/features/characters/components/pools/pool-counter"
@@ -302,7 +302,7 @@ interface CharacterDashboardProps {
   items: Item[]
   spells: Spell[]
   isOwner: boolean
-  activeSkills: Array<{ effects: SkillEffect[]; current_rank: number }>
+  activeSkills: Array<{ effects: Effect[]; current_rank: number }>
   isDev: boolean
   level: number
   actionSkills: ActionSkill[]
@@ -364,28 +364,18 @@ export function CharacterDashboard({
   const [selectedDefendId, setSelectedDefendId] = usePersistedSelection(`action_defend_${character.id}`, defendItems)
   const [selectedCastId,   setSelectedCastId]   = usePersistedSelection(`action_cast_${character.id}`,   castItems)
 
-  // ── Skill engine ──────────────────────────────────────────────────────────
-  const invFx = evaluateSkillEffects(activeSkills, { actionType: 'inventory_check' })
+  // ── Effect engine ──────────────────────────────────────────────────────────
+  const skillFx = evaluateEffects(activeSkills)
   const effectiveWeight = (item: Item) => {
-    const typeReduction = invFx.modifiers.weightReduction[item.type] ?? 0
-    const allReduction   = invFx.modifiers.weightReduction['all']    ?? 0
-    return Math.max(0, (item.weight ?? 0) - typeReduction - allReduction)
+    if (item.subtype && skillFx.weightNegations.includes(item.subtype)) return 0
+    return item.weight ?? 0
   }
   const totalWeight = items.reduce((sum, item) => sum + effectiveWeight(item), 0)
   const effectiveCarryCapacity = Math.round(
-    ((character.carrying_capacity ?? 0) + invFx.modifiers.carryCapacity.add)
-    * invFx.modifiers.carryCapacity.multiply
+    (character.carrying_capacity ?? 0) + (skillFx.statModifiers['carry_weight']?.add ?? 0)
   )
-  const effectiveAttackItems = attackItems.map(item => {
-    if (item.id !== selectedAttackId) return item
-    const fx = evaluateSkillEffects(activeSkills, { actionType: 'attack', weaponType: item.subtype ?? undefined, isCombat: true })
-    return { ...item, modifier: (item.modifier ?? 0) + fx.modifiers.damage.add, coefficient: (item.coefficient ?? 1) * fx.modifiers.damage.multiply }
-  })
-  const effectiveDefendItems = defendItems.map(item => {
-    if (item.id !== selectedDefendId) return item
-    const fx = evaluateSkillEffects(activeSkills, { actionType: 'defense', armorType: item.subtype ?? undefined, isCombat: true })
-    return { ...item, modifier: (item.modifier ?? 0) + fx.modifiers.defense.add, coefficient: (item.coefficient ?? 1) * fx.modifiers.defense.multiply }
-  })
+  const effectiveAttackItems = attackItems
+  const effectiveDefendItems = defendItems
 
   // ── Skill Tree Updates───────────────────────────────────────────────────────
 
@@ -443,12 +433,6 @@ export function CharacterDashboard({
 
     const supabase = createClient()
 
-    const fxContext: ActionContext = actionType === "Defend"
-      ? { actionType: 'defense', armorType: item.subtype ?? undefined, isCombat: true }
-      : { actionType: 'attack', weaponType: item.subtype ?? undefined, isCombat: true }
-    const fx = evaluateSkillEffects(activeSkills, fxContext)
-    const skillMod = actionType === "Defend" ? fx.modifiers.defense : fx.modifiers.damage
-
     let baseValue: number
     if (actionType === "Defend") {
       baseValue = isStrong ? (item.strong_defence ?? item.defence ?? 0) : (item.defence ?? 0)
@@ -457,7 +441,7 @@ export function CharacterDashboard({
       baseValue = rollDice(item.die_count ?? 0, dieFace)
     }
 
-    const total = ((baseValue + (item.modifier ?? 0) + skillMod.add) * (item.coefficient ?? 1)) * skillMod.multiply
+    const total = (baseValue + (item.modifier ?? 0)) * (item.coefficient ?? 1)
     setLastRoll({ label: `${actionType}ed for`, value: total })
 
     if (actionType === "Attack" || actionType === "Cast") {
@@ -505,12 +489,13 @@ export function CharacterDashboard({
 
   const handleRest = () => {
     if (!isOwner) return
-    const restFx = evaluateSkillEffects(activeSkills, { actionType: 'rest' })
     const BASE_REST = 7
-    const newHealth  = Math.min(character.health_max  ?? 0, (character.current_health  ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['health']  ?? 0))
-    const newEssence = Math.min(character.essence_max ?? 0, (character.current_essence ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['essence'] ?? 0))
-    const newPower   = Math.min(character.power_max   ?? 0, (character.current_power   ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['power']   ?? 0))
-    const newWill    = Math.min(character.will_max    ?? 0, (character.current_will    ?? 0) + BASE_REST + (restFx.poolOverrides.restGains['will']    ?? 0))
+    const restAdd = (pool: string) => skillFx.restModifiers[pool]?.add ?? 0
+    const restMul = (pool: string) => skillFx.restModifiers[pool]?.multiply ?? 1
+    const newHealth  = Math.min(character.health_max  ?? 0, ((character.current_health  ?? 0) + BASE_REST + restAdd('health'))  * restMul('health'))
+    const newEssence = Math.min(character.essence_max ?? 0, ((character.current_essence ?? 0) + BASE_REST + restAdd('essence')) * restMul('essence'))
+    const newPower   = Math.min(character.power_max   ?? 0, ((character.current_power   ?? 0) + BASE_REST + restAdd('power'))   * restMul('power'))
+    const newWill    = Math.min(character.will_max    ?? 0, ((character.current_will    ?? 0) + BASE_REST + restAdd('will'))    * restMul('will'))
     storeUpdatePool("health",  newHealth)
     storeUpdatePool("essence", newEssence)
     storeUpdatePool("power",   newPower)

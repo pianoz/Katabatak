@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { ChevronLeft, ShieldCheck, ShieldOff, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
+import { setUserDevStatus } from "@/lib/services/admin-service"
 
 interface Profile {
   id: string
@@ -60,8 +61,8 @@ export default function DevUsersPage() {
   async function handleSetDev(userId: string, value: boolean) {
     setWorking(userId)
     const supabase = createClient()
-    await supabase.from("profiles").update({ is_dev: value }).eq("id", userId)
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_dev: value } : u))
+    const { success } = await setUserDevStatus(supabase, userId, value)
+    if (success) setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_dev: value } : u))
     setWorking(null)
   }
 

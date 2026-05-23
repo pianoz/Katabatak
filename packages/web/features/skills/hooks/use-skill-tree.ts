@@ -13,7 +13,7 @@ import {
   type Skill,
   type SkillEdge,
 } from "@/lib/services/skill-service"
-import type { SkillEffect } from "@/lib/skill-engine"
+import type { Effect } from "@/lib/effect-engine"
 
 export type { Skill, SkillEdge }
 
@@ -46,7 +46,7 @@ export function useSkillTree() {
       in_development?: boolean
       max_rank?: number | null
       min_level?: number
-      effects?: SkillEffect[] | null
+      effects?: Effect[] | null
     },
     edgeParentId?: string,
     edgeChildId?: string
@@ -78,7 +78,7 @@ export function useSkillTree() {
       in_development?: boolean | null
       max_rank?: number | null
       min_level?: number | null
-      effects?: SkillEffect[] | null
+      effects?: Effect[] | null
     }
   ): Promise<boolean> => {
     const supabase = createClient()

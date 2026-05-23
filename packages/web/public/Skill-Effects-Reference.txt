@@ -1,0 +1,240 @@
+Full Structure (annotated)
+
+[
+  {
+    "effect_id":  "snake_case_name_##",
+    "trait":      "none | pure_narrative | partial_narrative | passive | skeng | one_time",
+    "trigger":    "activated | passive | reactive",
+    "cost": {
+      "pool":  "essence | power | will | health",
+      "value": 2
+    },
+    "display": {
+      "prompt_text":   "Question shown to player/GM before applying modifiers.",
+      "reminder_text": "Static description of what this effect does."
+    },
+    "actions": [
+      {
+        "type":             "stat_modifier | weight_negation | grant_spell | grant_item | rest_modifier",
+        "target":           "sorcery | perception | attunement | might | fortitude | intimidation | agility | acumen | eloquence | carry_weight | item_sub-type",
+        "target_value":     null,
+        "math":             "add | multiply",
+        "Value":            4,
+        "per_rank_add":     1,
+        "per_rank_multiply": null
+      }
+    ]
+  }
+]
+Nullability rules:
+
+cost → null when trait is passive or none, or when there is no resource cost
+display → null for pure skeng automation with no player-facing text
+target_value → null unless type is weight_negation (then it's the item subtype string, e.g. "sword")
+per_rank_add / per_rank_multiply → null if the value doesn't scale; never set both
+One Example Per Trait
+skeng — passive stat buff (skill)
+
+[
+  {
+    "effect_id": "blade_zealot_01",
+    "trait": "skeng",
+    "trigger": "passive",
+    "cost": null,
+    "display": null,
+    "actions": [
+      {
+        "type": "stat_modifier",
+        "target": "might",
+        "target_value": null,
+        "math": "add",
+        "Value": 3,
+        "per_rank_add": 2,
+        "per_rank_multiply": null
+      }
+    ]
+  }
+]
+skeng — weapon normal attack (item effects[0])
+
+[
+  {
+    "effect_id": "longsword_normal",
+    "trait": "skeng",
+    "trigger": "activated",
+    "cost": { "pool": "power", "value": 2 },
+    "display": { "prompt_text": "", "reminder_text": "Standard slash." },
+    "actions": [
+      {
+        "type": "stat_modifier",
+        "target": "might",
+        "target_value": null,
+        "math": "add",
+        "Value": 2,
+        "per_rank_add": null,
+        "per_rank_multiply": null
+      }
+    ]
+  },
+  {
+    "effect_id": "longsword_strong",
+    "trait": "skeng",
+    "trigger": "activated",
+    "cost": { "pool": "power", "value": 4 },
+    "display": { "prompt_text": "", "reminder_text": "Cleaving overhead blow." },
+    "actions": [
+      {
+        "type": "stat_modifier",
+        "target": "might",
+        "target_value": null,
+        "math": "add",
+        "Value": 5,
+        "per_rank_add": null,
+        "per_rank_multiply": null
+      }
+    ]
+  }
+]
+skeng — spell (single effect block)
+
+[
+  {
+    "effect_id": "searing_bolt_01",
+    "trait": "skeng",
+    "trigger": "activated",
+    "cost": { "pool": "essence", "value": 3 },
+    "display": { "prompt_text": "", "reminder_text": "Launches a bolt of concentrated flame." },
+    "actions": [
+      {
+        "type": "stat_modifier",
+        "target": "sorcery",
+        "target_value": null,
+        "math": "add",
+        "Value": 7,
+        "per_rank_add": null,
+        "per_rank_multiply": null
+      },
+      {
+        "type": "stat_modifier",
+        "target": "sorcery",
+        "target_value": null,
+        "math": "multiply",
+        "Value": 1.5,
+        "per_rank_add": null,
+        "per_rank_multiply": null
+      }
+    ]
+  }
+]
+passive — always-on reminder
+
+[
+  {
+    "effect_id": "iron_constitution_01",
+    "trait": "passive",
+    "trigger": "passive",
+    "cost": null,
+    "display": {
+      "prompt_text": "",
+      "reminder_text": "You ignore the first level of Fatigued each rest period."
+    },
+    "actions": []
+  }
+]
+partial_narrative — conditional GM prompt
+
+[
+  {
+    "effect_id": "hunter_mark_01",
+    "trait": "partial_narrative",
+    "trigger": "activated",
+    "cost": { "pool": "will", "value": 1 },
+    "display": {
+      "prompt_text": "Is your target a beast or monstrosity?",
+      "reminder_text": "Grants a bonus to perception when tracking beasts or monstrosities."
+    },
+    "actions": [
+      {
+        "type": "stat_modifier",
+        "target": "perception",
+        "target_value": null,
+        "math": "add",
+        "Value": 2,
+        "per_rank_add": 1,
+        "per_rank_multiply": null
+      }
+    ]
+  }
+]
+pure_narrative — costs a pool, no math
+
+[
+  {
+    "effect_id": "battle_cry_01",
+    "trait": "pure_narrative",
+    "trigger": "activated",
+    "cost": { "pool": "power", "value": 2 },
+    "display": {
+      "prompt_text": "",
+      "reminder_text": "Your war cry bolsters nearby allies. Describe the effect with your GM."
+    },
+    "actions": []
+  }
+]
+one_time — grants a spell on unlock
+
+[
+  {
+    "effect_id": "arcane_initiation_01",
+    "trait": "one_time",
+    "trigger": "activated",
+    "cost": null,
+    "display": null,
+    "actions": [
+      {
+        "type": "grant_spell",
+        "target": "magic_missile",
+        "target_value": null,
+        "math": "add",
+        "Value": 1,
+        "per_rank_add": null,
+        "per_rank_multiply": null
+      }
+    ]
+  }
+]
+skeng — weight negation
+
+[
+  {
+    "effect_id": "scabbard_mastery_01",
+    "trait": "skeng",
+    "trigger": "passive",
+    "cost": null,
+    "display": null,
+    "actions": [
+      {
+        "type": "weight_negation",
+        "target": "item_sub-type",
+        "target_value": "sword",
+        "math": "add",
+        "Value": 1,
+        "per_rank_add": null,
+        "per_rank_multiply": null
+      }
+    ]
+  }
+]
+none — mundane item with no effects
+
+[]
+Quick Reference
+Field	Allowed values
+trait	none pure_narrative partial_narrative passive skeng one_time
+trigger	activated passive reactive
+cost.pool	essence power will health
+actions[].type	stat_modifier weight_negation grant_spell grant_item rest_modifier
+actions[].target (sub-abilities)	sorcery perception attunement might fortitude intimidation agility acumen eloquence
+actions[].target (system params)	carry_weight item_sub-type
+actions[].math	add multiply
+Item convention: effects[0] = normal action, effects[1] = strong action. Items always use rank 1 — set per_rank_add and per_rank_multiply to null.

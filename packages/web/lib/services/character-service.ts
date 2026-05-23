@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import type { SkillEffect } from "@/lib/skill-engine"
+import type { Effect } from "@/lib/effect-engine"
 import type { ActionSkill } from "@/features/characters/components/actions/action-skill-modal"
 
 type PoolKey = "current_essence" | "current_power" | "current_will" | "current_health"
@@ -80,13 +80,13 @@ export async function getFullCharacter(supabase: SupabaseClient, characterId: st
       ? ((await supabase.from("spells").select("*").in("id", spellIds).order("name")).data ?? [])
       : []
 
-  const activeSkills: Array<{ effects: SkillEffect[]; current_rank: number }> = []
+  const activeSkills: Array<{ effects: Effect[]; current_rank: number }> = []
   for (const cs of characterSkills ?? []) {
     const skill = Array.isArray(cs.skills) ? cs.skills[0] : cs.skills
     if (skill && Array.isArray(skill.effects)) {
       activeSkills.push({
         current_rank: cs.current_rank ?? 1,
-        effects: skill.effects as unknown as SkillEffect[],
+        effects: skill.effects as unknown as Effect[],
       })
     }
   }

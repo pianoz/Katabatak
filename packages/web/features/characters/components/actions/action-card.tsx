@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { getConditionStyle } from "@/lib/utils"
+import type { Effect } from "@/lib/effect-engine"
 
 export interface ActionCardItem {
   id: string
@@ -20,6 +21,7 @@ export interface ActionCardItem {
   modifier?: number | null
   coefficient?: number | null
   short_description?: string | null
+  effects?: Effect[]
 }
 
 interface ActionCardProps {
@@ -45,6 +47,21 @@ function fmtCoeff(coefficient?: number | null): string {
   return ` x${coefficient}`
 }
 
+const POOL_SUFFIX: Record<string, string> = { power: 'P', will: 'W', health: 'H', essence: 'E' }
+
+function resolveEffectStats(item: ActionCardItem, isStrong: boolean) {
+  const eff = item.effects?.[isStrong ? 1 : 0]
+  const addMod = eff?.actions.find(a => a.math === 'add' && a.type === 'stat_modifier')?.Value
+    ?? (isStrong ? null : item.modifier)
+  const multCoeff = eff?.actions.find(a => a.math === 'multiply' && a.type === 'stat_modifier')?.Value
+    ?? (isStrong ? null : item.coefficient)
+  const cost = eff?.cost?.value ?? (isStrong ? (item.strong_cost ?? item.cost) : item.cost)
+  const costLabel = eff?.cost?.pool
+    ? (POOL_SUFFIX[eff.cost.pool] ?? '')
+    : (POOL_SUFFIX[item.cost_attribute_name ?? ''] ?? 'P')
+  return { addMod, multCoeff, cost, costLabel }
+}
+
 function EffectCostBlock({
   item,
   isFlat,
@@ -56,15 +73,13 @@ function EffectCostBlock({
 }) {
   const dieFace = isStrong ? (item.strong_damage ?? item.damage) : item.damage
   const flatVal = isStrong ? (item.strong_defence ?? item.defence) : item.defence
-  const cost    = isStrong ? (item.strong_cost ?? item.cost) : item.cost
+  const { addMod, multCoeff, cost, costLabel } = resolveEffectStats(item, isStrong)
 
   const valueDisplay = isFlat
-    ? `${flatVal ?? 0}${fmt(item.modifier)}${fmtCoeff(item.coefficient)}`
-    : `${item.die_count ?? 0}d${dieFace ?? 0}${fmt(item.modifier)}${fmtCoeff(item.coefficient)}`
+    ? `${flatVal ?? 0}${fmt(addMod)}${fmtCoeff(multCoeff)}`
+    : `${item.die_count ?? 0}d${dieFace ?? 0}${fmt(addMod)}${fmtCoeff(multCoeff)}`
 
-  const costDisplay = cost
-    ? `${cost}${item.cost_attribute_name === "power" ? "P" : "W"}`
-    : "0"
+  const costDisplay = cost ? `${cost}${costLabel}` : "0"
 
   return (
     <div className="flex flex-col items-center">
@@ -90,6 +105,7 @@ export function ActionCard({
 
   const hasStrong =
     showStrong ||
+    (selectedItem?.effects?.length ?? 0) >= 2 ||
     (isFlat ? !!selectedItem?.strong_defence : !!selectedItem?.strong_damage)
 
   const getShortStats = (item: ActionCardItem): string => {
@@ -176,14 +192,15 @@ export function ActionCard({
   }
 
   // ── Single layout (no strong variant) ─────────────────────────────────────
+  const singleStats = selectedItem ? resolveEffectStats(selectedItem, false) : null
   const damageDisplay = selectedItem
     ? isFlat
-      ? `${selectedItem.defence ?? 0}${fmt(selectedItem.modifier)}${fmtCoeff(selectedItem.coefficient)}`
-      : `${selectedItem.die_count ?? 0}d${selectedItem.damage ?? 0}${fmt(selectedItem.modifier)}${fmtCoeff(selectedItem.coefficient)}`
+      ? `${selectedItem.defence ?? 0}${fmt(singleStats?.addMod)}${fmtCoeff(singleStats?.multCoeff)}`
+      : `${selectedItem.die_count ?? 0}d${selectedItem.damage ?? 0}${fmt(singleStats?.addMod)}${fmtCoeff(singleStats?.multCoeff)}`
     : "—"
 
-  const costDisplay = selectedItem?.cost
-    ? `${selectedItem.cost}${selectedItem.cost_attribute_name === "power" ? "P" : "W"}`
+  const costDisplay = singleStats?.cost
+    ? `${singleStats.cost}${singleStats.costLabel}`
     : "0"
 
   return (

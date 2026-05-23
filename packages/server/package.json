@@ -2,14 +2,16 @@
   "name": "server",
   "version": "0.1.0",
   "private": true,
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
-    "dev": "node --env-file=.env.local index.js",
-    "chat": "node --env-file=.env.local chat.js",
-    "test:tools": "node --env-file=.env.local test-tools.js"
+    "dev": "tsx --env-file=.env.local index.ts",
+    "chat": "tsx --env-file=.env.local chat.ts",
+    "test:tools": "tsx --env-file=.env.local test-tools.ts"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0"
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.22.3"
   },
   "type": "module",
   "dependencies": {

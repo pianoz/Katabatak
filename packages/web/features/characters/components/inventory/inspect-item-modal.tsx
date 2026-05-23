@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Package, X } from "lucide-react"
+import type { Effect } from "@/lib/effect-engine"
 
 interface InspectableItem {
   id: string;
@@ -17,6 +18,7 @@ interface InspectableItem {
   image_url?: string | null;
   action_text?: string | null;
   short_description?: string | null;
+  effects?: Effect[];
 }
 
 interface InspectItemModalProps {
@@ -30,10 +32,11 @@ interface InspectItemModalProps {
 export function InspectItemModal({ item, onClose, onAccept, onDecline, onGiveToAlly }: InspectItemModalProps) {
   if (!item) return null
 
-  const skipFields = ['id', 'character_id', 'image_url', 'name', 'description', 'action_text', 'short_description']
+  const skipFields = ['id', 'character_id', 'image_url', 'name', 'description', 'action_text', 'short_description', 'effects']
   const displayFields = Object.entries(item).filter(
     ([key, value]) => !skipFields.includes(key) && value !== null && value !== undefined
   )
+  const effectText = item.effects?.[0]?.display?.reminder_text ?? item.action_text
 
   return (
     <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -112,11 +115,11 @@ export function InspectItemModal({ item, onClose, onAccept, onDecline, onGiveToA
               </div>
             )}
 
-            {item.action_text && (
+            {effectText && (
               <div className="p-4 border-l-4 border-cyan-500 bg-cyan-500/5">
                 <h4 className="text-[10px] uppercase tracking-widest text-cyan-500/70 mb-1">Effect</h4>
                 <p className="text-sm font-medium text-foreground italic">
-                  "{item.action_text}"
+                  "{effectText}"
                 </p>
               </div>
             )}

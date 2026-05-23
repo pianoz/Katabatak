@@ -29,6 +29,22 @@ export function DevToolsSection() {
             Modify Items
           </Link>
         </Button>
+        <Link href="/dev/spells">
+          <Button
+            variant="outline"
+            className="border-border text-foreground hover:bg-card uppercase tracking-widest text-xs"
+          >
+            Modify Spells
+          </Button>
+        </Link>
+        <Link href="/dev/active-skills">
+          <Button
+            variant="outline"
+            className="border-border text-foreground hover:bg-card uppercase tracking-widest text-xs"
+          >
+            Active Skills Editor
+          </Button>
+        </Link>
         <Link href="/dev/users">
           <Button
             variant="outline"

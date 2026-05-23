@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Json } from "@/components/types/supabase"
-import type { SkillEffect } from "@/lib/skill-engine"
-import { parseSkillEffects } from "@/lib/schemas/skill-effect"
+import type { Effect } from "@/lib/effect-engine"
+import { parseEffects } from "@/lib/schemas/skill-effect"
 
 export interface Skill {
   id: string
@@ -13,7 +13,7 @@ export interface Skill {
   max_rank?: number | null
   min_level?: number | null
   in_development?: boolean | null
-  effects: SkillEffect[]
+  effects: Effect[]
 }
 
 export interface SkillEdge {
@@ -29,7 +29,7 @@ export async function fetchSkillTree(supabase: SupabaseClient): Promise<{ skills
     supabase.from("skill_edges").select("*"),
   ])
   const skills: Skill[] = (skillsRes.data ?? []).map((row) => {
-    const effects = parseSkillEffects(row.effects ?? [])
+    const effects = parseEffects(row.effects ?? [])
     return { ...(row as Omit<Skill, "effects">), effects }
   })
   return { skills, edges: (edgesRes.data ?? []) as SkillEdge[] }
@@ -67,7 +67,7 @@ export async function addSkill(
     in_development?: boolean
     max_rank?: number | null
     min_level?: number
-    effects?: SkillEffect[] | null
+    effects?: Effect[] | null
   }
 ) {
   return supabase
@@ -99,7 +99,7 @@ export async function updateSkill(
     in_development?: boolean | null
     max_rank?: number | null
     min_level?: number | null
-    effects?: SkillEffect[] | null
+    effects?: Effect[] | null
   }
 ) {
   return supabase

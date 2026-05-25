@@ -1,7 +1,6 @@
 import type { Database } from '@db-types'
 
 export type CharacterRow = Database['public']['Tables']['characters']['Row']
-export type CharacterContext = Partial<CharacterRow>
 
 export interface ConversationTurn {
   role: 'player' | 'assistant'
@@ -11,7 +10,8 @@ export interface ConversationTurn {
 export interface GMMessageInput {
   message: string
   conversationHistory?: ConversationTurn[]
-  characterContext?: CharacterContext
+  characterId: string
+  gameId?: string
   onToolCall?: (name: string, input: Record<string, unknown>, result: ToolResult) => void
 }
 

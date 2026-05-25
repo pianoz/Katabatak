@@ -96,6 +96,7 @@ export default function PromptEvalPage() {
   const [results, setResults] = useState<BlockResult[]>([])
   const [running, setRunning] = useState(false)
   const [serverStatus, setServerStatus] = useState<"unknown" | "online" | "offline">("unknown")
+  const [sessionTokens, setSessionTokens] = useState({ input: 0, output: 0 })
 
   // ─── Init ──────────────────────────────────────────────────────────────────
 
@@ -123,7 +124,7 @@ export default function PromptEvalPage() {
       setSlugs(slugList)
       setDataLoading(false)
     }
-    init()
+    init().catch(console.error)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
 
@@ -261,6 +262,12 @@ export default function PromptEvalPage() {
         setResults((prev) => prev.map((r) =>
           r.blockId === block.id ? { ...r, modelResponse, modelUsage: evalData.usage } : r
         ))
+        if (evalData.usage) {
+          setSessionTokens((prev) => ({
+            input: prev.input + evalData.usage!.input_tokens,
+            output: prev.output + evalData.usage!.output_tokens,
+          }))
+        }
 
         if (!graderPrompt.trim()) {
           setResults((prev) => prev.map((r) =>
@@ -302,6 +309,12 @@ export default function PromptEvalPage() {
               }
             : r
         ))
+        if (graderRes.ok && graderData.usage) {
+          setSessionTokens((prev) => ({
+            input: prev.input + graderData.usage!.input_tokens,
+            output: prev.output + graderData.usage!.output_tokens,
+          }))
+        }
       } catch {
         setResults((prev) => prev.map((r) =>
           r.blockId === block.id ? { ...r, status: "error", error: "Network error" } : r
@@ -351,6 +364,11 @@ export default function PromptEvalPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            {sessionTokens.input > 0 && (
+              <span className="font-mono text-[0.5rem] uppercase tracking-widest border border-border/50 text-muted-foreground/50 px-2 py-0.5">
+                {sessionTokens.input.toLocaleString()} in · {sessionTokens.output.toLocaleString()} out
+              </span>
+            )}
             {serverStatus !== "unknown" && (
               <span className={`font-sans text-[0.55rem] uppercase tracking-widest border px-2 py-0.5 ${
                 serverStatus === "online"

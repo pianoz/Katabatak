@@ -150,9 +150,11 @@ interface SavedPrompt {
 **File:** [packages/web/lib/services/prompt-service.ts](../packages/web/lib/services/prompt-service.ts)
 
 ```typescript
-getPromptSlugs(supabase)              // string[] — distinct slugs for current user
-getLatestPrompt(supabase, slug)       // highest-version row for slug, or null
-savePrompt(supabase, { name, slug, prompt })  // inserts new version, returns row
+getPromptSlugs(supabase)                       // string[] — distinct slugs for current user
+getLatestPrompt(supabase, slug)                // highest-version row for slug, or null
+getPromptVersions(supabase, slug)              // VersionMetaRow[] — all versions newest-first
+getPromptByVersion(supabase, slug, version)    // full row for a specific slug+version, or null
+savePrompt(supabase, { name, slug, prompt })   // inserts new version, returns row
 ```
 
 ---
@@ -202,39 +204,80 @@ Unresolved tokens (type or field not found in `data`) are left as-is.
 
 **File:** [packages/web/app/dev/prompt-eval/page.tsx](../packages/web/app/dev/prompt-eval/page.tsx)
 
-A single-page form for quick one-off Claude calls. Best for testing system prompts and spot-checking GM responses.
+A four-column model grader for iterative prompt testing. Loads a versioned prompt from `prompt_versions`, runs it against one or more user inputs, then grades each output with a second Claude call.
 
-### Features
+### Layout
 
-| Feature | Notes |
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ Header: back link · "Prompt Evaluator" · server status badge                  │
+├────────────────┬───────────────────────────┬──────────────────┬───────────────┤
+│ COL 1 (224px)  │ COL 2 (flex-1)            │ COL 3 (256px)    │ COL 4 (288px) │
+│                │                           │                  │               │
+│ Slug picker    │ [+ Add Block]             │ Grader Prompt    │ Config        │
+│ Version picker │                           │                  │ · Model       │
+│                │ ┌─ Input 1 ─────────────┐ │ Textarea fills   │ · Max tokens  │
+│ ── Test Data ─ │ │ textarea              │ │ full column.     │ · Temperature │
+│ per type used  │ │ ── model response ──  │ │ System prompt    │               │
+│ in the prompt  │ └───────────────────────┘ │ for the grader   │ [Run Eval]    │
+│                │ ┌─ Input 2 ─────────────┐ │ model. Receives  │               │
+│                │ │ textarea              │ │ <user_input> +   │ ── Output ──  │
+│                │ │ ── model response ──  │ │ <model_response> │ Input 1 grade │
+│                │ └───────────────────────┘ │ as context.      │ Input 2 grade │
+│                │ …                         │                  │ …             │
+└────────────────┴───────────────────────────┴──────────────────┴───────────────┘
+```
+
+### Col 1 — Prompt loader
+
+1. **Slug dropdown** — lists all slugs from `prompt_versions` for the current user
+2. **Version dropdown** — appears after a slug is selected; auto-selects the latest version
+3. **Loaded summary** — shows prompt name and block count
+4. **Test data pickers** — one dropdown per placeholder type detected in the loaded blocks (e.g. `{{character.name}}` → Character dropdown). Only shown when the prompt actually uses that type.
+
+### Col 2 — User input blocks
+
+Each block is one test case. The user types a freeform input; after a run, the model's response appears as a collapsed preview under the block.
+
+- **Add Block** button adds another test case
+- Blocks show status badges during a run: `Model` → `Grading` → `Done` / `Error`
+- Minimum one block always present
+
+### Col 3 — Grader prompt
+
+A single textarea for the grader model's system prompt (the rubric). At run time the grader receives:
+
+```
+<user_input>
+{the block's text}
+</user_input>
+
+<model_response>
+{Claude's response to that input}
+</model_response>
+```
+
+If left blank, the run skips the grading step and only shows model responses.
+
+### Col 4 — Config and grader output
+
+| Control | Notes |
 |---------|-------|
-| Character dropdown | Loads current user's characters from `characters` table |
-| Items multi-select | Loads all items from `items` table |
-| Spells multi-select | Loads all spells from `spells` table |
-| Auto system prompt | Selecting context items builds a formatted system prompt automatically |
-| Dirty tracking | Manually editing the system prompt marks it "dirty" — auto-update pauses until Reset |
-| Model picker | Sonnet 4.6 / Opus 4.7 / Haiku 4.5 |
-| Max tokens | Clamped to [64, 8192] |
-| Server badge | Pings `/api/gm/health` on mount |
-| Error display | Shows server-offline banner, auth errors, and API errors inline |
+| Model picker | Sonnet 4.6 / Opus 4.7 / Haiku 4.5 — applies to both main model and grader |
+| Max tokens | Number input, clamped to [64, 8192] |
+| Temperature | Range slider 0.00–1.00 |
+| Run Eval | Disabled until a slug is loaded and at least one block has content |
+| Grader output | One result card per input block, rendered as Markdown; shows token usage for both calls |
 
-### Context assembly
+### Run flow
 
-When the user selects a character/items/spells, the page calls `buildContextPrompt()` which produces a Markdown string injected into the system prompt:
+For each non-empty input block, sequentially:
 
-```
-## Character: Aldric
-- Level: 3
-- Health: 25/30
-...
-
-## Items
-- **Thornwhisper Dagger** (weapon, dagger, uncommon, magical) — dmg 4 · 1kg
-  A blade carved from petrified thorn.
-
-## Spells
-- **Firebolt** (fire, projectile) — dmg 12 · range 30m · cast 1min
-```
+1. Build `system` by joining all `system`-kind blocks from the loaded prompt (with placeholders resolved)
+2. Build `messages` from the non-system blocks + the user input as a final `user` message
+3. POST to `/api/gm/eval` → model response
+4. If a grader prompt is set: POST to `/api/gm/eval` with grader system + `<user_input>/<model_response>` message → grade
+5. Result (or error) shown in col 4 under the matching input number
 
 ---
 

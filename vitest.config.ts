@@ -8,7 +8,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['packages/web/lib/**/*.test.ts'],
+    include: ['packages/web/lib/**/*.test.ts', 'packages/web/features/**/*.test.ts'],
     env: (() => {
       // Load .env.test.local manually since vitest doesn't auto-load it
       const fs = require('fs');

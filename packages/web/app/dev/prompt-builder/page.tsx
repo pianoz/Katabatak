@@ -249,6 +249,7 @@ export default function PromptBuilderPage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<EvalResponse | null>(null)
   const [serverStatus, setServerStatus] = useState<"unknown" | "online" | "offline">("unknown")
+  const [sessionTokens, setSessionTokens] = useState({ input: 0, output: 0 })
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -285,7 +286,7 @@ export default function PromptBuilderPage() {
 
       setDataLoading(false)
     }
-    init()
+    init().catch(console.error)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
 
@@ -440,7 +441,15 @@ export default function PromptBuilderPage() {
       })
       const payload = (await res.json()) as EvalResponse
       setResult(res.ok ? payload : { error: payload.error ?? `Server returned ${res.status}` })
-      if (res.ok) setServerStatus("online")
+      if (res.ok) {
+        setServerStatus("online")
+        if (payload.usage) {
+          setSessionTokens((prev) => ({
+            input: prev.input + payload.usage!.input_tokens,
+            output: prev.output + payload.usage!.output_tokens,
+          }))
+        }
+      }
     } catch {
       setResult({ error: "Failed to reach the web server" })
     } finally {
@@ -494,6 +503,11 @@ export default function PromptBuilderPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            {sessionTokens.input > 0 && (
+              <span className="font-mono text-[0.5rem] uppercase tracking-widest border border-border/50 text-muted-foreground/50 px-2 py-0.5">
+                {sessionTokens.input.toLocaleString()} in · {sessionTokens.output.toLocaleString()} out
+              </span>
+            )}
             {serverStatus !== "unknown" && (
               <span
                 className={`font-sans text-[0.55rem] uppercase tracking-widest border px-2 py-0.5 ${

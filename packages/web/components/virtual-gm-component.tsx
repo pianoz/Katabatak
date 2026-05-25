@@ -1,7 +1,9 @@
+"use client"
+
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Terminal, Sparkles, User, Loader2 } from 'lucide-react';
-import type { Character } from './types/types';
+import { Send, Terminal, Sparkles, User, Loader2, Clock } from 'lucide-react';
+import { useCharacterStore } from '@/features/characters/hooks/use-character-store';
 
 interface Message {
   id: string;
@@ -14,14 +16,18 @@ interface Message {
 interface ChatGMProps {
   playerName: string;
   characterId: string;
-  character?: Character;
+  gameId?: string;
+  isSyncing?: boolean;
   onGMReply?: () => void;
 }
 
 // How many messages to keep unsummarized in the live context window
 const CONTEXT_WINDOW = 20;
 
-export default function ChatGMComponent({ playerName = "Wanderer", characterId, character, onGMReply }: ChatGMProps) {
+export default function ChatGMComponent({ playerName = "Wanderer", characterId, gameId, isSyncing = false, onGMReply }: ChatGMProps) {
+  const isDirty = useCharacterStore((s) => s.isDirty);
+  const gmBlocked = isDirty || isSyncing;
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -75,7 +81,7 @@ export default function ChatGMComponent({ playerName = "Wanderer", characterId, 
   }, [messages]);
 
   const handleSend = async () => {
-    if (!inputValue.trim() || isGMLoading) return;
+    if (!inputValue.trim() || isGMLoading || gmBlocked) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -104,7 +110,8 @@ export default function ChatGMComponent({ playerName = "Wanderer", characterId, 
         body: JSON.stringify({
           message: userMessage.content,
           conversationHistory: history,
-          characterContext: character ?? { name: playerName },
+          characterId,
+          gameId,
         }),
       });
 
@@ -136,6 +143,12 @@ export default function ChatGMComponent({ playerName = "Wanderer", characterId, 
           <span className="text-xs uppercase tracking-[0.3em] font-bold text-zinc-400">Chronicle</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {gmBlocked && (
+            <span className="text-[10px] uppercase tracking-widest text-amber-500/70 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              Syncing…
+            </span>
+          )}
           <div className={`w-2 h-2 rounded-full ${isGMLoading ? 'bg-cyan-500 animate-pulse' : 'bg-emerald-500'}`} />
           <span className="text-[10px] uppercase tracking-widest text-zinc-500">
             {isGMLoading ? 'Processing Paradox...' : 'Engine Ready'}
@@ -192,12 +205,14 @@ export default function ChatGMComponent({ playerName = "Wanderer", characterId, 
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Type your intent..."
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-md py-3 pl-4 pr-14 text-sm focus:outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600/20 transition-all placeholder:text-zinc-600 text-zinc-100"
+            placeholder={gmBlocked ? 'Waiting for character state to save…' : 'Type your intent...'}
+            disabled={gmBlocked}
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-md py-3 pl-4 pr-14 text-sm focus:outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600/20 transition-all placeholder:text-zinc-600 text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed"
           />
           <button
             onClick={handleSend}
-            disabled={!inputValue.trim() || isGMLoading}
+            disabled={!inputValue.trim() || isGMLoading || gmBlocked}
+            title={gmBlocked ? 'Waiting for character state to save…' : undefined}
             className="absolute right-2 p-2 text-zinc-500 hover:text-cyan-400 disabled:opacity-30 disabled:hover:text-zinc-500 transition-colors"
           >
             <Send className="w-5 h-5" />

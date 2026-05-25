@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useCharacterStore, type LiveSheet } from "@/features/characters/hooks/use-character-store"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
@@ -15,6 +15,7 @@ export function useCharacterSync() {
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isSavingRef = useRef(false)
+  const [isSyncing, setIsSyncing] = useState(false)
 
   // Refs keep the async save function from capturing stale callbacks
   const markSavedRef = useRef(markSaved)
@@ -46,6 +47,7 @@ export function useCharacterSync() {
     }
 
     isSavingRef.current = true
+    setIsSyncing(true)
     const supabase = createClient()
 
     const { error } = await updateCharacter(supabase, state.characterId, {
@@ -69,6 +71,7 @@ export function useCharacterSync() {
         variant: "destructive",
       })
       isSavingRef.current = false
+      setIsSyncing(false)
       return
     }
 
@@ -83,6 +86,7 @@ export function useCharacterSync() {
 
     markSavedRef.current(snapshot)
     isSavingRef.current = false
+    setIsSyncing(false)
   })
 
   // Debounce: wait for 1.5s of inactivity after the last change before writing
@@ -104,4 +108,6 @@ export function useCharacterSync() {
     window.addEventListener("beforeunload", flush)
     return () => window.removeEventListener("beforeunload", flush)
   }, [])
+
+  return { isSyncing }
 }

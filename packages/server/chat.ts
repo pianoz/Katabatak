@@ -3,6 +3,7 @@ import readline from 'readline'
 import supabase from './gm/tools/db.js'
 import { handleGMMessage } from './gm/handler.js'
 import type { CharacterRow, ConversationTurn, ToolResult } from './gm/types.js'
+import { getFullCharacter } from './services/character-service.js'
 
 const characterId = process.argv[2]
 if (!characterId) {
@@ -10,16 +11,12 @@ if (!characterId) {
   process.exit(1)
 }
 
-const { data: char, error } = await supabase
-  .from('characters')
-  .select('*')
-  .eq('id', characterId)
-  .single()
-
-if (error || !char) {
-  console.error('Character not found:', error?.message ?? 'no data')
+const fullCharacter = await getFullCharacter(characterId)
+if (!fullCharacter) {
+  console.error('Character not found')
   process.exit(1)
 }
+const char = fullCharacter.character
 
 const dim = (s: string) => `\x1b[90m${s}\x1b[0m`
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
@@ -71,7 +68,7 @@ function ask(): void {
       reply = await handleGMMessage({
         message: msg,
         conversationHistory: history,
-        characterContext: char ?? undefined,
+        characterId,
         onToolCall: (name, input, result) => toolCalls.push({ name, input, result }),
       })
     } catch (err) {

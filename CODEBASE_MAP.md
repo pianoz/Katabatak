@@ -183,7 +183,7 @@ All services have co-located `.test.ts` files. Tests use Vitest.
 
 | File | Purpose |
 |------|---------|
-| `lib/effect-engine.ts` | Evaluates effect arrays on skills, spells, and items. Replaces the old `skill-engine.ts`. Scales by rank, context-aware (weapon type, combat status). |
+| `lib/effect-engine.ts` | Evaluates effect arrays on skills, spells, and items. Replaces the old `skill-engine.ts`. Scales by rank, context-aware (weapon type, combat status). See [`docs/effects-engine.md`](docs/effects-engine.md) |
 | `lib/friend-logic.ts` | Friend request state machine |
 | `lib/invite-logic.ts` | Game join code and member status transitions |
 | `lib/pending-offers.ts` | Utilities for tracking/applying pending rewards |
@@ -215,24 +215,42 @@ All services have co-located `.test.ts` files. Tests use Vitest.
 
 Express server on port 3001. Proxied by `POST /api/gm` on the web app.
 
+> Deep-dive: [`packages/server/docs/gm-architecture.md`](packages/server/docs/gm-architecture.md)
+
+**Auth:** All `/gm/*` routes require `Authorization: Bearer <GM_API_KEY>`. Admin UI at `/admin` uses session-based auth (separate credentials). Standalone deploy: see `packages/server/docker-compose.yml`.
+
 ```
 server/
-├── index.js            # Express server entry point
-├── chat.js             # Interactive REPL: node chat.js <character_id>
-├── test-tools.js       # Debug tool definitions
+├── index.ts                  # Express entry — CORS, rate limiting, route wiring
+├── chat.ts                   # Interactive REPL: tsx chat.ts <character_id>
+├── test-tools.ts             # Debug tool runner
+├── Dockerfile                # Production container
+├── docker-compose.yml        # Standalone production deploy
+├── middleware/
+│   └── auth.ts               # requireGmKey — Bearer token validation
+├── admin/
+│   ├── routes.ts             # Admin UI: login, dashboard, logout, /health
+│   └── request-logger.ts     # In-memory ring buffer of last 100 GM requests
+├── services/
+│   ├── character-service.ts  # getCharacter, getFullCharacter, updateCharacter
+│   ├── world-service.ts      # searchWorldLore, getCampaignFacts, getNpc, getNpcsForGame
+│   └── game-service.ts       # getGameWithMembers, getGameAllyCharacters, getActiveEncounter
 └── gm/
-    ├── handler.js      # Core message routing + Claude tool execution loop
+    ├── handler.ts            # Core routing — fetches character from DB, Claude loop
+    ├── types.ts              # GMMessageInput: characterId + gameId (not characterContext)
     ├── agents/
-    │   ├── summary.js  # Session history summarization agent
-    │   ├── npc.js      # NPC interaction agent
-    │   └── interaction.js  # General interaction handler
+    │   ├── summary.ts        # Session history summarization (Sonnet)
+    │   ├── npc.ts            # NPC dialogue (Haiku)
+    │   └── interaction.ts    # Difficulty resolution + stat wrappers
+    ├── services/
+    │   └── claude-service.ts # Generic eval wrapper (/eval endpoint)
     └── tools/
-        ├── index.js    # Exports all tools to Claude
-        ├── db.js       # Supabase client setup
-        └── character.js  # Character lookup + stat mutation tools
+        ├── index.ts          # 9 tools: stat/level/pool + world/game queries
+        ├── db.ts             # Supabase service-role singleton
+        └── character.ts      # update_stat, update_level, restore_pools
 ```
 
-Claude tool use is the core pattern — the GM calls tools to read/modify game state, then responds to the player.
+Claude tool use is the core pattern — the GM calls tools to read/modify game state, then responds to the player. The conversation loop runs until `stop_reason === "end_turn"`. All tools within one round execute in parallel.
 
 ---
 
@@ -240,6 +258,9 @@ Claude tool use is the core pattern — the GM calls tools to read/modify game s
 
 **Platform:** Supabase (PostgreSQL 15+)  
 **Generated types:** `database.types.ts` (root) — regenerate with `pnpm gen-types`
+
+> Relationships & gotchas: [`supabase/docs/schema-relationships.md`](supabase/docs/schema-relationships.md)  
+> How to add migrations: [`supabase/docs/migration-guide.md`](supabase/docs/migration-guide.md)
 
 ### Core Tables
 
@@ -315,6 +336,7 @@ offer_type:  item | denarius | skill_point | spell
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key |
 | `GM_SERVER_URL` | No | GM server base URL (default: `http://localhost:3001`) |
+| `GM_API_KEY` | Yes | Shared secret sent as `Authorization: Bearer` on all GM proxy calls |
 
 ### `packages/server` (`.env.local`)
 
@@ -323,7 +345,13 @@ offer_type:  item | denarius | skill_point | spell
 | `ANTHROPIC_API_KEY` | Yes | Claude API key |
 | `SUPABASE_URL` | Yes | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (bypasses RLS) |
+| `GM_API_KEY` | Yes | Shared secret validated on all `/gm/*` requests |
+| `WEB_APP_ORIGIN` | No | CORS allowed origin (default: `*`) |
 | `GM_PORT` | No | Server port (default: 3001) |
+| `GM_RATE_LIMIT` | No | Max requests/min per IP on `/gm` (default: 30) |
+| `ADMIN_USERNAME` | Yes | Admin UI login username |
+| `ADMIN_PASSWORD` | Yes | Admin UI login password |
+| `SESSION_SECRET` | Yes | Signs admin session cookies |
 
 ---
 

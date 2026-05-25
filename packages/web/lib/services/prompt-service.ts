@@ -30,7 +30,7 @@ export async function getPromptSlugs(supabase: SupabaseClient): Promise<string[]
     .select('slug')
     .order('slug', { ascending: true })
 
-  if (error) throw error
+  if (error) throw new Error(error.message)
 
   const seen = new Set<string>()
   const slugs: string[] = []
@@ -56,7 +56,7 @@ export async function getLatestPrompt(
     .limit(1)
     .maybeSingle()
 
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return data as PromptVersionRow | null
 }
 
@@ -76,7 +76,7 @@ export async function getPromptVersions(
     .select('id, version, name')
     .eq('slug', slug)
     .order('version', { ascending: false })
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return (data ?? []) as VersionMetaRow[]
 }
 
@@ -92,7 +92,7 @@ export async function getPromptByVersion(
     .eq('slug', slug)
     .eq('version', version)
     .maybeSingle()
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return data as PromptVersionRow | null
 }
 
@@ -101,15 +101,18 @@ export async function savePrompt(
   supabase: SupabaseClient,
   { name, slug, prompt }: { name: string; slug: string; prompt: SavedPrompt }
 ): Promise<PromptVersionRow> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
   const latest = await getLatestPrompt(supabase, slug)
   const nextVersion = (latest?.version ?? 0) + 1
 
   const { data, error } = await supabase
     .from('prompt_versions')
-    .insert({ name, slug, version: nextVersion, prompt })
+    .insert({ name, slug, version: nextVersion, prompt, created_by: user.id })
     .select()
     .single()
 
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return data as PromptVersionRow
 }

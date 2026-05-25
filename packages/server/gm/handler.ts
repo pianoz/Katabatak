@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { tools, executeTool } from './tools/index.js'
-import type { GMMessageInput, CharacterContext } from './types.js'
+import { getFullCharacter, type FullCharacter } from '../services/character-service.js'
+import type { GMMessageInput } from './types.js'
 
 const client = new Anthropic()
 
@@ -51,10 +52,16 @@ function logToolResult(name: string, result: Record<string, unknown>): void {
 export async function handleGMMessage({
   message,
   conversationHistory = [],
-  characterContext = {},
+  characterId,
+  gameId,
   onToolCall,
 }: GMMessageInput): Promise<string> {
-  const system = buildSystemPrompt(characterContext)
+  const fullCharacter = await getFullCharacter(characterId)
+  if (!fullCharacter) {
+    return `[GM Error: character ${characterId} not found]`
+  }
+
+  const system = buildSystemPrompt(fullCharacter)
   const messages = buildMessages(conversationHistory, message)
   const toolNames = tools.map((t) => t.name)
 
@@ -80,7 +87,8 @@ export async function handleGMMessage({
         const result = await executeTool(
           block.name,
           block.input as Record<string, unknown>,
-          characterContext.id,
+          characterId,
+          gameId,
         )
         logToolResult(block.name, result)
         onToolCall?.(block.name, block.input as Record<string, unknown>, result)
@@ -123,7 +131,7 @@ function buildMessages(
 
 const DEBUG_MODE = false
 
-function buildSystemPrompt(character: CharacterContext): string {
+function buildSystemPrompt({ character, inventory, skills, spells }: FullCharacter): string {
   if (DEBUG_MODE) {
     return `You are a debug breakpoint. Return all character info passed to you verbatim.`
   }
@@ -158,10 +166,21 @@ resolve_difficulty
 
 get_npc_response
   npc_name, personality, situation, player_input.
-  Weave the returned dialogue into your narration — do not quote it as a block.`
+  Weave the returned dialogue into your narration — do not quote it as a block.
 
-  if (character?.name) {
-    prompt += `\n\nPlayer Character:
+search_world_lore
+  query: search string. Use to look up locations, factions, items, NPCs, or world facts.
+
+get_campaign_facts
+  Retrieve known facts for the current game session.
+
+get_ally_characters
+  List other active player characters in the same game.
+
+get_active_encounter
+  Get current combat state (if in combat).`
+
+  prompt += `\n\nPlayer Character:
 - Name: ${character.name}
 - Level: ${character.level ?? '?'}
 - Class/Archetype: ${character.class_archetype ?? 'Unknown'}
@@ -170,12 +189,31 @@ get_npc_response
 - Power: ${character.current_power ?? '?'} / ${character.power_max ?? '?'}
 - Will: ${character.current_will ?? '?'} / ${character.will_max ?? '?'}`
 
-    if (character.current_location_text) {
-      prompt += `\n- Location: ${character.current_location_text}`
-    }
-    if (character.condition_text) {
-      prompt += `\n- Condition: ${character.condition_text}`
-    }
+  if (character.current_location_text) {
+    prompt += `\n- Location: ${character.current_location_text}`
+  }
+  if (character.condition_text) {
+    prompt += `\n- Condition: ${character.condition_text}`
+  }
+  if (character.notes) {
+    prompt += `\n- Notes: ${character.notes}`
+  }
+
+  if (inventory.length > 0) {
+    const equipped = inventory.filter((i) => i.is_equipped).map((i) => i.items?.name ?? '?')
+    const carried = inventory.filter((i) => !i.is_equipped).map((i) => i.items?.name ?? '?')
+    if (equipped.length) prompt += `\n- Equipped: ${equipped.join(', ')}`
+    if (carried) prompt += `\n- Carrying: ${carried.join(', ')}`
+  }
+
+  if (skills.length > 0) {
+    const skillList = skills.map((s) => `${s.skills?.name ?? '?'} (rank ${s.current_rank ?? 1})`).join(', ')
+    prompt += `\n- Skills: ${skillList}`
+  }
+
+  if (spells.length > 0) {
+    const spellList = spells.map((s) => s.spells?.name ?? '?').join(', ')
+    prompt += `\n- Spells: ${spellList}`
   }
 
   return prompt

@@ -4,6 +4,35 @@ import supabase from '../gm/tools/db.js'
 export type CharacterRow = Database['public']['Tables']['characters']['Row']
 type CharacterUpdate = Database['public']['Tables']['characters']['Update']
 
+export interface InventoryItem {
+  id: string
+  item_id: string | null
+  is_equipped: boolean | null
+  condition: number | null
+  quantity: number | null
+  items: { name: string; type: string | null } | null
+}
+
+export interface CharacterSkill {
+  skill_id: string
+  current_rank: number | null
+  skills: { name: string } | null
+}
+
+export interface CharacterSpell {
+  id: string
+  spell_id: number | null
+  spells: { name: string; damage: number | null } | null
+}
+
+export interface FullCharacter {
+  character: CharacterRow
+  inventory: InventoryItem[]
+  skills: CharacterSkill[]
+  spells: CharacterSpell[]
+  actionSkillIds: string[]
+}
+
 export async function getCharacter(id: string): Promise<CharacterRow | null> {
   const { data, error } = await supabase
     .from('characters')
@@ -12,6 +41,36 @@ export async function getCharacter(id: string): Promise<CharacterRow | null> {
     .single()
   if (error) return null
   return data
+}
+
+export async function getFullCharacter(id: string): Promise<FullCharacter | null> {
+  const [charResult, inventoryResult, skillsResult, spellsResult, actionSkillsResult] =
+    await Promise.all([
+      supabase.from('characters').select('*').eq('id', id).single(),
+      supabase
+        .from('character_inventory')
+        .select('id, item_id, is_equipped, condition, quantity, items(name, type)')
+        .eq('character_id', id),
+      supabase
+        .from('character_skills')
+        .select('skill_id, current_rank, skills(name)')
+        .eq('character_id', id),
+      supabase
+        .from('character_spells')
+        .select('id, spell_id, spells(name, damage)')
+        .eq('character_id', id),
+      supabase.from('character_action_skills').select('action_skill_id').eq('character_id', id),
+    ])
+
+  if (charResult.error || !charResult.data) return null
+
+  return {
+    character: charResult.data,
+    inventory: (inventoryResult.data ?? []) as unknown as InventoryItem[],
+    skills: (skillsResult.data ?? []) as unknown as CharacterSkill[],
+    spells: (spellsResult.data ?? []) as unknown as CharacterSpell[],
+    actionSkillIds: (actionSkillsResult.data ?? []).map((r) => r.action_skill_id),
+  }
 }
 
 export async function updateCharacter(

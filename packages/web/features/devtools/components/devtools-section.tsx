@@ -53,6 +53,22 @@ export function DevToolsSection() {
             Modify Users
           </Button>
         </Link>
+        <Link href="/dev/prompt-eval">
+          <Button
+            variant="outline"
+            className="border-cyan-700/50 text-cyan-400 hover:bg-cyan-950/20 uppercase tracking-widest text-xs"
+          >
+            Prompt Evaluator
+          </Button>
+        </Link>
+        <Link href="/dev/prompt-builder">
+          <Button
+            variant="outline"
+            className="border-cyan-700/50 text-cyan-400 hover:bg-cyan-950/20 uppercase tracking-widest text-xs"
+          >
+            Prompt Builder
+          </Button>
+        </Link>
       </div>
     </div>
   )

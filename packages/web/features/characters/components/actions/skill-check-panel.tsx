@@ -143,6 +143,7 @@ interface SkillCheckPanelProps {
 export function SkillCheckPanel({ character, onCharacterUpdate }: SkillCheckPanelProps) {
   const [history, setHistory] = useState<RollEntry[]>([])
   const [pending, setPending] = useState<PendingRoll | null>(null)
+  const [selectedSkill, setSelectedSkill] = useState<{ skill: string; pool: PoolName } | null>(null)
 
   const baseFor: Record<PoolName, number> = {
     Power:   Math.floor((character.power_max   ?? 0) / 2),
@@ -150,9 +151,17 @@ export function SkillCheckPanel({ character, onCharacterUpdate }: SkillCheckPane
     Essence: Math.floor((character.essence_max ?? 0) / 2),
   }
 
-  const openRoll = (skill: string, pool: PoolName) => {
+  const handleSelectSkill = (skill: string, pool: PoolName) => {
+    setSelectedSkill(prev =>
+      prev?.skill === skill && prev?.pool === pool ? null : { skill, pool }
+    )
+  }
+
+  const handleRoll = () => {
+    if (!selectedSkill) return
     const die = Math.floor(Math.random() * 20) + 1
-    setPending({ skill, pool, die, base: baseFor[pool] })
+    setPending({ skill: selectedSkill.skill, pool: selectedSkill.pool, die, base: baseFor[selectedSkill.pool] })
+    setSelectedSkill(null)
   }
 
   const handleAccept = async (sacrifice: number) => {
@@ -205,6 +214,19 @@ export function SkillCheckPanel({ character, onCharacterUpdate }: SkillCheckPane
           onCancel={() => setPending(null)}
         />
       )}
+      <button
+        onClick={handleRoll}
+        disabled={!selectedSkill}
+        className={`w-full mb-3 py-5 border-2 font-serif text-2xl tracking-[0.4em] uppercase transition-all ${
+          selectedSkill?.pool === "Essence"
+            ? "border-cyan-500/60 text-cyan-100 hover:bg-cyan-950/20 cursor-pointer shadow-[0_0_18px_rgba(34,211,238,0.15)]"
+            : selectedSkill
+            ? "border-foreground/50 text-foreground hover:bg-secondary/20 cursor-pointer"
+            : "border-border/20 bg-card/30 text-muted-foreground/20 cursor-not-allowed"
+        }`}
+      >
+        {selectedSkill ? `Roll: ${selectedSkill.skill}` : "Roll"}
+      </button>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-0 border border-border">
         {(Object.entries(SKILLS) as [PoolName, readonly string[]][]).map(([pool, skills]) => (
           <div key={pool} className="border-r border-border border-b md:border-b-0 even:border-r-0 md:even:border-r">
@@ -217,17 +239,26 @@ export function SkillCheckPanel({ character, onCharacterUpdate }: SkillCheckPane
               </p>
             </div>
             <div className="p-2 space-y-1.5">
-              {skills.map(skill => (
-                <button
-                  key={skill}
-                  onClick={() => openRoll(skill, pool)}
-                  className="w-full text-left px-3 py-2 border border-border/60 bg-card hover:border-foreground/30 hover:bg-secondary/30 transition-colors group"
-                >
-                  <span className="text-xs uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">
-                    {skill}
-                  </span>
-                </button>
-              ))}
+              {skills.map(skill => {
+                const isSelected = selectedSkill?.skill === skill && selectedSkill?.pool === pool
+                return (
+                  <button
+                    key={skill}
+                    onClick={() => handleSelectSkill(skill, pool)}
+                    className={`w-full text-left px-3 py-2 border transition-colors group ${
+                      isSelected
+                        ? "border-foreground/50 bg-secondary/50"
+                        : "border-border/60 bg-card hover:border-foreground/30 hover:bg-secondary/30"
+                    }`}
+                  >
+                    <span className={`text-xs uppercase tracking-widest transition-colors ${
+                      isSelected ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
+                    }`}>
+                      {skill}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           </div>
         ))}

@@ -36,6 +36,8 @@ type EffectTrait =
 
 type EffectTrigger = 'activated' | 'passive' | 'reactive'
 
+type EffectRollContext = 'attack' | 'defense' | 'skill_check' | 'any'
+
 type ActionType =
   | 'stat_modifier'       // modify ability or stat value
   | 'weight_negation'     // zero out weight for an item subtype
@@ -43,6 +45,10 @@ type ActionType =
   | 'grant_item'          // grant an item to the character
   | 'grant_active_skill'  // unlock an active skill
   | 'rest_modifier'       // modify resource pool recovery on rest
+  | 'pool_recharge'       // in-combat pool recovery (e.g. vampiric drain)
+  | 'critical'            // mark a roll context as crit-capable at a given die size
+  | 'near_critical'      // promote rolls that are exactly 1 below max to the maximum
+  | 'discount'            // reduce cost/weight for a category of spells, attacks, or defenses
 
 type MathOp = 'add' | 'multiply'
 ```
@@ -54,6 +60,7 @@ interface Effect {
   effect_id: string
   trait: EffectTrait
   trigger: EffectTrigger
+  roll_context?: EffectRollContext  // omit or set to 'any' for always-visible
   cost: EffectCost | null
   display: EffectDisplay | null
   actions: EffectAction[]
@@ -88,7 +95,7 @@ What the engine does with an effect depends entirely on its `trait`. This is the
 
 | Trait | Actions Processed? | Output |
 |---|---|---|
-| `skeng` | Yes | `statModifiers`, `restModifiers` |
+| `skeng` | Yes | `statModifiers`, `restModifiers`, `poolRecharges`, `criticalChecks`, `nearCriticalChecks`, `discounts` |
 | `one_time` | Yes (grants only) | `grantedSpells`, `grantedItems`, `grantedActiveSkills` |
 | `partial_narrative` | Deferred to prompts | `prompts[]` — GM/player decides |
 | `passive` | No | `passives[]` — reminder text only |
@@ -137,6 +144,92 @@ Grants the character access to an entity.
 - **output:** `grantedSpells[]`, `grantedItems[]`, `grantedActiveSkills[]` (deduplicated)
 - **used with:** `one_time` trait
 
+### `pool_recharge`
+
+In-combat pool recovery triggered by an action (e.g. vampiric drain — deal damage, gain health back).
+
+- **target:** `essence` | `power` | `will` | `health`
+- **math:** `add` → stacks additively. `multiply` → stacks multiplicatively.
+- **scaling:** same formula as `stat_modifier` / `rest_modifier`
+- **output key:** `poolRecharges[pool] = { add: number, multiply: number }`
+- **note:** The engine records the recharge amount. Applying it to the character's current pool is the responsibility of the GM tool or combat layer.
+
+### `critical`
+
+Marks a roll context as crit-capable at a given die size. A roll is a critical if it equals `Value` (e.g. `Value=6` on a d6, `Value=10` on a d10). No extra modifier is applied — the standard result stands.
+
+- **target:** `attack` | `defense` | `skill_check`
+- **Value:** the die's maximum face (die size)
+- **math / per_rank:** unused — die size is fixed
+- **output key:** `criticalChecks[]` — one entry per (target, die_size) pair
+- **note:** Duplicate entries (same target/die_size from multiple effects) are kept; the consumer deduplicates or takes the max as appropriate.
+
+### `near_critical`
+
+Promotes a die roll that is exactly 1 below the maximum to the maximum, making it a critical. The promotion happens at roll time, before the modifier and coefficient are applied — all subsequent math runs on the promoted value unchanged.
+
+- **target:** `attack` | `defense` | `skill_check`
+- **Value:** the die's maximum face (must match the weapon/item die size — e.g. `6` for a d6, `10` for a d10)
+- **math / per_rank:** unused — the promotion threshold is always exactly 1 below max
+- **output key:** `nearCriticalChecks[]` — one entry per (target, die_size) pair
+- **applies to:** attack rolls only (defense is a flat value with no die, so the check is a no-op for defense targets)
+- **multi-die behavior:** the maximum is `die_count × die_size`; the threshold is `die_count × die_size − 1`
+- **example:** a character with near_critical (attack, d10) who rolls a 9 on their d10 weapon has the roll promoted to 10 before the modifier and coefficient are applied
+- **note:** this effect must use the `skeng` trait to fire automatically on every roll. `Value` must exactly match the weapon's die size or the check silently has no effect.
+
+### `discount`
+
+Reduces the cost or weight for a category of spells, attacks, or defenses. Applied by the consumer only when the character actually has matching properties — the engine never throws on missing properties.
+
+- **target:** `spell` | `attack` | `defense`
+- **target_value:** the subtype string (e.g. `"fire"`, `"sword"`, `"heavy"`, or `"all"` to cover everything in the category)
+- **Value:** integer discount amount (positive = reduction)
+- **math / per_rank:** unused for basic discount; `per_rank_add` can be used for scaling discounts if desired
+- **output key:** `discounts[]` — each entry is `{ type, subtype, amount }`
+- **note:** `"all"` in `subtype` means the discount applies to every spell of that trigger type, every attack, or every defense — the consumer must handle the `"all"` case.
+
+---
+
+## Roll-Context Filtering (Reminders That Fire on Roll)
+
+`Effect.roll_context` controls **when** a `partial_narrative` prompt surfaces to the player. The engine always collects every `partial_narrative` effect into `skillFx.prompts[]` — but the dashboard gates display to the moment of an actual roll.
+
+### How it works
+
+In **[character-dashboard.tsx](packages/web/features/characters/components/character-dashboard.tsx)**, the `handleAction()` function (called when the player fires an Attack or Defend roll) does:
+
+```typescript
+const rollCtx = actionType === "Attack" ? "attack" : actionType === "Defend" ? "defense" : null
+setActivePrompts(
+  rollCtx
+    ? skillFx.prompts.filter((p) => p.roll_context === rollCtx || p.roll_context === "any")
+    : []
+)
+```
+
+`activePrompts` then renders as cyan "Active Effect" banners directly below the roll result — only for that roll type. Before any roll (or after Cast), no prompts are shown.
+
+### roll_context values and when they fire
+
+| `roll_context` | Fires when |
+|---|---|
+| `'attack'` | Player fires an Attack roll |
+| `'defense'` | Player fires a Defend roll |
+| `'skill_check'` | **Reserved** — SkillCheckPanel does not currently call back to surface prompts; this context is defined but inactive |
+| `'any'` | Every Attack or Defend roll |
+
+### The `passive` trait is NOT the roll-triggered path
+
+The `passive` trait's `reminder_text` goes into `skillFx.passives[]` — a separate output array. **`passives[]` does not carry `roll_context`** (the engine strips it) and is not rendered anywhere in the character dashboard. It exists as an output for future consumers (e.g. a persistent sidebar or GM view).
+
+**Rule:** If you want a reminder that only appears when a player makes a specific roll, use **`partial_narrative`** with the desired `roll_context`, not `passive`.
+
+```text
+partial_narrative + roll_context: 'attack'   → shows only on Attack rolls
+partial_narrative + roll_context: 'any'      → shows on all Attack/Defend rolls
+passive                                       → collected in passives[], not shown at roll time
+```
+
 ---
 
 ## Evaluation Engine
@@ -162,6 +255,10 @@ interface EffectCalculationResult {
   statModifiers: Record<string, { add: number; multiply: number }>
   weightNegations: string[]
   restModifiers: Record<string, { add: number; multiply: number }>
+  poolRecharges: Record<string, { add: number; multiply: number }>
+  criticalChecks: Array<{ target: string; die_size: number }>
+  nearCriticalChecks: Array<{ target: string; die_size: number }>
+  discounts: Array<{ type: string; subtype: string; amount: number }>
   grantedSpells: string[]
   grantedItems: string[]
   grantedActiveSkills: string[]
@@ -171,6 +268,7 @@ interface EffectCalculationResult {
     reminder_text: string | null
     cost: EffectCost | null
     conditionalModifiers: ConditionalModifier[]
+    roll_context: EffectRollContext  // inherited from the effect; default 'any'
   }>
   passives: Array<{ effect_id: string; reminder_text: string }>
 }

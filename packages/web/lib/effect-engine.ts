@@ -1,7 +1,17 @@
 export type ResourcePool = 'essence' | 'power' | 'will' | 'health';
 export type EffectTrait = 'none' | 'pure_narrative' | 'partial_narrative' | 'passive' | 'skeng' | 'one_time';
 export type EffectTrigger = 'activated' | 'passive' | 'reactive';
-export type ActionType = 'stat_modifier' | 'weight_negation' | 'grant_spell' | 'grant_item' | 'grant_active_skill' | 'rest_modifier';
+export type ActionType =
+  | 'stat_modifier'
+  | 'weight_negation'
+  | 'grant_spell'
+  | 'grant_item'
+  | 'grant_active_skill'
+  | 'rest_modifier'
+  | 'pool_recharge'
+  | 'critical'
+  | 'near_critical'
+  | 'discount';
 export type MathOp = 'add' | 'multiply';
 
 export interface EffectAction {
@@ -24,10 +34,13 @@ export interface EffectDisplay {
   reminder_text: string;
 }
 
+export type EffectRollContext = 'attack' | 'defense' | 'skill_check' | 'any';
+
 export interface Effect {
   effect_id: string;
   trait: EffectTrait;
   trigger: EffectTrigger;
+  roll_context?: EffectRollContext;
   cost: EffectCost | null;
   display: EffectDisplay | null;
   actions: EffectAction[];
@@ -45,6 +58,18 @@ export interface EffectPrompt {
   reminder_text: string | null;
   cost: EffectCost | null;
   conditionalModifiers: ConditionalModifier[];
+  roll_context: EffectRollContext;
+}
+
+export interface CriticalCheck {
+  target: string;
+  die_size: number;
+}
+
+export interface Discount {
+  type: string;
+  subtype: string;
+  amount: number;
 }
 
 export interface EffectCalculationResult {
@@ -54,6 +79,14 @@ export interface EffectCalculationResult {
   weightNegations: string[];
   /** Bonus pool restoration applied on top of base rest. Keyed by pool name. */
   restModifiers: Record<string, { add: number; multiply: number }>;
+  /** In-combat pool recharge amounts (e.g. vampiric drain). Keyed by pool name. */
+  poolRecharges: Record<string, { add: number; multiply: number }>;
+  /** Critical-hit checks enabled for this character. One entry per roll context. */
+  criticalChecks: CriticalCheck[];
+  /** Near-critical checks: rolls that are exactly 1 below the die maximum are treated as the maximum. */
+  nearCriticalChecks: CriticalCheck[];
+  /** Cost/weight discounts. Consumer applies only when the character has matching properties. */
+  discounts: Discount[];
   grantedSpells: string[];
   grantedItems: string[];
   grantedActiveSkills: string[];
@@ -119,6 +152,31 @@ function applyActions(
         }
         break;
       }
+      case 'pool_recharge': {
+        const mod = getOrInit(result.poolRecharges, action.target);
+        if (action.math === 'add') {
+          mod.add += scaleAdd(action, rank);
+        } else {
+          mod.multiply *= scaleMultiply(action, rank);
+        }
+        break;
+      }
+      case 'critical': {
+        result.criticalChecks.push({ target: action.target, die_size: action.Value });
+        break;
+      }
+      case 'near_critical': {
+        result.nearCriticalChecks.push({ target: action.target, die_size: action.Value });
+        break;
+      }
+      case 'discount': {
+        result.discounts.push({
+          type: action.target,
+          subtype: action.target_value ?? 'all',
+          amount: action.Value,
+        });
+        break;
+      }
     }
   }
 }
@@ -145,6 +203,10 @@ function emptyResult(): EffectCalculationResult {
     statModifiers: {},
     weightNegations: [],
     restModifiers: {},
+    poolRecharges: {},
+    criticalChecks: [],
+    nearCriticalChecks: [],
+    discounts: [],
     grantedSpells: [],
     grantedItems: [],
     grantedActiveSkills: [],
@@ -173,6 +235,7 @@ export function evaluateEffect(effect: Effect, rank: number = 1): EffectCalculat
           reminder_text: effect.display.reminder_text ?? null,
           cost: effect.cost,
           conditionalModifiers: computeConditionalModifiers(effect.actions, rank),
+          roll_context: effect.roll_context ?? 'any',
         });
       }
       break;
@@ -214,6 +277,7 @@ export function evaluateEffects(
             reminder_text: effect.display.reminder_text ?? null,
             cost: effect.cost,
             conditionalModifiers: computeConditionalModifiers(effect.actions, rank),
+            roll_context: effect.roll_context ?? 'any',
           });
           break;
         }

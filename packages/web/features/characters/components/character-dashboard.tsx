@@ -30,11 +30,12 @@ import { GiveToAllyModal } from "@/features/characters/components/inventory/give
 import { SkillTreeViewer } from "@/features/skills/components/skill-tree-viewer"
 import { NotificationOverlay, type PendingOfferData } from "@/features/characters/components/offers/notification-overlay"
 import { getConditionStyle } from "@/lib/utils"
+import { ConditionBadge, type CharacterCondition } from "@/components/condition-badge"
 import { ItemTable } from "@/features/characters/components/inventory/item-table"
 import { ActionCard } from "@/features/characters/components/actions/action-card"
-import { SpellTable } from "@/features/characters/components/spells/spell-section"
+import { SpellTable, type SpellE } from "@/features/characters/components/spells/spell-section"
 import VirtualGMComponent from "@/components/virtual-gm-component"
-import { Character, Spell } from "@/components/types/types"
+import { Character } from "@/components/types/types"
 import { evaluateEffects, type Effect } from "@/lib/effect-engine"
 import { SkillCheckPanel } from "@/features/characters/components/actions/skill-check-panel"
 import { ActionSkillModal, type ActionSkill } from "@/features/characters/components/actions/action-skill-modal"
@@ -300,7 +301,7 @@ const offerTypeLabel: Record<PendingOfferData["type"], string> = {
 interface CharacterDashboardProps {
   character: Character
   items: Item[]
-  spells: Spell[]
+  spells: SpellE[]
   isOwner: boolean
   activeSkills: Array<{ effects: Effect[]; current_rank: number }>
   isDev: boolean
@@ -332,6 +333,25 @@ export function CharacterDashboard({
   const [character,      setCharacter]      = useState(initialCharacter)
   const [isDeleting,     setIsDeleting]     = useState(false)
 
+  // ── Cast/active spell tracking ─────────────────────────────────────────────
+  const [castSpellIds, setCastSpellIds] = useState<Set<number>>(() => {
+    try {
+      const raw = typeof window !== 'undefined'
+        ? localStorage.getItem(`cast_spells_${initialCharacter.id}`)
+        : null
+      return new Set(JSON.parse(raw ?? '[]') as number[])
+    } catch { return new Set() }
+  })
+
+  const handleCastToggle = (spellId: number, active: boolean) => {
+    setCastSpellIds(prev => {
+      const next = new Set(prev)
+      if (active) { next.add(spellId) } else { next.delete(spellId) }
+      localStorage.setItem(`cast_spells_${character.id}`, JSON.stringify(Array.from(next)))
+      return next
+    })
+  }
+
   // ── Store wiring ───────────────────────────────────────────────────────────
   const storeUpdatePool    = useCharacterStore(s => s.updatePool)
   const storeModifyStat    = useCharacterStore(s => s.modifyStat)
@@ -344,6 +364,8 @@ export function CharacterDashboard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character.id])
   const [lastRoll,       setLastRoll]       = useState<{ label: string; value: number } | null>(null)
+  const [pendingAction,  setPendingAction]  = useState<{ type: ActionType; itemId: string; isStrong: boolean } | null>(null)
+  const [activePrompts,  setActivePrompts]  = useState<import("@/lib/effect-engine").EffectPrompt[]>([])
   const [inspectingItem, setInspectingItem] = useState<Item | null>(null)
   const [givingItem,     setGivingItem]     = useState<Item | null>(null)
   const [notification,   setNotification]   = useState<Notification | null>(null)
@@ -365,7 +387,11 @@ export function CharacterDashboard({
   const [selectedCastId,   setSelectedCastId]   = usePersistedSelection(`action_cast_${character.id}`,   castItems)
 
   // ── Effect engine ──────────────────────────────────────────────────────────
-  const skillFx = evaluateEffects(activeSkills)
+  // Active (cast) spells contribute their effects alongside passive skill bonuses.
+  const castSpellEffectInputs = spells
+    .filter(s => castSpellIds.has(s.id) && (s.effects?.length ?? 0) > 0)
+    .map(s => ({ current_rank: 1, effects: s.effects! }))
+  const skillFx = evaluateEffects([...activeSkills, ...castSpellEffectInputs])
   const effectiveWeight = (item: Item) => {
     if (item.subtype && skillFx.weightNegations.includes(item.subtype)) return 0
     return item.weight ?? 0
@@ -438,11 +464,28 @@ export function CharacterDashboard({
       baseValue = isStrong ? (item.strong_defence ?? item.defence ?? 0) : (item.defence ?? 0)
     } else {
       const dieFace = isStrong ? (item.strong_damage ?? item.damage ?? 0) : (item.damage ?? 0)
-      baseValue = rollDice(item.die_count ?? 0, dieFace)
+      const dieCount = item.die_count ?? 0
+      baseValue = rollDice(dieCount, dieFace)
+      if (dieCount > 0 && dieFace > 0) {
+        const rollMax = dieCount * dieFace
+        const hasNearCrit = skillFx.nearCriticalChecks.some(
+          (c) => (c.target === "attack" || c.target === "any") && c.die_size === dieFace
+        )
+        if (hasNearCrit && baseValue === rollMax - 1) {
+          baseValue = rollMax
+        }
+      }
     }
 
     const total = (baseValue + (item.modifier ?? 0)) * (item.coefficient ?? 1)
     setLastRoll({ label: `${actionType}ed for`, value: total })
+
+    const rollCtx = actionType === "Attack" ? "attack" : actionType === "Defend" ? "defense" : null
+    setActivePrompts(
+      rollCtx
+        ? skillFx.prompts.filter((p) => p.roll_context === rollCtx || p.roll_context === "any")
+        : []
+    )
 
     if (actionType === "Attack" || actionType === "Cast") {
       if (item.subtype !== "melee") {
@@ -528,6 +571,11 @@ export function CharacterDashboard({
   const handleSaveDescription = async (field: "physical_description" | "backstory", value: string) => {
     const { error } = await updateCharacter(createClient(), character.id, { [field]: value })
     if (!error) setCharacter(prev => ({ ...prev, [field]: value } as Character))
+  }
+
+  const handleRemoveCondition = async () => {
+    const { error } = await updateCharacter(createClient(), character.id, { condition: null })
+    if (!error) setCharacter(prev => ({ ...prev, condition: null }))
   }
 
   // handle for deleting a character
@@ -729,6 +777,19 @@ export function CharacterDashboard({
 
         {repairPopup && <RepairToast message={repairPopup} />}
 
+        {/* AI GM burndown timers — only visible when ai_game is enabled */}
+        {(character as Character & { ai_game?: boolean }).ai_game && (
+          <section className="mb-10">
+            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">Active Effects</h2>
+            <div className="space-y-2">
+              {/* Timers are injected here by the AI GM. Placeholder shown while no timers are active. */}
+              <p className="font-serif text-xs text-muted-foreground/40 italic border border-border/30 p-3">
+                No active timed effects.
+              </p>
+            </div>
+          </section>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full bg-secondary mb-8">
             <TabsTrigger value="actions" className="flex-1 uppercase tracking-widest text-xs data-[state=active]:bg-card">
@@ -749,6 +810,32 @@ export function CharacterDashboard({
               <InfoTooltip text="Execute combat using equipped weapons and armor. Attack rolls your weapon's dice for damage; Defend applies flat damage reduction from your armor." />
             </div>
 
+            {/* ROLL button — select an action card first, then fire here */}
+            {(() => {
+              const pendingItem = pendingAction ? items.find(i => i.id === pendingAction.itemId) : null
+              const label = pendingAction
+                ? `Roll: ${pendingAction.isStrong ? "Strong " : ""}${pendingAction.type}${pendingItem ? ` — ${pendingItem.name}` : ""}`
+                : "Roll"
+              return (
+                <button
+                  onClick={() => {
+                    if (!pendingAction) return
+                    const action = pendingAction
+                    setPendingAction(null)
+                    handleAction(action.type, action.itemId, action.isStrong)
+                  }}
+                  disabled={!pendingAction}
+                  className={`w-full mb-4 py-5 border-2 font-serif text-2xl tracking-[0.4em] uppercase transition-all ${
+                    pendingAction
+                      ? "border-foreground/50 text-foreground hover:bg-secondary/20 cursor-pointer"
+                      : "border-border/20 bg-card/30 text-muted-foreground/20 cursor-not-allowed"
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })()}
+
             {actionError && (
               <div className="mb-4 p-3 bg-red-950/60 border border-red-700/70 text-center animate-in fade-in slide-in-from-top-1">
                 <span className="text-xs uppercase tracking-widest text-red-400">
@@ -766,13 +853,29 @@ export function CharacterDashboard({
               </div>
             )}
 
+            {activePrompts.length > 0 && (
+              <div className="mb-4 space-y-2 animate-in fade-in slide-in-from-top-1">
+                {activePrompts.map((p) => (
+                  <div key={p.effect_id} className="p-3 border border-cyan-800/60 bg-cyan-950/20 flex items-start gap-3">
+                    <span className="text-[10px] uppercase tracking-[0.3em] text-cyan-500 shrink-0 pt-0.5">Active Effect</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-serif text-foreground">{p.prompt_text}</p>
+                      {p.reminder_text && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{p.reminder_text}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4 mb-10">
               <ActionCard
                 label="Attack"
                 items={effectiveAttackItems}
                 selectedId={selectedAttackId}
                 onSelect={setSelectedAttackId}
-                onAction={(isStrong) => handleAction("Attack", selectedAttackId, isStrong)}
+                onAction={(isStrong) => setPendingAction({ type: "Attack", itemId: selectedAttackId, isStrong })}
                 isFlat={false}
               />
               <ActionCard
@@ -780,7 +883,7 @@ export function CharacterDashboard({
                 items={effectiveDefendItems}
                 selectedId={selectedDefendId}
                 onSelect={setSelectedDefendId}
-                onAction={(isStrong) => handleAction("Defend", selectedDefendId, isStrong)}
+                onAction={(isStrong) => setPendingAction({ type: "Defend", itemId: selectedDefendId, isStrong })}
                 isFlat={true}
               />
             </div>
@@ -840,6 +943,8 @@ export function CharacterDashboard({
                 isOwner={isOwner}
                 character={character}
                 updatePool={updatePool}
+                activeCasts={castSpellIds}
+                onCastToggle={handleCastToggle}
               />
             </div>
           </TabsContent>
@@ -1059,6 +1164,12 @@ export function CharacterDashboard({
             setGivingItem(null)
             startTransition(() => router.refresh())
           }}
+        />
+      )}
+      {character.condition && (
+        <ConditionBadge
+          condition={character.condition as CharacterCondition}
+          onRemove={isOwner ? handleRemoveCondition : undefined}
         />
       )}
     </div>

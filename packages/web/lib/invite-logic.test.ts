@@ -24,8 +24,8 @@ function makeDb(resolvedValue: unknown = { data: null, error: null }) {
     delete: vi.fn(() => chain),
     eq:     vi.fn(() => chain),
     single: vi.fn(() => Promise.resolve(resolvedValue)),
-    then:   (resolve, reject?) =>
-      Promise.resolve(resolvedValue).then(resolve as any, reject),
+    then:   (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+      Promise.resolve(resolvedValue).then(resolve as never, reject),
   } as any
   return chain
 }

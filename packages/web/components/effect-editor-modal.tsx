@@ -7,12 +7,13 @@ import type {
   Effect,
   EffectTrait,
   EffectTrigger,
+  EffectRollContext,
   ActionType,
   MathOp,
   ResourcePool,
 } from "@/lib/effect-engine"
 import { Button } from "@/components/ui/button"
-import { X, Plus, Trash2, RotateCcw } from "lucide-react"
+import { X, Plus, Trash2, RotateCcw, Info } from "lucide-react"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -20,6 +21,7 @@ import { X, Plus, Trash2, RotateCcw } from "lucide-react"
 
 const TRAITS: EffectTrait[] = ["none", "pure_narrative", "partial_narrative", "passive", "skeng", "one_time"]
 const TRIGGERS: EffectTrigger[] = ["activated", "passive", "reactive"]
+const ROLL_CONTEXTS: EffectRollContext[] = ["any", "attack", "defense", "skill_check"]
 const POOLS: ResourcePool[] = ["essence", "power", "will", "health"]
 const ACTION_TYPES: ActionType[] = [
   "stat_modifier",
@@ -28,6 +30,10 @@ const ACTION_TYPES: ActionType[] = [
   "grant_item",
   "grant_active_skill",
   "rest_modifier",
+  "pool_recharge",
+  "critical",
+  "near_critical",
+  "discount",
 ]
 const MATH_OPS: MathOp[] = ["add", "multiply"]
 const STAT_TARGETS = [
@@ -43,6 +49,48 @@ const STAT_TARGETS = [
   "carry_weight",
 ]
 const REST_TARGETS = ["essence", "power", "will", "health"]
+const CRITICAL_TARGETS = ["attack", "defense", "skill_check"]
+const DISCOUNT_TARGETS = ["spell", "attack", "defense"]
+
+const ACTION_TYPE_HINTS: Record<ActionType, string> = {
+  stat_modifier:      "Adds or multiplies a character stat. Target = stat name (e.g. might, sorcery). Math = add stacks linearly, multiply stacks multiplicatively.",
+  weight_negation:    "Sets the effective carry weight of a specific item subtype to 0. Enter the subtype string (e.g. 'sword', 'bow').",
+  grant_spell:        "Grants the character access to a specific spell. Used with the 'one_time' trait.",
+  grant_item:         "Grants the character a specific item. Used with the 'one_time' trait.",
+  grant_active_skill: "Grants the character a specific active skill. Used with the 'one_time' trait.",
+  rest_modifier:      "Adds bonus pool recovery on rest. Target = pool (health/will/power/essence). Val = how much extra is restored.",
+  pool_recharge:      "In-combat pool recovery — e.g. vampiric drain. Target = pool to refill. Val = amount regained per trigger.",
+  critical:           "Enables critical hits for a roll context. Target = attack / defense / skill_check. Val = the die's max face (6 for d6, 10 for d10, 20 for d20). No extra modifier is applied — a crit just confirms the roll.",
+  near_critical:      "Rolls that are exactly 1 below the die maximum are automatically promoted to the maximum. Target = attack / defense / skill_check. Val = the die's max face (must match the weapon's die size). Only applies to attack rolls with dice.",
+  discount:           "Reduces cost or weight for a category. Target = spell / attack / defense. Subtype = specific kind (e.g. 'fire', 'sword') or 'all'. Val = integer amount to reduce. Silently ignored if the character has no matching properties.",
+}
+
+const TRAIT_HINT = "Determines how the engine processes this effect.\n• skeng: always-on stat/pool bonus\n• one_time: grants spells, items, or active skills\n• passive: reminder text only — no stat change\n• partial_narrative: GM/player approval required before applying\n• pure_narrative / none: informational only"
+const TRIGGER_HINT = "When this effect fires.\n• activated: player explicitly triggers it (costs pool)\n• passive: always active in the background\n• reactive: fires automatically in response to a game event"
+const ROLL_CONTEXT_HINT = "Which action phase surfaces this reminder to the player.\n• any: always shown\n• attack: shown only when the player clicks Attack\n• defense: shown only when the player clicks Defend\n• skill_check: reserved for future skill-check flows\n\nOnly relevant for partial_narrative effects."
+const COST_HINT = "Pool and amount spent each time this effect is activated. Only applies to 'activated' triggers."
+const PROMPT_HINT = "Question shown to the player or GM before applying conditional modifiers. Used with the 'partial_narrative' trait."
+const REMINDER_HINT = "Always-visible description on the character sheet. Describes what the effect does in plain terms."
+const MATH_HINT = "add: values stack linearly (+3 and +5 = +8 total).\nmultiply: values stack multiplicatively (×1.3 and ×1.5 = ×1.95 total)."
+const VAL_HINT = "Base value at rank 1. For non-scaling effects this is the only value used."
+const PER_RANK_ADD_HINT = "Added to Val for each rank above 1. At rank 3 with Val=2 and +/rank=1: 2 + 1×(3–1) = 4. Leave blank for no linear scaling."
+const PER_RANK_MUL_HINT = "Multiplied by Val for each rank above 1. At rank 3 with Val=2 and ×/rank=0.5: 2 + 0.5×(3–1) = 3. Leave blank for no multiplicative scaling."
+const EFFECT_ID_HINT = "Unique snake_case identifier for this effect (e.g. 'vampiric_drain_01'). Must be unique within the entity. Used for deduplication and GM references."
+
+// ---------------------------------------------------------------------------
+// Tip — inline hover tooltip
+// ---------------------------------------------------------------------------
+
+function Tip({ text }: { text: string }) {
+  return (
+    <span className="relative group inline-flex items-center ml-1 align-middle">
+      <Info className="w-3 h-3 text-muted-foreground/40 hover:text-muted-foreground/70 cursor-help transition-colors" />
+      <span className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 bg-card border border-border text-[10px] text-muted-foreground leading-relaxed px-3 py-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[300] font-sans normal-case tracking-normal whitespace-pre-line shadow-xl">
+        {text}
+      </span>
+    </span>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Internal editing types
@@ -67,6 +115,7 @@ interface EditingEffect {
   effect_id: string
   trait: EffectTrait | ""
   trigger: EffectTrigger | ""
+  roll_context: EffectRollContext
   costEnabled: boolean
   costPool: ResourcePool | ""
   costValue: string
@@ -89,6 +138,7 @@ function blankEffect(): EditingEffect {
     effect_id: "",
     trait: "",
     trigger: "",
+    roll_context: "any",
     costEnabled: false,
     costPool: "",
     costValue: "1",
@@ -104,6 +154,7 @@ function effectToEditing(e: Effect): EditingEffect {
     effect_id: e.effect_id,
     trait: e.trait,
     trigger: e.trigger,
+    roll_context: e.roll_context ?? "any",
     costEnabled: e.cost !== null,
     costPool: e.cost?.pool ?? "",
     costValue: String(e.cost?.value ?? 1),
@@ -131,6 +182,7 @@ function editingToEffect(e: EditingEffect): Effect | null {
     effect_id: e.effect_id,
     trait: e.trait as EffectTrait,
     trigger: e.trigger as EffectTrigger,
+    roll_context: e.roll_context,
     cost:
       e.costEnabled && e.costPool
         ? { pool: e.costPool as ResourcePool, value: Math.max(1, parseInt(e.costValue) || 1) }
@@ -147,7 +199,7 @@ function editingToEffect(e: EditingEffect): Effect | null {
         Value: parseFloat(a.Value) || 0,
         per_rank_add: a.per_rank_add !== "" ? parseFloat(a.per_rank_add) : null,
         per_rank_multiply: a.per_rank_multiply !== "" ? parseFloat(a.per_rank_multiply) : null,
-        target_value: a.type === "weight_negation" ? (a.target_value || null) : null,
+        target_value: (a.type === "weight_negation" || a.type === "discount") ? (a.target_value || null) : null,
       })),
   }
 }
@@ -335,6 +387,43 @@ function ActionTargetInput({
           ))}
         </select>
       )
+    case "pool_recharge":
+      return (
+        <select value={action.target} onChange={(e) => onChange(actionIdx, { target: e.target.value })} className={selectCls}>
+          <option value="">Pool...</option>
+          {REST_TARGETS.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      )
+    case "critical":
+    case "near_critical":
+      return (
+        <select value={action.target} onChange={(e) => onChange(actionIdx, { target: e.target.value })} className={selectCls}>
+          <option value="">Roll type...</option>
+          {CRITICAL_TARGETS.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      )
+    case "discount":
+      return (
+        <div className="flex gap-2 flex-1">
+          <select value={action.target} onChange={(e) => onChange(actionIdx, { target: e.target.value })} className={selectCls}>
+            <option value="">Applies to...</option>
+            {DISCOUNT_TARGETS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={action.target_value}
+            onChange={(e) => onChange(actionIdx, { target_value: e.target.value })}
+            placeholder='subtype or "all"'
+            className={inputCls}
+          />
+        </div>
+      )
     default:
       return null
   }
@@ -481,7 +570,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
     type === "grant_active_skill" ? "A.Skill" : type === "grant_spell" ? "Spell" : "Item"
 
   const needsValueRow = (type: ActionType | "") =>
-    type === "stat_modifier" || type === "rest_modifier"
+    type === "stat_modifier" || type === "rest_modifier" || type === "pool_recharge" || type === "critical" || type === "near_critical" || type === "discount"
 
   // ---------------------------------------------------------------------------
   // Render
@@ -546,7 +635,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
             {/* Basic fields */}
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-1">
-                <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1.5">Effect ID</label>
+                <label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center mb-1.5">Effect ID<Tip text={EFFECT_ID_HINT} /></label>
                 <input
                   type="text"
                   value={current.effect_id}
@@ -556,7 +645,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
                 />
               </div>
               <div>
-                <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1.5">Trait</label>
+                <label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center mb-1.5">Trait<Tip text={TRAIT_HINT} /></label>
                 <select
                   value={current.trait}
                   onChange={(e) => updateCurrent({ trait: e.target.value as EffectTrait })}
@@ -569,7 +658,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
                 </select>
               </div>
               <div>
-                <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1.5">Trigger</label>
+                <label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center mb-1.5">Trigger<Tip text={TRIGGER_HINT} /></label>
                 <select
                   value={current.trigger}
                   onChange={(e) => updateCurrent({ trigger: e.target.value as EffectTrigger })}
@@ -583,6 +672,24 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
               </div>
             </div>
 
+            {/* Roll Context — only meaningful for partial_narrative */}
+            {current.trait === "partial_narrative" && (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-1">
+                  <label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center mb-1.5">Roll Context<Tip text={ROLL_CONTEXT_HINT} /></label>
+                  <select
+                    value={current.roll_context}
+                    onChange={(e) => updateCurrent({ roll_context: e.target.value as EffectRollContext })}
+                    className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2"
+                  >
+                    {ROLL_CONTEXTS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
             {/* Cost */}
             <div className="border border-border p-4 space-y-3">
               <label className="flex items-center gap-3 cursor-pointer">
@@ -592,7 +699,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
                   onChange={(e) => updateCurrent({ costEnabled: e.target.checked })}
                   className="w-4 h-4 accent-cyan-500"
                 />
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Has Cost</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground flex items-center">Has Cost<Tip text={COST_HINT} /></span>
               </label>
               {current.costEnabled && (
                 <div className="flex gap-4">
@@ -640,7 +747,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
               {current.displayEnabled && (
                 <>
                   <div>
-                    <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">Prompt Text</label>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center mb-1">Prompt Text<Tip text={PROMPT_HINT} /></label>
                     <textarea
                       value={current.displayPromptText}
                       onChange={(e) => updateCurrent({ displayPromptText: e.target.value })}
@@ -650,7 +757,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
                     />
                   </div>
                   <div>
-                    <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">Reminder Text</label>
+                    <label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center mb-1">Reminder Text<Tip text={REMINDER_HINT} /></label>
                     <textarea
                       value={current.displayReminderText}
                       onChange={(e) => updateCurrent({ displayReminderText: e.target.value })}
@@ -756,6 +863,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
                             <option key={t} value={t}>{t}</option>
                           ))}
                         </select>
+                        {action.type && <Tip text={ACTION_TYPE_HINTS[action.type as ActionType]} />}
                         {action.type && (
                           <ActionTargetInput
                             action={action}
@@ -769,17 +877,20 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
                       </div>
                       {needsValueRow(action.type) && (
                         <div className="flex gap-2 items-center flex-wrap">
-                          <select
-                            value={action.math}
-                            onChange={(e) => updateAction(actionIdx, { math: e.target.value as MathOp })}
-                            className="bg-secondary border border-border text-foreground text-xs px-2 py-1.5"
-                          >
-                            {MATH_OPS.map((m) => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
                           <div className="flex items-center gap-1">
-                            <label className="text-xs text-muted-foreground shrink-0">Val</label>
+                            <select
+                              value={action.math}
+                              onChange={(e) => updateAction(actionIdx, { math: e.target.value as MathOp })}
+                              className="bg-secondary border border-border text-foreground text-xs px-2 py-1.5"
+                            >
+                              {MATH_OPS.map((m) => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </select>
+                            <Tip text={MATH_HINT} />
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <label className="text-xs text-muted-foreground shrink-0">Val<Tip text={VAL_HINT} /></label>
                             <input
                               type="number"
                               value={action.Value}
@@ -788,7 +899,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
                             />
                           </div>
                           <div className="flex items-center gap-1">
-                            <label className="text-xs text-muted-foreground shrink-0">+/rank</label>
+                            <label className="text-xs text-muted-foreground shrink-0 flex items-center">+/rank<Tip text={PER_RANK_ADD_HINT} /></label>
                             <input
                               type="number"
                               value={action.per_rank_add}
@@ -798,7 +909,7 @@ export function EffectEditorModal({ isOpen, effects, onSave, onClose }: EffectEd
                             />
                           </div>
                           <div className="flex items-center gap-1">
-                            <label className="text-xs text-muted-foreground shrink-0">×/rank</label>
+                            <label className="text-xs text-muted-foreground shrink-0 flex items-center">×/rank<Tip text={PER_RANK_MUL_HINT} /></label>
                             <input
                               type="number"
                               value={action.per_rank_multiply}

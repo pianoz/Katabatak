@@ -2,7 +2,7 @@ import { z } from "zod"
 import type { Effect } from "@/lib/effect-engine"
 
 const EffectActionSchema = z.object({
-  type: z.enum(["stat_modifier", "weight_negation", "grant_spell", "grant_item", "grant_active_skill", "rest_modifier"]),
+  type: z.enum(["stat_modifier", "weight_negation", "grant_spell", "grant_item", "grant_active_skill", "rest_modifier", "pool_recharge", "critical", "near_critical", "discount"]),
   target: z.string(),
   math: z.enum(["add", "multiply"]),
   Value: z.number(),
@@ -15,6 +15,7 @@ const EffectSchema = z.object({
   effect_id: z.string(),
   trait: z.enum(["none", "pure_narrative", "partial_narrative", "passive", "skeng", "one_time"]),
   trigger: z.enum(["activated", "passive", "reactive"]),
+  roll_context: z.enum(["attack", "defense", "skill_check", "any"]).optional(),
   cost: z.object({
     pool: z.enum(["essence", "power", "will", "health"]),
     value: z.number(),

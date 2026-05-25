@@ -1,6 +1,7 @@
 import express from 'express'
 import { handleGMMessage } from './gm/handler.js'
 import { summarizeHistory } from './gm/agents/summary.js'
+import { runEval } from './gm/services/claude-service.js'
 import type { CharacterContext, ConversationTurn } from './gm/types.js'
 
 console.log('====================================================')
@@ -51,6 +52,33 @@ app.post('/gm/summarize', async (req, res) => {
   } catch (err) {
     console.error('[SUMMARY] Error:', err instanceof Error ? err.message : String(err))
     res.status(500).json({ error: 'Summary agent failed' })
+  }
+})
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' })
+})
+
+app.post('/eval', async (req, res) => {
+  const { prompt, messages, system, model, maxTokens } = req.body as {
+    prompt?: string
+    messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+    system?: string
+    model?: string
+    maxTokens?: number
+  }
+  const hasInput = prompt || (Array.isArray(messages) && messages.length > 0)
+  if (!hasInput) {
+    res.status(400).json({ error: 'prompt or messages is required' })
+    return
+  }
+  try {
+    const result = await runEval({ prompt, messages, system, model, maxTokens })
+    res.json(result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const isAuthError = message.toLowerCase().includes('api_key') || message.toLowerCase().includes('authentication')
+    res.status(isAuthError ? 401 : 500).json({ error: message })
   }
 })
 

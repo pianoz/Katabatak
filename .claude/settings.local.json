@@ -111,7 +111,22 @@
       "Bash(find c:\\\\\\\\Users\\\\\\\\Robert\\\\\\\\Documents\\\\\\\\Katabatak\\\\\\\\packages\\\\\\\\web -name \"*action*\" -type f)",
       "Bash(grep -r \"ActionSkill\" c:\\\\\\\\Users\\\\\\\\Robert\\\\\\\\Documents\\\\\\\\Katabatak\\\\\\\\packages\\\\\\\\web --include=\"*.ts\" --include=\"*.tsx\")",
       "Bash(grep -n \"evaluateEffects\\\\|evaluateEffect\" c:\\\\\\\\Users\\\\\\\\Robert\\\\\\\\Documents\\\\\\\\Katabatak\\\\\\\\packages\\\\\\\\web\\\\\\\\features\\\\\\\\characters\\\\\\\\components\\\\\\\\character-dashboard.tsx)",
-      "Bash(grep -n \"evaluateEffect\" c:\\\\\\\\Users\\\\\\\\Robert\\\\\\\\Documents\\\\\\\\Katabatak\\\\\\\\packages\\\\\\\\web\\\\\\\\features\\\\\\\\characters\\\\\\\\components\\\\\\\\character-dashboard.tsx)"
+      "Bash(grep -n \"evaluateEffect\" c:\\\\\\\\Users\\\\\\\\Robert\\\\\\\\Documents\\\\\\\\Katabatak\\\\\\\\packages\\\\\\\\web\\\\\\\\features\\\\\\\\characters\\\\\\\\components\\\\\\\\character-dashboard.tsx)",
+      "Bash(xargs wc -l)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\supabase\" -Recurse -ErrorAction SilentlyContinue)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3001\")",
+      "Bash(curl -s http://localhost:3001/health)",
+      "Bash(tasklist /FI \"PID eq 52248\" /FO LIST)",
+      "PowerShell(Get-Process -Id 52248)",
+      "PowerShell(Stop-Process -Id 52248 -Force)",
+      "Bash(tsx --env-file=.env.local index.ts)",
+      "PowerShell(Start-Process -FilePath \"pnpm\" -ArgumentList \"--filter\", \"server\", \"dev\" -WorkingDirectory \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\" -WindowStyle Normal)",
+      "PowerShell(curl http://localhost:3001/health)",
+      "PowerShell(netstat -ano)",
+      "PowerShell($job = Start-Job -ScriptBlock { Set-Location \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\"; pnpm --filter server dev } ; Start-Sleep 6; Receive-Job $job; netstat -ano | findstr \":3001\")",
+      "PowerShell(Invoke-RestMethod http://localhost:3001/health)",
+      "PowerShell(Invoke-RestMethod \"http://127.0.0.1:3001/health\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

@@ -11,7 +11,9 @@ import { Header } from "@/components/header"
 import type { Item as InventoryItem, GameCharacter } from "@/features/characters/components/inventory/item-table"
 import { GrantItemToCharacterModal } from "@/features/games/modals/grant-item-to-character-modal"
 import { GrantRewardModal } from "@/features/games/modals/grant-reward-modal"
+import { GrantConditionModal } from "@/features/games/modals/grant-condition-modal"
 import type { Game, Character, Spell, Item as CatalogItem } from "@/components/types/types"
+import type { SpellE } from "@/features/characters/components/spells/spell-section"
 import { CreateSpellModal } from "@/components/create-spell-modal"
 import { CreateItemModal } from "@/components/create-item-modal"
 import { InspectItemModal } from "@/features/characters/components/inventory/inspect-item-modal"
@@ -82,6 +84,7 @@ export default function GameDashboardPage({ params }: { params: Promise<{ id: st
   const [inspectedItem, setInspectedItem] = useState<InventoryItem | null>(null)
   const [grantItemTarget, setGrantItemTarget] = useState<{ item: InventoryItem; gameCharacters: GameCharacter[] } | null>(null)
   const [grantRewardOpen, setGrantRewardOpen] = useState(false)
+  const [grantConditionOpen, setGrantConditionOpen] = useState(false)
   const [kickOpen, setKickOpen] = useState(false)
   const [encounterRefreshKey, setEncounterRefreshKey] = useState(0)
 
@@ -240,6 +243,7 @@ export default function GameDashboardPage({ params }: { params: Promise<{ id: st
             onInvited={(id) => setMemberProfileIds((prev) => new Set([...prev, id]))}
             onKickOpen={() => setKickOpen(true)}
             onGrantRewardOpen={() => setGrantRewardOpen(true)}
+            onGrantConditionOpen={() => setGrantConditionOpen(true)}
           />
         )}
         {activePanel === "items" && (
@@ -255,7 +259,7 @@ export default function GameDashboardPage({ params }: { params: Promise<{ id: st
         {activePanel === "spells" && (
           <SpellsPanel
             isGM={isGM}
-            catalogSpells={catalogSpells}
+            catalogSpells={catalogSpells as unknown as SpellE[]}
             gameId={gameId}
             gameCharacters={gameCharacters}
             onCreateSpell={() => setCreateSpellOpen(true)}
@@ -292,6 +296,12 @@ export default function GameDashboardPage({ params }: { params: Promise<{ id: st
           gameCharacters={gameCharacters}
           gameId={gameId}
           onClose={() => setGrantRewardOpen(false)}
+        />
+      )}
+      {grantConditionOpen && isGM && (
+        <GrantConditionModal
+          gameCharacters={gameCharacters}
+          onClose={() => setGrantConditionOpen(false)}
         />
       )}
       {kickOpen && isGM && (

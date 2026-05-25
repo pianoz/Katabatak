@@ -107,7 +107,7 @@ function SearchPicker<T extends { id: string; name: string }>({
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-type FormState = Omit<Spell, "id">;
+type FormState = Omit<Spell, "id" | "effects">;
 
 const empty: FormState = {
   name: null,
@@ -165,6 +165,7 @@ export function CreateSpellModal({ isOpen, onClose, onSubmit }: CreateSpellModal
   function handleSubmit() {
     onSubmit({
       ...form,
+      effects: [],
       damage: dealsDamage ? form.damage : null,
       defence: providesDefence ? form.defence : null,
     });

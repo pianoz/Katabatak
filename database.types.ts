@@ -372,6 +372,7 @@ export type Database = {
           backstory: string | null
           carrying_capacity: number | null
           class_archetype: string | null
+          condition: string | null
           condition_text: string | null
           created_at: string | null
           current_carry_weight: number | null
@@ -408,6 +409,7 @@ export type Database = {
           backstory?: string | null
           carrying_capacity?: number | null
           class_archetype?: string | null
+          condition?: string | null
           condition_text?: string | null
           created_at?: string | null
           current_carry_weight?: number | null
@@ -444,6 +446,7 @@ export type Database = {
           backstory?: string | null
           carrying_capacity?: number | null
           class_archetype?: string | null
+          condition?: string | null
           condition_text?: string | null
           created_at?: string | null
           current_carry_weight?: number | null

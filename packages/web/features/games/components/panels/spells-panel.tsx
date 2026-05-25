@@ -1,14 +1,13 @@
 "use client"
 
-import { SpellTable } from "@/features/characters/components/spells/spell-section"
-import type { Spell } from "@/components/types/types"
+import { SpellTable, type SpellE } from "@/features/characters/components/spells/spell-section"
 
 const ghostBtnClass =
   "font-sans text-[0.65rem] tracking-widest uppercase bg-transparent border border-border text-muted-foreground px-3 py-1.5 cursor-pointer"
 
 interface SpellsPanelProps {
   isGM: boolean
-  catalogSpells: Spell[]
+  catalogSpells: SpellE[]
   gameId: string
   gameCharacters: { id: string; name: string }[]
   onCreateSpell: () => void

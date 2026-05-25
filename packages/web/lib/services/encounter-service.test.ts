@@ -19,6 +19,8 @@ import {
   createCreature,
   getCreatures,
 } from "./encounter-service"
+import type { Tables } from "@/components/types/supabase"
+type Creature = Tables<"creatures">
 
 const ALICE = uniqueEmail("enc-alice") // GM
 const BOB = uniqueEmail("enc-bob")     // player
@@ -121,11 +123,7 @@ describe("encounter-service", () => {
         .select("*")
         .eq("id", creatureId)
         .single()
-      const creature = rawCreature as {
-        id: string; name: string; level: number; attack_damage: number; attack_cost: number
-        defence: number; strong_attack: null; health_max: number; power_max: number
-        will_max: number; essence_max: number
-      }
+      const creature = rawCreature as Creature
 
       const { error } = await addCreaturesToEncounter(alice, gameId, [creature])
       expect(error).toBeNull()

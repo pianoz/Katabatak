@@ -20,6 +20,7 @@ interface CharactersPanelProps {
   onInvited: (profileId: string) => void
   onKickOpen: () => void
   onGrantRewardOpen: () => void
+  onGrantConditionOpen: () => void
 }
 
 export function CharactersPanel({
@@ -32,6 +33,7 @@ export function CharactersPanel({
   onInvited,
   onKickOpen,
   onGrantRewardOpen,
+  onGrantConditionOpen,
 }: CharactersPanelProps) {
   return (
     <div className="flex-1 flex overflow-hidden">
@@ -43,7 +45,10 @@ export function CharactersPanel({
       />
       <div className="flex-1 p-8 overflow-y-auto">
         {isGM && (
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end gap-2 mb-4">
+            <button className={ghostBtnClass} onClick={onGrantConditionOpen}>
+              Conditions
+            </button>
             <button className={ghostBtnClass} onClick={onGrantRewardOpen}>
               Grant Rewards
             </button>

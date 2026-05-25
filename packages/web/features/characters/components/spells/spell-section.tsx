@@ -8,7 +8,7 @@ import { Character, Spell } from "@/components/types/types"
 import { GrantToCharacterModal } from "@/features/games/modals/grant-to-character-modal"
 import type { Effect } from "@/lib/effect-engine"
 
-type SpellE = Spell & { effects?: Effect[] }
+export type SpellE = Omit<Spell, 'effects'> & { effects?: Effect[] }
 
 /** Minimal item shape needed to check inventory. */
 interface InventoryItem {
@@ -31,6 +31,10 @@ interface SpellTableProps {
   is_gm?: boolean
   gameId?: string
   gameCharacters?: { id: string; name: string }[]
+  /** Set of spell IDs currently active (cast). Managed by the parent. */
+  activeCasts?: Set<number>
+  /** Called when a spell is cast (active=true) or deactivated (active=false). */
+  onCastToggle?: (spellId: number, active: boolean) => void
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -48,7 +52,7 @@ function resolvePool(cost_attribute_name?: string): PoolKey {
  * or null for each slot that is unsatisfied.
  */
 function resolveRequiredItems(
-  spell: Spell,
+  spell: SpellE,
   inventory: InventoryItem[],
 ): { resolved: (InventoryItem | null)[]; allPresent: boolean } {
   const requiredIds = [spell.req_item_1, spell.req_item_2, spell.req_item_3].filter(Boolean) as string[]
@@ -134,7 +138,9 @@ interface SpellRowProps {
   inventory: InventoryItem[]
   isOwner: boolean
   onCast: (spell: SpellE) => Promise<void>
+  onDeactivate: (spell: SpellE) => void
   casting: boolean
+  isActive: boolean
   is_gm: boolean
   onGrant: (spell: SpellE) => void
 }
@@ -147,16 +153,17 @@ function useSpellRowData(spell: SpellE, inventory: InventoryItem[], isOwner: boo
 }
 
 // Returns a <div> — safe to place inside the mobile <div> list
-function SpellRowMobile({ spell, inventory, isOwner, onCast, casting, is_gm, onGrant }: SpellRowProps) {
+function SpellRowMobile({ spell, inventory, isOwner, onCast, onDeactivate, casting, isActive, is_gm, onGrant }: SpellRowProps) {
   const { resolved, requiredIds, canCast } = useSpellRowData(spell, inventory, isOwner)
 
   return (
-    <div className="p-4 space-y-3 hover:bg-secondary/10 transition-colors">
+    <div className={`p-4 space-y-3 transition-colors ${isActive ? "bg-cyan-950/20" : "hover:bg-secondary/10"}`}>
       <div className="flex justify-between items-start gap-2">
         <div>
           <h4 className="font-serif text-base text-foreground">{spell.name}</h4>
           <p className="text-[10px] uppercase text-muted-foreground tracking-wider mt-0.5">
             {spell.type}{spell.subtype ? ` · ${spell.subtype}` : ""}
+            {isActive && <span className="ml-2 text-cyan-400">· Active</span>}
           </p>
         </div>
         {is_gm ? (
@@ -167,13 +174,22 @@ function SpellRowMobile({ spell, inventory, isOwner, onCast, casting, is_gm, onG
             Grant to Character
           </button>
         ) : isOwner && (
-          <button
-            onClick={() => onCast(spell)}
-            disabled={!canCast || casting}
-            className="shrink-0 px-3 py-1.5 text-xs bg-cyan-900/30 text-cyan-400 border border-cyan-800 hover:bg-cyan-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            {casting ? "Casting…" : "Cast"}
-          </button>
+          isActive ? (
+            <button
+              onClick={() => onDeactivate(spell)}
+              className="shrink-0 px-3 py-1.5 text-xs bg-red-950/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all"
+            >
+              Deactivate
+            </button>
+          ) : (
+            <button
+              onClick={() => onCast(spell)}
+              disabled={!canCast || casting}
+              className="shrink-0 px-3 py-1.5 text-xs bg-cyan-900/30 text-cyan-400 border border-cyan-800 hover:bg-cyan-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {casting ? "Casting…" : "Cast"}
+            </button>
+          )
         )}
       </div>
 
@@ -211,15 +227,16 @@ function SpellRowMobile({ spell, inventory, isOwner, onCast, casting, is_gm, onG
 }
 
 // Returns a <tr> — safe to place inside <tbody>
-function SpellRowDesktop({ spell, inventory, isOwner, onCast, casting, is_gm, onGrant }: SpellRowProps) {
+function SpellRowDesktop({ spell, inventory, isOwner, onCast, onDeactivate, casting, isActive, is_gm, onGrant }: SpellRowProps) {
   const { resolved, requiredIds, canCast } = useSpellRowData(spell, inventory, isOwner)
 
   return (
-    <tr className="border-b border-border hover:bg-secondary/20 transition-colors">
+    <tr className={`border-b border-border transition-colors ${isActive ? "bg-cyan-950/20" : "hover:bg-secondary/20"}`}>
       <td className="p-3 text-sm">
         <div className="font-serif text-foreground">{spell.name}</div>
         <div className="text-[10px] uppercase text-muted-foreground tracking-wider mt-0.5">
           {spell.type}{spell.subtype ? ` · ${spell.subtype}` : ""}
+          {isActive && <span className="ml-2 text-cyan-400">· Active</span>}
         </div>
       </td>
 
@@ -254,13 +271,22 @@ function SpellRowDesktop({ spell, inventory, isOwner, onCast, casting, is_gm, on
             Grant to Character
           </button>
         ) : isOwner && (
-          <button
-            onClick={() => onCast(spell)}
-            disabled={!canCast || casting}
-            className="px-3 py-1.5 text-xs bg-cyan-900/30 text-cyan-400 border border-cyan-800 hover:bg-cyan-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            {casting ? "Casting…" : "Cast"}
-          </button>
+          isActive ? (
+            <button
+              onClick={() => onDeactivate(spell)}
+              className="px-3 py-1.5 text-xs bg-red-950/30 text-red-400 border border-red-800 hover:bg-red-800 hover:text-white transition-all"
+            >
+              Deactivate
+            </button>
+          ) : (
+            <button
+              onClick={() => onCast(spell)}
+              disabled={!canCast || casting}
+              className="px-3 py-1.5 text-xs bg-cyan-900/30 text-cyan-400 border border-cyan-800 hover:bg-cyan-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {casting ? "Casting…" : "Cast"}
+            </button>
+          )
         )}
       </td>
     </tr>
@@ -271,11 +297,15 @@ function SpellRowDesktop({ spell, inventory, isOwner, onCast, casting, is_gm, on
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function SpellTable({ spells, inventory = [], characterId = "", isOwner = false, character, updatePool, is_gm = false, gameId = "", gameCharacters }: SpellTableProps) {
+export function SpellTable({ spells, inventory = [], characterId = "", isOwner = false, character, updatePool, is_gm = false, gameId = "", gameCharacters, activeCasts = new Set(), onCastToggle }: SpellTableProps) {
   const router = useRouter()
   const [castingId, setCastingId] = useState<number | null>(null)
   const [lastCast, setLastCast] = useState<{ name: string; value: number } | null>(null)
   const [grantSpell, setGrantSpell] = useState<SpellE | null>(null)
+
+  const handleDeactivate = (spell: SpellE) => {
+    onCastToggle?.(spell.id, false)
+  }
 
   const handleCast = async (spell: SpellE) => {
     const { allPresent, resolved } = resolveRequiredItems(spell, inventory)
@@ -325,6 +355,9 @@ export function SpellTable({ spells, inventory = [], characterId = "", isOwner =
           await updatePool(pool, -spell.cost)
         }
       }
+
+      // 4. Mark the spell as active
+      onCastToggle?.(spell.id, true)
 
       router.refresh()
     } finally {
@@ -376,7 +409,9 @@ export function SpellTable({ spells, inventory = [], characterId = "", isOwner =
               inventory={inventory}
               isOwner={isOwner}
               onCast={handleCast}
+              onDeactivate={handleDeactivate}
               casting={castingId === spell.id}
+              isActive={activeCasts.has(spell.id)}
               is_gm={is_gm}
               onGrant={setGrantSpell}
             />
@@ -402,7 +437,9 @@ export function SpellTable({ spells, inventory = [], characterId = "", isOwner =
                 inventory={inventory}
                 isOwner={isOwner}
                 onCast={handleCast}
+                onDeactivate={handleDeactivate}
                 casting={castingId === spell.id}
+                isActive={activeCasts.has(spell.id)}
                 is_gm={is_gm}
                 onGrant={setGrantSpell}
               />

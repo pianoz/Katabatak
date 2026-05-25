@@ -39,7 +39,7 @@ const TYPE_HINTS: Record<string, string> = {
   other: "Doesn't fit another category.",
 };
 
-type FormState = Omit<Item, "id" | "required_skill">;
+type FormState = Omit<Item, "id" | "required_skill" | "effects">;
 
 const empty: FormState = {
   name: "",
@@ -111,6 +111,7 @@ export function CreateItemModal({ isOpen, onClose, onSubmit, requiredSkillId, in
   function handleSubmit() {
     onSubmit({
       ...form,
+      effects: [],
       required_skill: requiredSkillId ?? null,
       damage: showDamage ? form.damage : null,
       die_count: showDamage ? form.die_count : null,

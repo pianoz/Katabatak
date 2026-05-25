@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -58,9 +58,10 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
   const router = useRouter()
   const [activeTab, setActiveTab] = useState("games")
   const [friendsOpen, setFriendsOpen] = useState(false)
-  const [devModeEnabled, setDevModeEnabled] = useState(() =>
-    typeof window !== 'undefined' && localStorage.getItem('devModeEnabled') === 'true'
-  )
+  const [devModeEnabled, setDevModeEnabled] = useState(false)
+  useEffect(() => {
+    setDevModeEnabled(localStorage.getItem('devModeEnabled') === 'true')
+  }, [])
   const toggleDevMode = (val: boolean) => {
     localStorage.setItem('devModeEnabled', String(val))
     setDevModeEnabled(val)

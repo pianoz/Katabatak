@@ -26,7 +26,17 @@ export interface ActionSkill {
 
 type SortField = "type" | "use" | null
 
-function SortableSkillRow({ skill, sortActive }: { skill: ActionSkill; sortActive: boolean }) {
+function SortableSkillRow({
+  skill,
+  sortActive,
+  isActive,
+  onToggle,
+}: {
+  skill: ActionSkill
+  sortActive: boolean
+  isActive: boolean
+  onToggle: (id: string, active: boolean) => void
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: skill.id,
     disabled: sortActive,
@@ -36,7 +46,9 @@ function SortableSkillRow({ skill, sortActive }: { skill: ActionSkill; sortActiv
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-      className="flex items-center gap-3 px-4 py-3 border-b border-border/50 last:border-0 hover:bg-secondary/10"
+      className={`flex items-center gap-3 px-4 py-3 border-b border-border/50 last:border-0 transition-colors ${
+        isActive ? "bg-amber-950/20" : "hover:bg-secondary/10"
+      }`}
     >
       {!sortActive && (
         <button
@@ -69,9 +81,21 @@ function SortableSkillRow({ skill, sortActive }: { skill: ActionSkill; sortActiv
             {skill.use}
           </span>
         )}
-        <button className="text-[9px] uppercase tracking-widest border border-amber-700/40 text-amber-500/70 px-2 py-1 hover:bg-amber-950/30 transition-colors">
-          Activate
-        </button>
+        {isActive ? (
+          <button
+            onClick={() => onToggle(skill.id, false)}
+            className="text-[9px] uppercase tracking-widest border border-red-800/50 text-red-400/80 px-2 py-1 hover:bg-red-950/30 transition-colors"
+          >
+            Deactivate
+          </button>
+        ) : (
+          <button
+            onClick={() => onToggle(skill.id, true)}
+            className="text-[9px] uppercase tracking-widest border border-amber-700/40 text-amber-500/70 px-2 py-1 hover:bg-amber-950/30 transition-colors"
+          >
+            Activate
+          </button>
+        )}
       </div>
     </div>
   )
@@ -87,6 +111,23 @@ interface ActionSkillModalProps {
 export function ActionSkillModal({ isOpen, onClose, skills, characterId }: ActionSkillModalProps) {
   const [order, setOrder] = useState<string[]>(() => skills.map((s) => s.id))
   const [sortField, setSortField] = useState<SortField>(null)
+  const [activatedIds, setActivatedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = typeof window !== 'undefined'
+        ? localStorage.getItem(`activated_skills_${characterId}`)
+        : null
+      return new Set(JSON.parse(raw ?? '[]') as string[])
+    } catch { return new Set() }
+  })
+
+  const handleToggleSkill = (id: string, active: boolean) => {
+    setActivatedIds(prev => {
+      const next = new Set(prev)
+      if (active) { next.add(id) } else { next.delete(id) }
+      localStorage.setItem(`activated_skills_${characterId}`, JSON.stringify(Array.from(next)))
+      return next
+    })
+  }
 
   // Restore persisted order, reconciling against current skills
   useEffect(() => {
@@ -178,7 +219,13 @@ export function ActionSkillModal({ isOpen, onClose, skills, characterId }: Actio
             <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={displayedSkills.map((s) => s.id)} strategy={verticalListSortingStrategy}>
                 {displayedSkills.map((skill) => (
-                  <SortableSkillRow key={skill.id} skill={skill} sortActive={sortField !== null} />
+                  <SortableSkillRow
+                    key={skill.id}
+                    skill={skill}
+                    sortActive={sortField !== null}
+                    isActive={activatedIds.has(skill.id)}
+                    onToggle={handleToggleSkill}
+                  />
                 ))}
               </SortableContext>
             </DndContext>

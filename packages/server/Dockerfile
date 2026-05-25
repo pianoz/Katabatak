@@ -15,7 +15,6 @@ RUN pnpm install --frozen-lockfile --filter server
 COPY packages/server/ ./packages/server/
 
 WORKDIR /app/packages/server
-EXPOSE 3001
-HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:3001/health || exit 1
+EXPOSE 8080
 
-CMD ["node", "--env-file=.env", "node_modules/.bin/tsx", "index.ts"]
+CMD ["node", "node_modules/.bin/tsx", "index.ts"]

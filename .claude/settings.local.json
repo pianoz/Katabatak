@@ -129,7 +129,12 @@
       "PowerShell(Invoke-RestMethod \"http://127.0.0.1:3001/health\")",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\server\\\\gm\" -Recurse -File)",
       "PowerShell(Get-ChildItem \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\server\" -Recurse | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\(\"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\server\\\\\", \"\"\\) })",
-      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\server\" -Recurse -Name)"
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\server\" -Recurse -Name)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(xargs grep -l \"ai.*gm\\\\|gm.*component\\\\|AIGameMaster\" -i)",
+      "Bash(supabase migration *)",
+      "Bash(supabase --version)",
+      "PowerShell(supabase --version 2>&1)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

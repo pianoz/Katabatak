@@ -151,7 +151,7 @@ app.post('/eval', async (req, res) => {
   }
 })
 
-const PORT = process.env.GM_PORT ?? 3001
+const PORT = process.env.PORT ?? process.env.GM_PORT ?? 3001
 app.listen(PORT, () => {
   console.log(`🎲 GM Server listening on http://localhost:${PORT}`)
   console.log(`🔧 Admin UI: http://localhost:${PORT}/admin`)

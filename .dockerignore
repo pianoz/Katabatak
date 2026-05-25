@@ -1,0 +1,7 @@
+packages/web/
+.git/
+supabase/
+docs/
+node_modules/
+*.md
+.claude/

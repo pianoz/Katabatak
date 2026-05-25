@@ -1,14 +1,22 @@
 import supabase from '../gm/tools/db.js'
 import type { Database } from '@db-types'
 
-export type WorldLoreRow = Database['public']['Tables']['world_lore']['Row']
+export type WorldEntityRow = Database['public']['Tables']['world_entities']['Row']
+export type PlayerEntityMutationRow = Database['public']['Tables']['player_entity_mutations']['Row']
+// Mirrors the entity_type DB enum — update here if the enum changes, then regenerate DB types.
+export type EntityType = 'nation' | 'region' | 'place' | 'location' | 'npc' | 'item'
 export type CampaignFactRow = Database['public']['Tables']['campaign_facts']['Row']
 export type NpcRow = Database['public']['Tables']['npcs']['Row']
 
-export type WorldLoreSearchResult = Database['public']['Functions']['search_world_lore']['Returns'][number]
-
-export async function searchWorldLore(query: string): Promise<WorldLoreSearchResult[]> {
-  const { data, error } = await supabase.rpc('search_world_lore', { search_query: query })
+/** Full-text search across world entities. Optionally narrow by entity type. */
+export async function searchWorldEntities(
+  query: string,
+  filterType?: EntityType,
+): Promise<WorldEntityRow[]> {
+  const { data, error } = await supabase.rpc('search_world_entities', {
+    search_query: query,
+    filter_type: filterType ?? null,
+  })
   if (error || !data) return []
   return data
 }

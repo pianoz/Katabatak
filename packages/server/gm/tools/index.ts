@@ -1,7 +1,7 @@
 import { update_level } from './character.js'
 import { resolveCheckDifficulty, updateStat, restorePools } from '../agents/interaction.js'
 import { getNpcResponse } from '../agents/npc.js'
-import { searchWorldLore, getCampaignFacts, getNpcsForGame } from '../../services/world-service.js'
+import { searchWorldEntities, getCampaignFacts, getNpcsForGame, type EntityType } from '../../services/world-service.js'
 import { getGameAllyCharacters, getActiveEncounter } from '../../services/game-service.js'
 import type { ToolResult } from '../types.js'
 
@@ -73,13 +73,18 @@ export const tools = [
     },
   },
   {
-    name: 'search_world_lore',
+    name: 'search_world_entities',
     description:
-      'Full-text search of world encyclopedia. Use to look up locations, factions, items, NPCs, or lore facts.',
+      'Full-text search of the world entity catalog. Use to look up nations, regions, places, locations, NPCs, or items. Optionally filter by type.',
     input_schema: {
       type: 'object' as const,
       properties: {
         query: { type: 'string', description: 'Search terms' },
+        filter_type: {
+          type: 'string',
+          enum: ['nation', 'region', 'place', 'location', 'npc', 'item'],
+          description: 'Optional: narrow results to a specific entity type',
+        },
       },
       required: ['query'],
     },
@@ -164,9 +169,9 @@ export async function executeTool(
 ): Promise<ToolResult> {
   try {
     // World/game query tools (game-scoped, no character_id needed)
-    if (name === 'search_world_lore') {
-      const { query } = input as { query: string }
-      const results = await searchWorldLore(query)
+    if (name === 'search_world_entities') {
+      const { query, filter_type } = input as { query: string; filter_type?: EntityType }
+      const results = await searchWorldEntities(query, filter_type)
       return { results }
     }
 

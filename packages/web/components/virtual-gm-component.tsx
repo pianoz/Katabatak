@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Terminal, Sparkles, User, Loader2, Clock } from 'lucide-react';
+import { Send, Terminal, Sparkles, User, Loader2, Clock, BookMarked } from 'lucide-react';
 import { useCharacterStore } from '@/features/characters/hooks/use-character-store';
+import { saveGame } from '@/lib/services/save-game-service';
 
 interface Message {
   id: string;
@@ -39,6 +40,7 @@ export default function ChatGMComponent({ playerName = "Wanderer", characterId, 
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isGMLoading, setIsGMLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Index into messages[] where the unsummarized window begins
@@ -79,6 +81,20 @@ export default function ChatGMComponent({ playerName = "Wanderer", characterId, 
         .finally(() => { isSummarizingRef.current = false; });
     }
   }, [messages]);
+
+  const handleSave = async () => {
+    if (isSaving || isGMLoading) return;
+    setIsSaving(true);
+    try {
+      // Last 4 turns = last 8 messages (player+gm pairs)
+      const recentTurns = messages.slice(-8).map(m => ({ role: m.role, content: m.content }));
+      await saveGame(characterId, recentTurns);
+    } catch (err) {
+      console.error('[SAVE] error:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleSend = async () => {
     if (!inputValue.trim() || isGMLoading || gmBlocked) return;
@@ -142,7 +158,17 @@ export default function ChatGMComponent({ playerName = "Wanderer", characterId, 
           <Terminal className="w-4 h-4 text-cyan-500" />
           <span className="text-xs uppercase tracking-[0.3em] font-bold text-zinc-400">Chronicle</span>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-4">
+          <button
+            onClick={handleSave}
+            disabled={isSaving || isGMLoading}
+            className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-500 hover:text-cyan-400 disabled:opacity-30 disabled:hover:text-zinc-500 transition-colors"
+          >
+            {isSaving
+              ? <Loader2 className="w-3 h-3 animate-spin" />
+              : <BookMarked className="w-3 h-3" />}
+            {isSaving ? 'Saving…' : 'Save Chronicle'}
+          </button>
           {gmBlocked && (
             <span className="text-[10px] uppercase tracking-widest text-amber-500/70 flex items-center gap-1">
               <Clock className="w-3 h-3" />

@@ -168,8 +168,9 @@ get_npc_response
   npc_name, personality, situation, player_input.
   Weave the returned dialogue into your narration — do not quote it as a block.
 
-search_world_lore
-  query: search string. Use to look up locations, factions, items, NPCs, or world facts.
+search_world_entities
+  query: search string. Optionally filter_type: nation | region | place | location | npc | item.
+  Use to look up any world entity — nations, regions, places, locations, NPCs, or items.
 
 get_campaign_facts
   Retrieve known facts for the current game session.

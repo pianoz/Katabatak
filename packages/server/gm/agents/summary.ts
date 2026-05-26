@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import supabase from '../tools/db.js'
+import { getSyngemGame, updateSyngemSummary } from '../../services/syngem-game-service.js'
 import type { ConversationTurn } from '../types.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 
@@ -39,13 +40,12 @@ interface ScribeOutput {
 }
 
 export async function runScribe(characterId: string, history: ConversationTurn[]): Promise<void> {
-  const { data: character } = await supabase
-    .from('characters')
-    .select('scribe_summary, quest_objectives')
-    .eq('id', characterId)
-    .single()
+  const [syngemGame, { data: character }] = await Promise.all([
+    getSyngemGame(characterId),
+    supabase.from('characters').select('quest_objectives').eq('id', characterId).single(),
+  ])
 
-  const existingSummary = (character?.scribe_summary as string | null) ?? null
+  const existingSummary = syngemGame?.summary ?? null
   const existingObjectives = (character?.quest_objectives as ScribeOutput['quest_objectives'] | null) ?? []
 
   const priorBlock = existingSummary
@@ -75,14 +75,16 @@ export async function runScribe(characterId: string, history: ConversationTurn[]
     return
   }
 
-  await supabase
-    .from('characters')
-    .update({
-      scribe_summary: parsed.summary,
-      quest_objectives: parsed.quest_objectives,
-      key_entity_ids: parsed.key_entity_ids,
-    })
-    .eq('id', characterId)
+  await Promise.all([
+    updateSyngemSummary(characterId, parsed.summary),
+    supabase
+      .from('characters')
+      .update({
+        quest_objectives: parsed.quest_objectives,
+        key_entity_ids: parsed.key_entity_ids,
+      })
+      .eq('id', characterId),
+  ])
 }
 
 /** Legacy export — kept for the /gm/summarize endpoint if still needed. */

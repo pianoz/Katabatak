@@ -6,7 +6,7 @@ const client = new Anthropic()
 
 const FALLBACK_SYSTEM = `You are the Lore-Engine, the mechanical gatekeeper for the Katabatak RPG. Your sole job is to parse player intent and translate it into structured game mechanics.
 
-Respond with a single JSON object — no markdown, no explanation.
+Respond with a single JSON object — no markdown, no explanation. No other text.
 
 Schema:
 {
@@ -36,7 +36,7 @@ function serializeContext(ctx: ContextBlock): string {
     `Essence: ${character.current_essence}/${character.essence_max} (${essenceText})`,
     `Power: ${character.current_power}/${character.power_max} (${powerText})`,
     `Will: ${character.current_will}/${character.will_max} (${willText})`,
-    `Location: ${character.current_location_text ?? 'Unknown'}`,
+    `Location: ${[character.location_place, character.location_region].filter(Boolean).join(', ') || 'Unknown'}`,
   ]
   if (locationEntities.length) {
     lines.push(`Nearby: ${locationEntities.map((e) => e.name).join(', ')}`)

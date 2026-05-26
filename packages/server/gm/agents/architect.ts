@@ -4,8 +4,19 @@ import { loadRandomArchitectPrompt } from '../../services/prompt-service.js'
 
 const client = new Anthropic()
 
+function formatGameTime(syngemGame: ContextBlock['syngemGame']): string | null {
+  if (!syngemGame) return null
+  const days = syngemGame.game_date_days
+  const year = Math.floor(days / 360) + 1
+  const month = Math.floor((days % 360) / 30) + 1
+  const day = (days % 360) % 30 + 1
+  const hour = Math.floor(syngemGame.game_time_minutes / 60)
+  const minute = syngemGame.game_time_minutes % 60
+  return `Year ${year}, Month ${month}, Day ${day} — ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
 function serializeContextBlock(ctx: ContextBlock): string {
-  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, encounterData, npcs, inventoryWeight } = ctx
+  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, encounterData, npcs, inventoryWeight, syngemGame } = ctx
 
   const lines: string[] = [
     '=== CHARACTER STATE ===',
@@ -18,7 +29,14 @@ function serializeContextBlock(ctx: ContextBlock): string {
     `Carry Weight: ${inventoryWeight.current}/${inventoryWeight.max}`,
   ]
 
-  if (character.current_location_text) lines.push(`Location: ${character.current_location_text}`)
+  const gameTime = formatGameTime(syngemGame)
+  if (gameTime) lines.push(`Time: ${gameTime}`)
+
+  const locationParts = [character.location_nation, character.location_region, character.location_place]
+    .filter(Boolean)
+  if (locationParts.length) lines.push(`Region: ${locationParts.join(' › ')}`)
+
+  if (syngemGame?.in_combat) lines.push('Status: IN COMBAT')
   if (character.condition_text) lines.push(`Condition: ${character.condition_text}`)
   if (character.notes) lines.push(`Notes: ${character.notes}`)
 

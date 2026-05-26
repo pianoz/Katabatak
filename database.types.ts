@@ -378,11 +378,10 @@ export type Database = {
           current_carry_weight: number | null
           current_essence: number | null
           current_health: number | null
-          current_location_building: string | null
-          current_location_local: string | null
-          current_location_polis: string | null
-          current_location_region: string
-          current_location_text: string | null
+          location_nation: string | null
+          location_region: string | null
+          location_place: string | null
+          location_immediate: string | null
           current_power: number | null
           current_will: number | null
           denarius: number | null
@@ -402,7 +401,6 @@ export type Database = {
           gm_history: Json | null
           key_entity_ids: string[] | null
           quest_objectives: Json | null
-          scribe_summary: string | null
           unused_skill_points: number
           user_id: string | null
           weight_kgs: number | null
@@ -421,11 +419,10 @@ export type Database = {
           current_carry_weight?: number | null
           current_essence?: number | null
           current_health?: number | null
-          current_location_building?: string | null
-          current_location_local?: string | null
-          current_location_polis?: string | null
-          current_location_region?: string
-          current_location_text?: string | null
+          location_nation?: string | null
+          location_region?: string | null
+          location_place?: string | null
+          location_immediate?: string | null
           current_power?: number | null
           current_will?: number | null
           denarius?: number | null
@@ -443,7 +440,6 @@ export type Database = {
           physical_description?: string | null
           power_max?: number | null
           quest_objectives?: Json | null
-          scribe_summary?: string | null
           speed?: number | null
           unused_skill_points?: number
           user_id?: string | null
@@ -463,11 +459,10 @@ export type Database = {
           current_carry_weight?: number | null
           current_essence?: number | null
           current_health?: number | null
-          current_location_building?: string | null
-          current_location_local?: string | null
-          current_location_polis?: string | null
-          current_location_region?: string
-          current_location_text?: string | null
+          location_nation?: string | null
+          location_region?: string | null
+          location_place?: string | null
+          location_immediate?: string | null
           current_power?: number | null
           current_will?: number | null
           denarius?: number | null
@@ -485,7 +480,6 @@ export type Database = {
           physical_description?: string | null
           power_max?: number | null
           quest_objectives?: Json | null
-          scribe_summary?: string | null
           speed?: number | null
           unused_skill_points?: number
           user_id?: string | null
@@ -1552,6 +1546,50 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      syngem_game: {
+        Row: {
+          id: string
+          character_id: string
+          player_id: string
+          in_combat: boolean
+          game_date_days: number
+          game_time_minutes: number
+          summary: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          character_id: string
+          player_id: string
+          in_combat?: boolean
+          game_date_days?: number
+          game_time_minutes?: number
+          summary?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          character_id?: string
+          player_id?: string
+          in_combat?: boolean
+          game_date_days?: number
+          game_time_minutes?: number
+          summary?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "syngem_game_character_id_fkey"
+            columns: ["character_id"]
+            isOneToOne: true
+            referencedRelation: "characters"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

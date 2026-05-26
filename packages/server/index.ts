@@ -4,10 +4,11 @@ import rateLimit from 'express-rate-limit'
 import { handleGMMessage, runScribe, getRecentTurns } from './gm/handler.js'
 import { summarizeHistory } from './gm/agents/summary.js'
 import { runEval } from './gm/services/claude-service.js'
+import { autoHydrate } from './gm/auto-hydrator.js'
 import { requireGmKey } from './middleware/auth.js'
 import { adminRouter, sessionMiddleware } from './admin/routes.js'
 import { logRequest } from './admin/request-logger.js'
-import type { CheckResolution } from './gm/types.js'
+import type { CheckResolution, ContextBlock } from './gm/types.js'
 
 console.log('====================================================')
 console.log('⚔️  KATABATAK GAME SERVER INITIALIZATION ACTIVE  ⚔️')
@@ -174,6 +175,99 @@ app.post('/gm/scribe', async (req, res) => {
   } catch (err) {
     console.error('[SCRIBE] Error:', err instanceof Error ? err.message : String(err))
     res.status(500).json({ error: 'Scribe failed' })
+  }
+})
+
+function formatHydration(ctx: ContextBlock, tables: string[]): string {
+  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, encounterData, npcs, inventoryWeight, game } = ctx
+  const sections: string[] = []
+
+  if (tables.includes('character')) {
+    const lines = [
+      '=== CHARACTER STATE ===',
+      `Name: ${character.name}  |  Level: ${character.level ?? '?'}  |  Class: ${character.class_archetype ?? 'Unknown'}`,
+      `Health: ${character.current_health}/${character.health_max} — ${healthText}`,
+      `Essence: ${character.current_essence}/${character.essence_max} — ${essenceText}`,
+      `Power: ${character.current_power}/${character.power_max} — ${powerText}`,
+      `Will: ${character.current_will}/${character.will_max} — ${willText}`,
+      `Speed: ${character.speed ?? '?'}  |  Carry: ${inventoryWeight.current}/${inventoryWeight.max}`,
+    ]
+    const locationParts = [character.location_nation, character.location_region, character.location_place].filter(Boolean)
+    if (locationParts.length) lines.push(`Location: ${locationParts.join(' › ')}`)
+    if (character.condition_text) lines.push(`Condition: ${character.condition_text}`)
+    if (character.notes) lines.push(`Notes: ${character.notes}`)
+    sections.push(lines.join('\n'))
+  }
+
+  if (tables.includes('inventory')) {
+    const equipped = inventory.filter((i) => i.is_equipped).map((i) => i.items?.name ?? '?')
+    const carried = inventory.filter((i) => !i.is_equipped).map((i) => i.items?.name ?? '?')
+    const lines: string[] = ['=== INVENTORY ===']
+    if (equipped.length) lines.push(`Equipped: ${equipped.join(', ')}`)
+    if (carried.length) lines.push(`Carrying: ${carried.join(', ')}`)
+    if (skills.length) lines.push(`Skills: ${skills.map((s) => `${s.skills?.name ?? '?'} (rank ${s.current_rank})`).join(', ')}`)
+    if (spells.length) lines.push(`Spells: ${spells.map((s) => s.spells?.name ?? '?').join(', ')}`)
+    if (lines.length > 1) sections.push(lines.join('\n'))
+  }
+
+  if (tables.includes('game') && game) {
+    sections.push([
+      '=== GAME INFO ===',
+      `Game: ${game.game.name}  |  Session: ${game.game.session_number ?? '?'}  |  Members: ${game.members.length}`,
+    ].join('\n'))
+  }
+
+  if (tables.includes('location') && locationEntities.length > 0) {
+    const lines = ['=== CURRENT LOCATION ===']
+    for (const e of locationEntities) {
+      lines.push(e.short_description ? `${e.name}: ${e.short_description}` : e.name)
+    }
+    sections.push(lines.join('\n'))
+  }
+
+  if (tables.includes('npcs') && npcs.length > 0) {
+    const lines = ['=== NEARBY NPCs ===']
+    for (const npc of npcs) {
+      const detail = [npc.title, npc.faction].filter(Boolean).join(', ')
+      lines.push(detail ? `${npc.name} (${detail})` : npc.name)
+    }
+    sections.push(lines.join('\n'))
+  }
+
+  if (tables.includes('encounter') && encounterData?.isInCombat) {
+    const lines = [
+      '=== COMBAT ENCOUNTER ===',
+      `IN COMBAT — Turn position: ${(encounterData.activeTurnIndex ?? 0) + 1}`,
+    ]
+    for (const c of encounterData.creatures.filter((cr) => cr.is_alive)) {
+      lines.push(`Enemy: ${c.creature_id} — HP ${c.current_health}/${c.health_max}`)
+    }
+    sections.push(lines.join('\n'))
+  }
+
+  return sections.join('\n\n')
+}
+
+app.post('/gm/hydrate', async (req, res) => {
+  const { characterId, gameId, tables } = req.body as {
+    characterId?: string
+    gameId?: string
+    tables?: string[]
+  }
+  if (!characterId) {
+    res.status(400).json({ error: 'characterId is required' })
+    return
+  }
+  try {
+    const ctx = await autoHydrate(characterId, gameId)
+    if (!ctx) {
+      res.status(404).json({ error: 'Character not found' })
+      return
+    }
+    const selectedTables = tables ?? ['character', 'inventory', 'location', 'npcs', 'encounter', 'game']
+    res.json({ text: formatHydration(ctx, selectedTables) })
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
   }
 })
 

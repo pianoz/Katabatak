@@ -37,6 +37,8 @@ import {
   Save,
   FolderOpen,
   Plus,
+  Zap,
+  RefreshCw,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { Button } from "@/components/ui/button"
@@ -60,17 +62,20 @@ import {
   getLatestPrompt,
   savePrompt,
 } from "@/lib/services/prompt-service"
-import type { SavedPromptBlock } from "@/lib/services/prompt-service"
+import type { SavedPromptBlock, HydraConfig } from "@/lib/services/prompt-service"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type BlockKind = "system" | "user" | "assistant"
+type HydraTable = 'character' | 'inventory' | 'location' | 'npcs' | 'encounter' | 'game'
+
+type BlockKind = "system" | "user" | "assistant" | "auto-hydrator"
 
 interface Block {
   id: string
   kind: BlockKind
   label: string
   content: string
+  hydraConfig?: HydraConfig
 }
 
 interface EvalResponse {
@@ -83,6 +88,11 @@ interface SkillRow {
   id: string
   name: string
   skill_text?: string | null
+}
+
+interface GameItem {
+  id: string
+  name: string
 }
 
 // ─── Block visual config ──────────────────────────────────────────────────────
@@ -112,7 +122,99 @@ const BLOCK_CONFIG: Record<
     header: "text-cyan-400",
     bg: "bg-cyan-950/10",
   },
+  "auto-hydrator": {
+    label: "Auto-Hydrator",
+    icon: Zap,
+    border: "border-violet-700/50",
+    header: "text-violet-400",
+    bg: "bg-violet-950/10",
+  },
 }
+
+const HYDRA_TABLES: Array<{ id: HydraTable; label: string }> = [
+  { id: 'character', label: 'Character' },
+  { id: 'inventory', label: 'Inventory' },
+  { id: 'location', label: 'Location' },
+  { id: 'npcs', label: 'NPCs' },
+  { id: 'encounter', label: 'Encounter' },
+  { id: 'game', label: 'Game' },
+]
+
+const DEFAULT_TABLES: HydraTable[] = ['character', 'inventory', 'location', 'npcs', 'encounter', 'game']
+
+// ─── Sample blocks ────────────────────────────────────────────────────────────
+
+const SAMPLE_BLOCKS: Array<{ name: string; blocks: Array<{ kind: BlockKind; content: string }> }> = [
+  {
+    name: "Last 3 Turns",
+    // Matches architect.ts: lastFourTurns.map(t => ({ role: t.role === 'player' ? 'user' : 'assistant', content }))
+    blocks: [
+      {
+        kind: "user",
+        content: `I follow the cloaked figure through the market district, keeping my distance.`,
+      },
+      {
+        kind: "assistant",
+        content: `The figure moves with purpose through the evening crowd, never looking back — but twice you notice their hand brush against the same iron post. Signalling someone. When they turn down the Coppergate passage the crowd thins. You're more exposed now.`,
+      },
+      {
+        kind: "user",
+        content: `I duck into the doorway of a butcher's stall and wait to see if anyone's watching me.`,
+      },
+      {
+        kind: "assistant",
+        content: `Smart. Three heartbeats pass. Then you see her — a woman in grey, stationary, pretending to study a vendor's wares but watching the mouth of Coppergate. She hasn't moved since you entered the passage. She saw you.`,
+      },
+      {
+        kind: "user",
+        content: `I make eye contact with the woman in grey, then deliberately walk in the opposite direction.`,
+      },
+      {
+        kind: "assistant",
+        content: `She lets you go — for now. But as you turn onto the main road you hear the distinct two-tone whistle of a signal call, close behind you. They're communicating. Whoever the cloaked figure was meeting, they now know they were followed.`,
+      },
+    ],
+  },
+  {
+    name: "Summary / Quest",
+    // Matches architect.ts: systemParts.push(`=== STORY SO FAR ===\n${scribeSummary}`) and `=== QUESTS & OBJECTIVES ===\n${JSON.stringify(questObjectives, null, 2)}`)
+    blocks: [
+      {
+        kind: "system",
+        content: `=== STORY SO FAR ===
+Kael escaped Hollowwatch prison four days ago carrying an encrypted ledger that implicates members of the Vorrenmoor city council in dealings with the Ash Covenant. He was aided by a guard named Perris, whose loyalty remains unclear. In the city he made contact with Doran of the Ironwright faction and sold him one encrypted page in exchange for a name — "the Lector" — the Covenant's Vorrenmoor intermediary. Kael has since confirmed the Covenant has active assets in the trade district.
+
+=== QUESTS & OBJECTIVES ===
+[
+  {
+    "id": "find_the_lector",
+    "title": "Find the Lector",
+    "status": "active",
+    "description": "Track down the Ash Covenant's Vorrenmoor intermediary, known only as the Lector."
+  },
+  {
+    "id": "decode_the_ledger",
+    "title": "Decode the Ledger",
+    "status": "active",
+    "description": "The encrypted ledger requires a scholar or someone with knowledge of Covenant ciphers."
+  },
+  {
+    "id": "evade_hollowwatch",
+    "title": "Evade the Hollowwatch",
+    "status": "active",
+    "description": "A Hollowwatch recovery team has arrived in Vorrenmoor; Kael must avoid capture."
+  },
+  {
+    "id": "escape_prison",
+    "title": "Escape Hollowwatch Prison",
+    "status": "completed",
+    "description": "Kael broke out of the Hollowwatch garrison and fled to Vorrenmoor."
+  }
+]`,
+      },
+    ],
+  },
+]
 
 // ─── BlockOverlay ─────────────────────────────────────────────────────────────
 
@@ -137,17 +239,150 @@ function BlockOverlay({ block }: { block: Block }) {
   )
 }
 
+// ─── AutoHydratorBlockBody ────────────────────────────────────────────────────
+
+function AutoHydratorBlockBody({
+  block,
+  characters,
+  games,
+  onUpdateHydra,
+}: {
+  block: Block
+  characters: Character[]
+  games: GameItem[]
+  onUpdateHydra: (id: string, hydraConfig: HydraConfig, content?: string) => void
+}) {
+  const [fetching, setFetching] = useState(false)
+  const hydra = block.hydraConfig ?? { characterId: '', gameId: '', tables: [...DEFAULT_TABLES] }
+
+  function setConfig(patch: Partial<HydraConfig>) {
+    onUpdateHydra(block.id, { ...hydra, ...patch })
+  }
+
+  function toggleTable(table: HydraTable) {
+    const tables = hydra.tables.includes(table)
+      ? hydra.tables.filter((t) => t !== table)
+      : [...hydra.tables, table]
+    onUpdateHydra(block.id, { ...hydra, tables })
+  }
+
+  async function handleFetch() {
+    if (!hydra.characterId) return
+    setFetching(true)
+    try {
+      const res = await fetch('/api/gm/hydrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          characterId: hydra.characterId,
+          gameId: hydra.gameId || undefined,
+          tables: hydra.tables,
+        }),
+      })
+      const data = await res.json() as { text?: string; error?: string }
+      if (res.ok && data.text) {
+        onUpdateHydra(block.id, hydra, data.text)
+      }
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Character + Game pickers */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-violet-400/60">Character</p>
+          <Select value={hydra.characterId} onValueChange={(v) => setConfig({ characterId: v })}>
+            <SelectTrigger className="border-violet-700/40 bg-background text-xs h-7">
+              <SelectValue placeholder="Select…" />
+            </SelectTrigger>
+            <SelectContent>
+              {characters.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-violet-400/60">Game</p>
+          <Select value={hydra.gameId || "__none__"} onValueChange={(v) => setConfig({ gameId: v === "__none__" ? '' : v })}>
+            <SelectTrigger className="border-violet-700/40 bg-background text-xs h-7">
+              <SelectValue placeholder="None" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">None</SelectItem>
+              {games.map((g) => (
+                <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Table checkboxes */}
+      <div className="space-y-1">
+        <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-violet-400/60">Tables</p>
+        <div className="flex flex-wrap gap-1">
+          {HYDRA_TABLES.map(({ id, label }) => {
+            const active = hydra.tables.includes(id)
+            return (
+              <button
+                key={id}
+                onClick={() => toggleTable(id)}
+                className={`font-mono text-[0.55rem] border px-1.5 py-0.5 transition-colors ${
+                  active
+                    ? "border-violet-600/60 text-violet-300 bg-violet-950/40"
+                    : "border-border/30 text-muted-foreground/40"
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Fetch button */}
+      <button
+        onClick={handleFetch}
+        disabled={!hydra.characterId || fetching}
+        className="flex items-center gap-1.5 border border-violet-700/50 px-2 py-1 font-sans text-[0.55rem] uppercase tracking-widest text-violet-400 hover:bg-violet-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        {fetching
+          ? <><Loader2 className="w-2.5 h-2.5 animate-spin" />Fetching…</>
+          : <><RefreshCw className="w-2.5 h-2.5" />Fetch Context</>
+        }
+      </button>
+
+      {/* Content preview */}
+      {block.content && (
+        <pre className="font-mono text-[0.6rem] text-violet-200/60 leading-relaxed whitespace-pre-wrap max-h-40 overflow-y-auto border border-violet-700/20 bg-violet-950/20 px-2 py-1.5">
+          {block.content}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 // ─── SortableBlock ────────────────────────────────────────────────────────────
 
 function SortableBlock({
   block,
+  characters,
+  games,
   onRemove,
   onUpdate,
+  onUpdateHydra,
   onFocus,
 }: {
   block: Block
+  characters: Character[]
+  games: GameItem[]
   onRemove: (id: string) => void
   onUpdate: (id: string, content: string) => void
+  onUpdateHydra: (id: string, hydraConfig: HydraConfig, content?: string) => void
   onFocus: (id: string) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -184,13 +419,22 @@ function SortableBlock({
         </button>
       </div>
       <div className="p-3">
-        <Textarea
-          value={block.content}
-          onChange={(e) => onUpdate(block.id, e.target.value)}
-          onFocus={() => onFocus(block.id)}
-          placeholder={`Enter ${cfg.label.toLowerCase()} content…`}
-          className="min-h-20 resize-y font-mono text-xs border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/40"
-        />
+        {block.kind === "auto-hydrator" ? (
+          <AutoHydratorBlockBody
+            block={block}
+            characters={characters}
+            games={games}
+            onUpdateHydra={onUpdateHydra}
+          />
+        ) : (
+          <Textarea
+            value={block.content}
+            onChange={(e) => onUpdate(block.id, e.target.value)}
+            onFocus={() => onFocus(block.id)}
+            placeholder={`Enter ${cfg.label.toLowerCase()} content…`}
+            className="min-h-20 resize-y font-mono text-xs border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/40"
+          />
+        )}
       </div>
     </div>
   )
@@ -215,6 +459,7 @@ export default function PromptBuilderPage() {
   const [items, setItems] = useState<Item[]>([])
   const [spells, setSpells] = useState<Spell[]>([])
   const [skills, setSkills] = useState<SkillRow[]>([])
+  const [games, setGames] = useState<GameItem[]>([])
   const [dataLoading, setDataLoading] = useState(true)
 
   // Saved slugs
@@ -269,17 +514,19 @@ export default function PromptBuilderPage() {
         .single()
       if (!profile?.is_dev) { router.push("/dashboard"); return }
 
-      const [{ data: chars }, { data: itemData }, { data: spellData }, { data: skillData }] =
+      const [{ data: chars }, { data: itemData }, { data: spellData }, { data: skillData }, { data: gameData }] =
         await Promise.all([
           supabase.from("characters").select("*").eq("user_id", user.id).order("name"),
           supabase.from("items").select("*").order("name"),
           supabase.from("spells").select("*").order("name"),
           supabase.from("skills").select("id, name, skill_text").order("name"),
+          supabase.from("games").select("id, name").order("name"),
         ])
       setCharacters((chars as Character[]) ?? [])
       setItems((itemData as Item[]) ?? [])
       setSpells((spellData as Spell[]) ?? [])
       setSkills((skillData as SkillRow[]) ?? [])
+      setGames((gameData as GameItem[]) ?? [])
 
       const slugs = await getPromptSlugs(supabase)
       setSavedSlugs(slugs)
@@ -303,8 +550,23 @@ export default function PromptBuilderPage() {
 
   function addBlock(kind: BlockKind) {
     const id = crypto.randomUUID()
-    setBlocks((prev) => [...prev, { id, kind, label: BLOCK_CONFIG[kind].label, content: "" }])
+    const extra = kind === "auto-hydrator"
+      ? { hydraConfig: { characterId: '', gameId: '', tables: [...DEFAULT_TABLES] } }
+      : {}
+    setBlocks((prev) => [...prev, { id, kind, label: BLOCK_CONFIG[kind].label, content: "", ...extra }])
     setFocusedBlockId(id)
+  }
+
+  function addSampleBlocks(samples: Array<{ kind: BlockKind; content: string }>) {
+    const newBlocks = samples.map(({ kind, content }) => ({
+      id: crypto.randomUUID(),
+      kind,
+      label: BLOCK_CONFIG[kind].label,
+      content,
+    }))
+    setBlocks((prev) => [...prev, ...newBlocks])
+    const lastId = newBlocks.at(-1)?.id
+    if (lastId) setFocusedBlockId(lastId)
   }
 
   function removeBlock(id: string) {
@@ -314,6 +576,16 @@ export default function PromptBuilderPage() {
 
   function updateBlock(id: string, content: string) {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, content } : b)))
+  }
+
+  function updateBlockHydra(id: string, hydraConfig: HydraConfig, content?: string) {
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? { ...b, hydraConfig, ...(content !== undefined ? { content } : {}) }
+          : b,
+      ),
+    )
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -370,10 +642,11 @@ export default function PromptBuilderPage() {
 
   async function handleSave() {
     if (!promptName.trim() || !promptSlug.trim() || blocks.length === 0) return
-    const savedBlocks: SavedPromptBlock[] = blocks.map(({ kind, label, content }) => ({
+    const savedBlocks: SavedPromptBlock[] = blocks.map(({ kind, label, content, hydraConfig }) => ({
       kind,
       label,
       content,
+      ...(hydraConfig ? { hydraConfig } : {}),
     }))
     const row = await savePrompt(supabase, {
       name: promptName.trim(),
@@ -415,8 +688,8 @@ export default function PromptBuilderPage() {
   // ─── Run ──────────────────────────────────────────────────────────────────
 
   async function handleRun() {
-    const systemBlocks = blocks.filter((b) => b.kind === "system")
-    const messageBlocks = blocks.filter((b) => b.kind !== "system")
+    const systemBlocks = blocks.filter((b) => b.kind === "system" || b.kind === "auto-hydrator")
+    const messageBlocks = blocks.filter((b) => b.kind !== "system" && b.kind !== "auto-hydrator")
     const data = testInstances
 
     const system = systemBlocks.map((b) => parsePlaceholders(b.content, data)).join("\n\n")
@@ -459,8 +732,8 @@ export default function PromptBuilderPage() {
 
   // ─── Derived ──────────────────────────────────────────────────────────────
 
-  const systemBlocks = blocks.filter((b) => b.kind === "system")
-  const messageBlocks = blocks.filter((b) => b.kind !== "system")
+  const systemBlocks = blocks.filter((b) => b.kind === "system" || b.kind === "auto-hydrator")
+  const messageBlocks = blocks.filter((b) => b.kind !== "system" && b.kind !== "auto-hydrator")
   const lastMessage = messageBlocks[messageBlocks.length - 1]
   const canRun =
     !loading &&
@@ -534,6 +807,26 @@ export default function PromptBuilderPage() {
 
         {/* LEFT: Data field injector */}
         <aside className="w-52 shrink-0 border-r border-border overflow-y-auto bg-card/30">
+
+          {/* Sample blocks */}
+          <div className="px-3 pt-4 pb-3 border-b border-border/30">
+            <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50 mb-2">
+              Samples
+            </p>
+            <div className="space-y-0.5">
+              {SAMPLE_BLOCKS.map((s) => (
+                <button
+                  key={s.name}
+                  onClick={() => addSampleBlocks(s.blocks)}
+                  className="w-full text-left flex items-center gap-1.5 px-1 py-1.5 font-sans text-[0.6rem] uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-card/50 transition-colors"
+                >
+                  <Plus className="w-2.5 h-2.5 shrink-0" />
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="px-3 pt-4 pb-2">
             <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50 mb-1">
               Inject Field
@@ -586,11 +879,11 @@ export default function PromptBuilderPage() {
         {/* MIDDLE: Block canvas */}
         <main className="flex-1 overflow-y-auto min-w-0 bg-background/60">
           {/* Add block buttons */}
-          <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-2 flex items-center gap-2">
+          <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-2 flex items-center gap-2 flex-wrap">
             <span className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/40 mr-1">
               Add
             </span>
-            {(["system", "user", "assistant"] as BlockKind[]).map((kind) => {
+            {(["system", "user", "assistant", "auto-hydrator"] as BlockKind[]).map((kind) => {
               const cfg = BLOCK_CONFIG[kind]
               const Icon = cfg.icon
               return (
@@ -631,8 +924,11 @@ export default function PromptBuilderPage() {
                     <SortableBlock
                       key={block.id}
                       block={block}
+                      characters={characters}
+                      games={games}
                       onRemove={removeBlock}
                       onUpdate={updateBlock}
+                      onUpdateHydra={updateBlockHydra}
                       onFocus={setFocusedBlockId}
                     />
                   ))}

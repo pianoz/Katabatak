@@ -1,9 +1,16 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 
+export interface HydraConfig {
+  characterId: string
+  gameId: string
+  tables: string[]
+}
+
 export interface SavedPromptBlock {
-  kind: 'system' | 'user' | 'assistant'
+  kind: 'system' | 'user' | 'assistant' | 'auto-hydrator'
   label: string
   content: string
+  hydraConfig?: HydraConfig
 }
 
 export interface SavedPrompt {

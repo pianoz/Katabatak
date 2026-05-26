@@ -12,6 +12,7 @@ import {
   getTurnCount,
 } from '../services/conversation-service.js'
 import { characterBelongsToUser } from '../services/character-service.js'
+import { advanceGameTime } from '../services/syngem-game-service.js'
 import type { GMMessageInput, CheckRequired } from './types.js'
 
 export type { GMMessageInput }
@@ -84,9 +85,9 @@ export async function* handleGMMessage({
   // 7. Pick style text
   const styleText = pickStyleText()
 
-  // 8. Fetch character's scribe data
+  // 8. Fetch scribe data — summary lives on syngem_game, quest objectives on characters
   const { character: { character } } = contextBlock
-  const scribeSummary = (character as Record<string, unknown>)['scribe_summary'] as string | null ?? null
+  const scribeSummary = contextBlock.syngemGame?.summary ?? null
   const questObjectives = (character as Record<string, unknown>)['quest_objectives'] ?? null
 
   // 9. Fetch last 4 turns for Architect
@@ -112,7 +113,12 @@ export async function* handleGMMessage({
   // 11. Persist assistant turn
   await saveTurn(characterId, gameId, 'assistant', fullResponse)
 
-  // 12. Fire Ledger + State Executor asynchronously
+  // 12. Advance fantasy game time by 10 minutes (async, non-blocking)
+  advanceGameTime(characterId).catch((err) =>
+    console.error('[GameTime] async error:', err),
+  )
+
+  // 13. Fire Ledger + State Executor asynchronously
   runLedger({ narrativeText: fullResponse, characterId })
     .then((ledgerOutputs) => {
       if (ledgerOutputs.length) {
@@ -121,7 +127,7 @@ export async function* handleGMMessage({
     })
     .catch((err) => console.error('[Ledger/StateExecutor] async error:', err))
 
-  // 13. Fire Scribe every 4 turns (server-side, async)
+  // 14. Fire Scribe every 4 turns (server-side, async)
   if (turnNumber % 4 === 0) {
     const recentEight = await getRecentTurns(characterId, 8)
     runScribe(characterId, recentEight).catch((err) =>

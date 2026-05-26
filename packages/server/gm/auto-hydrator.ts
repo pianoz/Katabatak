@@ -1,5 +1,6 @@
 import { getFullCharacter } from '../services/character-service.js'
 import { getGameWithMembers, getActiveEncounter } from '../services/game-service.js'
+import { getSyngemGame } from '../services/syngem-game-service.js'
 import { getNpcsForGame } from '../services/world-service.js'
 import supabase from './tools/db.js'
 import type { ContextBlock, LocationEntity } from './types.js'
@@ -15,12 +16,12 @@ function poolText(current: number | null, max: number | null): string {
 
 async function resolveLocationEntities(
   characterId: string,
-  character: { current_location_polis: string | null; current_location_building: string | null; current_location_region: string | null },
+  character: { location_place: string | null; location_immediate: string | null; location_region: string | null },
 ): Promise<LocationEntity[]> {
   // Build filter conditions from character's location fields
-  const placeCtx = character.current_location_polis
-  const regionCtx = character.current_location_region
-  const buildingId = character.current_location_building
+  const placeCtx = character.location_place
+  const regionCtx = character.location_region
+  const buildingId = character.location_immediate
 
   let entityIds: string[] = []
 
@@ -103,11 +104,12 @@ export async function autoHydrate(
 
   const { character } = fullCharacter
 
-  const [game, encounterData, npcs, locationEntities] = await Promise.all([
+  const [game, encounterData, npcs, locationEntities, syngemGame] = await Promise.all([
     gameId ? getGameWithMembers(gameId) : Promise.resolve(null),
     gameId ? getActiveEncounter(gameId) : Promise.resolve(null),
     gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
     resolveLocationEntities(characterId, character),
+    getSyngemGame(characterId),
   ])
 
   const equippedWeight = fullCharacter.inventory
@@ -117,6 +119,7 @@ export async function autoHydrate(
   return {
     character: fullCharacter,
     game,
+    syngemGame,
     healthText: poolText(character.current_health, character.health_max),
     essenceText: poolText(character.current_essence, character.essence_max),
     powerText: poolText(character.current_power, character.power_max),

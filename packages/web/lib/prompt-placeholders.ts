@@ -23,7 +23,7 @@ export const PLACEHOLDER_REGISTRY: Record<string, PlaceholderType> = {
       'background_primary',
       'backstory',
       'condition_text',
-      'current_location_region',
+      'location_region',
     ],
   },
   item: {

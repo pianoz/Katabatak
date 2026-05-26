@@ -18,10 +18,9 @@ async function moveCharacter(characterId: string, destinationEntityId: string): 
   }
 
   await updateCharacter(characterId, {
-    current_location_building: entity.type === 'location' ? entity.id : undefined,
-    current_location_polis: entity.place_context ?? (entity.type === 'place' ? entity.id : undefined),
-    current_location_region: entity.region_context ?? (entity.type === 'region' ? entity.id : undefined),
-    current_location_text: entity.name,
+    location_immediate: entity.type === 'location' ? entity.id : undefined,
+    location_place: entity.place_context ?? (entity.type === 'place' ? entity.id : undefined),
+    location_region: entity.region_context ?? (entity.type === 'region' ? entity.id : undefined),
   })
 }
 

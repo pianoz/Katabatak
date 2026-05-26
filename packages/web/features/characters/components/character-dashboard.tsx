@@ -4,7 +4,7 @@
 import { useState, useTransition, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Bell, ChevronLeft, Check, Info, Minus, Package, Pencil, Plus, Shield, Sword, Trash2, Wrench, X } from "lucide-react"
+import { Bell, ChevronLeft, Check, Info, Minus, Package, Pencil, Plus, Shield, Sparkles, Sword, Trash2, Wrench, X } from "lucide-react"
 
 // ─── Internal imports ─────────────────────────────────────────────────────────
 import { Button } from "@/components/ui/button"
@@ -103,11 +103,10 @@ function buildSnapshot(char: Character, items: Item[]): CharacterSnapshot {
     weight_kgs: char.weight_kgs ?? null,
     carrying_capacity: char.carrying_capacity ?? null,
     current_carry_weight: null,
-    current_location_region: char.current_location_region ?? "Tuur-Thalen",
-    current_location_polis: char.current_location_polis ?? null,
-    current_location_building: char.current_location_building ?? null,
-    current_location_local: char.current_location_local ?? null,
-    current_location_text: char.current_location_text ?? null,
+    location_nation: char.location_nation ?? null,
+    location_region: char.location_region ?? null,
+    location_place: char.location_place ?? null,
+    location_immediate: char.location_immediate ?? null,
     background_primary: char.background_primary ?? null,
     background_secondary: char.background_secondary ?? null,
     physical_description: char.physical_description ?? null,
@@ -329,6 +328,16 @@ export function CharacterDashboard({
     setDevModeEnabled(val)
   }
   const [activeTab,      setActiveTab]      = useState("actions")
+  const [syngemActive,   setSyngemActive]   = useState(false)
+
+  const handleEnterSyngem = async () => {
+    setSyngemActive(true)
+    const charWithAiGame = character as Character & { ai_game?: boolean }
+    if (!charWithAiGame.ai_game) {
+      await updateCharacter(createClient(), character.id, { ai_game: true } as Record<string, unknown>)
+      setCharacter(prev => ({ ...prev, ai_game: true } as Character))
+    }
+  }
 
   const [character,      setCharacter]      = useState(initialCharacter)
   const [isDeleting,     setIsDeleting]     = useState(false)
@@ -644,6 +653,15 @@ export function CharacterDashboard({
                   Dev
                 </label>
               </div>
+            )}
+            {isOwner && (
+              <button
+                onClick={handleEnterSyngem}
+                className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest border border-cyan-900/40 text-cyan-500/60 px-3 py-1.5 hover:bg-cyan-950/30 hover:border-cyan-700/60 hover:text-cyan-400 transition-all"
+              >
+                <Sparkles className="w-3 h-3" />
+                SYNGEM
+              </button>
             )}
             {isOwner && (
               <div className="relative">
@@ -1171,6 +1189,18 @@ export function CharacterDashboard({
           condition={character.condition as CharacterCondition}
           onRemove={isOwner ? handleRemoveCondition : undefined}
         />
+      )}
+
+      {/* SYNGEM full-screen overlay */}
+      {syngemActive && (
+        <div className="fixed inset-0 z-50">
+          <VirtualGMComponent
+            playerName={character.name}
+            characterId={character.id}
+            onGMReply={refreshCharacter}
+            onClose={() => setSyngemActive(false)}
+          />
+        </div>
       )}
     </div>
   )

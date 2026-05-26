@@ -1,6 +1,7 @@
 import type { Database } from '@db-types'
 import type { FullCharacter } from '../services/character-service.js'
 import type { GameWithMembers, EncounterWithCreatures } from '../services/game-service.js'
+import type { SyngemGameRow } from '../services/syngem-game-service.js'
 import type { NpcRow } from '../services/world-service.js'
 
 export type CharacterRow = Database['public']['Tables']['characters']['Row']
@@ -33,6 +34,7 @@ export interface LocationEntity {
 export interface ContextBlock {
   character: FullCharacter
   game: GameWithMembers | null
+  syngemGame: SyngemGameRow | null
   healthText: string
   essenceText: string
   powerText: string

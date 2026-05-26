@@ -1,5 +1,4 @@
-import { update_level } from './character.js'
-import { resolveCheckDifficulty, updateStat, restorePools } from '../agents/interaction.js'
+import { update_level, update_stat, restore_pools } from './character.js'
 import { getNpcResponse } from '../agents/npc.js'
 import { searchWorldEntities, getCampaignFacts, getNpcsForGame, type EntityType } from '../../services/world-service.js'
 import { getGameAllyCharacters, getActiveEncounter } from '../../services/game-service.js'
@@ -43,19 +42,6 @@ export const tools = [
       type: 'object' as const,
       properties: {},
       required: [],
-    },
-  },
-  {
-    name: 'resolve_difficulty',
-    description:
-      'Call when a player attempts something that might fail. Returns difficulty (1-20) and the pool they sacrifice from.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        action: { type: 'string', description: 'What the player is attempting' },
-        context: { type: 'string', description: 'Brief situational or location context' },
-      },
-      required: ['action', 'context'],
     },
   },
   {
@@ -214,10 +200,9 @@ export async function executeTool(
 
     // Character-scoped tools
     const characterHandlers: Record<string, ToolHandler> = {
-      update_stat: updateStat,
+      update_stat,
       update_level,
-      restore_pools: restorePools,
-      resolve_difficulty: resolveCheckDifficulty as ToolHandler,
+      restore_pools,
       get_npc_response: getNpcResponse,
     }
 

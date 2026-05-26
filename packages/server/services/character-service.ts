@@ -73,6 +73,19 @@ export async function getFullCharacter(id: string): Promise<FullCharacter | null
   }
 }
 
+export async function characterBelongsToUser(
+  characterId: string,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('characters')
+    .select('id')
+    .eq('id', characterId)
+    .eq('user_id', userId)
+    .single()
+  return !error && !!data
+}
+
 export async function updateCharacter(
   id: string,
   updates: CharacterUpdate,

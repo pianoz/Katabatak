@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import readline from 'readline'
-import supabase from './gm/tools/db.js'
 import { handleGMMessage } from './gm/handler.js'
-import type { CharacterRow, ConversationTurn, ToolResult } from './gm/types.js'
+import type { CharacterRow } from './gm/types.js'
 import { getFullCharacter } from './services/character-service.js'
+import supabase from './gm/tools/db.js'
 
 const characterId = process.argv[2]
 if (!characterId) {
@@ -40,8 +40,6 @@ console.log(dim('─'.repeat(60)))
 console.log(dim('Commands: /stats  /quit'))
 console.log()
 
-const history: ConversationTurn[] = []
-
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 
 function ask(): void {
@@ -61,35 +59,22 @@ function ask(): void {
       return ask()
     }
 
-    const toolCalls: Array<{ name: string; input: Record<string, unknown>; result: ToolResult }> = []
-
-    let reply: string
+    process.stdout.write(`\n${magenta('The Architect')} > `)
+    let fullReply = ''
     try {
-      reply = await handleGMMessage({
-        message: msg,
-        conversationHistory: history,
-        characterId,
-        onToolCall: (name, input, result) => toolCalls.push({ name, input, result }),
-      })
+      for await (const chunk of handleGMMessage({ message: msg, characterId })) {
+        if (typeof chunk === 'string') {
+          process.stdout.write(chunk)
+          fullReply += chunk
+        } else if (chunk.type === 'check_required') {
+          process.stdout.write(`\n[CHECK REQUIRED] ${chunk.check_description} — Difficulty: ${chunk.difficulty} ${chunk.pool}\n`)
+        }
+      }
+      process.stdout.write('\n\n')
     } catch (err) {
       console.error(red(`[Error] ${err instanceof Error ? err.message : String(err)}`))
-      return ask()
     }
 
-    history.push({ role: 'player', content: msg })
-    history.push({ role: 'assistant', content: reply })
-
-    if (toolCalls.length > 0) {
-      console.log()
-      for (const tc of toolCalls) {
-        const summary = tc.result.error
-          ? red(`ERROR: ${tc.result.error}`)
-          : dim(JSON.stringify(tc.result))
-        console.log(dim(`  [${tc.name}]`) + ' ' + summary)
-      }
-    }
-
-    console.log(`\n${magenta('The Architect')} > ${reply}\n`)
     ask()
   })
 }

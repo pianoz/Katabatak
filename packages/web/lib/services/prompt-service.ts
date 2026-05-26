@@ -19,6 +19,7 @@ export interface PromptVersionRow {
   slug: string
   version: number
   prompt: SavedPrompt
+  description: string | null
   created_at: string
   created_by: string
 }
@@ -64,6 +65,7 @@ export interface VersionMetaRow {
   id: string
   version: number
   name: string
+  description: string | null
 }
 
 /** Returns all version metadata for a slug, newest first. */
@@ -73,7 +75,7 @@ export async function getPromptVersions(
 ): Promise<VersionMetaRow[]> {
   const { data, error } = await supabase
     .from('prompt_versions')
-    .select('id, version, name')
+    .select('id, version, name, description')
     .eq('slug', slug)
     .order('version', { ascending: false })
   if (error) throw new Error(error.message)
@@ -99,7 +101,7 @@ export async function getPromptByVersion(
 /** Inserts a new version row (auto-increments version per slug per user). */
 export async function savePrompt(
   supabase: SupabaseClient,
-  { name, slug, prompt }: { name: string; slug: string; prompt: SavedPrompt }
+  { name, slug, prompt, description }: { name: string; slug: string; prompt: SavedPrompt; description?: string }
 ): Promise<PromptVersionRow> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
@@ -109,7 +111,7 @@ export async function savePrompt(
 
   const { data, error } = await supabase
     .from('prompt_versions')
-    .insert({ name, slug, version: nextVersion, prompt, created_by: user.id })
+    .insert({ name, slug, version: nextVersion, prompt, description: description ?? null, created_by: user.id })
     .select()
     .single()
 

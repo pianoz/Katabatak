@@ -1,18 +1,18 @@
 import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
-import { handleGMMessage } from './gm/handler.js'
+import { handleGMMessage, runScribe, getRecentTurns } from './gm/handler.js'
 import { summarizeHistory } from './gm/agents/summary.js'
 import { runEval } from './gm/services/claude-service.js'
 import { requireGmKey } from './middleware/auth.js'
 import { adminRouter, sessionMiddleware } from './admin/routes.js'
 import { logRequest } from './admin/request-logger.js'
-import type { ConversationTurn } from './gm/types.js'
+import type { CheckResolution } from './gm/types.js'
 
 console.log('====================================================')
 console.log('⚔️  KATABATAK GAME SERVER INITIALIZATION ACTIVE  ⚔️')
 console.log('====================================================')
-console.log('🤖 Standby: Claude GM engine online.')
+console.log('🤖 Standby: SYNGEM pipeline online.')
 console.log('📂 Tools directory mapped successfully.')
 console.log('----------------------------------------------------')
 
@@ -50,11 +50,12 @@ app.use('/gm', requireGmKey)
 app.use('/gm', gmLimiter)
 
 app.post('/gm', async (req, res) => {
-  const { message, conversationHistory, characterId, gameId } = req.body as {
+  const { message, characterId, userId, gameId, checkResolution } = req.body as {
     message?: string
-    conversationHistory?: ConversationTurn[]
     characterId?: string
+    userId?: string
     gameId?: string
+    checkResolution?: CheckResolution
   }
   if (!message) {
     res.status(400).json({ error: 'message is required' })
@@ -64,30 +65,61 @@ app.post('/gm', async (req, res) => {
     res.status(400).json({ error: 'characterId is required' })
     return
   }
+  if (!userId) {
+    res.status(400).json({ error: 'userId is required' })
+    return
+  }
 
   const start = Date.now()
-  let toolCallCount = 0
   let statusCode = 200
 
   try {
-    const response = await handleGMMessage({
-      message,
-      conversationHistory,
-      characterId,
-      gameId,
-      onToolCall: () => { toolCallCount++ },
-    })
-    res.json({ response })
+    const generator = handleGMMessage({ message, characterId, userId, gameId, checkResolution })
+    const first = await generator.next()
+
+    // If the first yield is a check_required object, return it as JSON immediately
+    if (!first.done && typeof first.value === 'object' && 'type' in first.value) {
+      res.json(first.value)
+      return
+    }
+
+    // Otherwise stream as SSE
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+
+    const sendChunk = (chunk: string) => {
+      res.write(`data: ${JSON.stringify({ chunk })}\n\n`)
+    }
+
+    // Write the first chunk if there was one
+    if (!first.done && typeof first.value === 'string') {
+      sendChunk(first.value)
+    }
+
+    for await (const value of generator) {
+      if (typeof value === 'string') {
+        sendChunk(value)
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
+    res.end()
   } catch (err) {
     console.error('[GM] Error:', err instanceof Error ? err.message : String(err))
     statusCode = 500
-    res.status(500).json({ error: 'GM handler failed' })
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'GM handler failed' })
+    } else {
+      res.write(`data: ${JSON.stringify({ error: 'GM handler failed' })}\n\n`)
+      res.end()
+    }
   } finally {
     logRequest({
       timestamp: new Date().toISOString(),
       endpoint: '/gm',
       characterId,
-      toolCallCount,
+      toolCallCount: 0,
       durationMs: Date.now() - start,
       statusCode,
     })
@@ -109,7 +141,7 @@ app.post('/gm/summarize', async (req, res) => {
 
   try {
     const summary = await summarizeHistory({
-      history: history as ConversationTurn[],
+      history: history as Array<{ role: 'player' | 'assistant'; content: string }>,
       existingSummary: existingSummary ?? null,
     })
     res.json({ summary })
@@ -125,6 +157,23 @@ app.post('/gm/summarize', async (req, res) => {
       durationMs: Date.now() - start,
       statusCode,
     })
+  }
+})
+
+// Manual Scribe trigger for a character (forces summary + quest/entity update)
+app.post('/gm/scribe', async (req, res) => {
+  const { characterId } = req.body as { characterId?: string }
+  if (!characterId) {
+    res.status(400).json({ error: 'characterId is required' })
+    return
+  }
+  try {
+    const recentTurns = await getRecentTurns(characterId, 20)
+    await runScribe(characterId, recentTurns)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[SCRIBE] Error:', err instanceof Error ? err.message : String(err))
+    res.status(500).json({ error: 'Scribe failed' })
   }
 })
 

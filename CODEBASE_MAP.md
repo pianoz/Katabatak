@@ -49,15 +49,21 @@ katabatak/
 | `/dev/spells` | `app/dev/spells/page.tsx` | Spell editor (dev flag required) |
 | `/dev/active-skills` | `app/dev/active-skills/page.tsx` | Active skill editor (dev flag required) |
 | `/dev/users` | `app/dev/users/page.tsx` | User management |
+| `/dev/prompt-builder` | `app/dev/prompt-builder/page.tsx` | Drag-and-drop prompt block editor — save/load/test agent prompts against live GM server |
+| `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | Evaluate saved prompt versions against real data |
 | `/about` | `app/about/page.tsx` | About page |
 | `/auth/error` | `app/auth/error/page.tsx` | Auth error |
 
 ### API Routes (`app/api/`)
 
 | Endpoint | File | Notes |
-|----------|------|-------|
-| `POST /api/gm` | `app/api/gm/route.ts` | Proxy to GM server at `GM_SERVER_URL` |
-| `POST /api/gm/summarize` | `app/api/gm/summarize/route.ts` | Session history summarization |
+| -------- | ---- | ----- |
+| `POST /api/gm` | `app/api/gm/route.ts` | SSE proxy to GM server — streams Architect chunks or returns `{type:'check_required'}` |
+| `POST /api/gm/eval` | `app/api/gm/eval/route.ts` | Single-shot Claude eval proxy (used by prompt builder) |
+| `GET /api/gm/health` | `app/api/gm/health/route.ts` | GM server liveness check |
+| `POST /api/gm/save` | `app/api/gm/save/route.ts` | Persist game save state |
+| `POST /api/gm/summarize` | `app/api/gm/summarize/route.ts` | Legacy session history summarization |
+| `GET /api/dev/users` | `app/api/dev/users/route.ts` | Admin user list (dev flag required) |
 | `DELETE /api/auth/delete-account` | `app/api/auth/delete-account/route.ts` | Delete account |
 | `GET /api/auth/callback` | `app/api/auth/callback/route.ts` | Supabase magic-link callback |
 
@@ -173,6 +179,9 @@ All database access goes through typed service functions. No raw Supabase calls 
 | `pending-offer-service.ts` | Track and apply pending item/spell/reward offers |
 | `snapshot-service.ts` | Character state snapshots for undo/history |
 | `roll-service.ts` | Dice roll events — record and replay |
+| `save-game-service.ts` | Persist and load game save state |
+| `admin-service.ts` | Admin-only user and game management operations |
+| `prompt-service.ts` | CRUD for `prompt_versions` — `getLatestPrompt`, `savePrompt`, `getPromptVersions`, `getPromptSlugs` |
 | `test-helpers.ts` | Shared mock utilities for all service tests |
 
 All services have co-located `.test.ts` files. Tests use Vitest.
@@ -211,46 +220,63 @@ All services have co-located `.test.ts` files. Tests use Vitest.
 
 ---
 
-## packages/server (AI Game Master)
+## packages/server (AI Game Master — SYNGEM Pipeline)
 
 Express server on port 3001. Proxied by `POST /api/gm` on the web app.
 
-> Deep-dive: [`packages/server/docs/gm-architecture.md`](packages/server/docs/gm-architecture.md)
+> Deep-dive: [`packages/server/docs/SYNGEM-architecture.md`](packages/server/docs/SYNGEM-architecture.md)
 
 **Auth:** All `/gm/*` routes require `Authorization: Bearer <GM_API_KEY>`. Admin UI at `/admin` uses session-based auth (separate credentials). Standalone deploy: see `packages/server/docker-compose.yml`.
 
+The server implements the **SYNGEM** pipeline — each player message passes through five deterministic and AI layers before a streamed narrative response is returned:
+
 ```
-server/
-├── index.ts                  # Express entry — CORS, rate limiting, route wiring
-├── chat.ts                   # Interactive REPL: tsx chat.ts <character_id>
-├── test-tools.ts             # Debug tool runner
-├── Dockerfile                # Production container
-├── docker-compose.yml        # Standalone production deploy
-├── middleware/
-│   └── auth.ts               # requireGmKey — Bearer token validation
-├── admin/
-│   ├── routes.ts             # Admin UI: login, dashboard, logout, /health
-│   └── request-logger.ts     # In-memory ring buffer of last 100 GM requests
-├── services/
-│   ├── character-service.ts  # getCharacter, getFullCharacter, updateCharacter
-│   ├── world-service.ts      # searchWorldLore, getCampaignFacts, getNpc, getNpcsForGame
-│   └── game-service.ts       # getGameWithMembers, getGameAllyCharacters, getActiveEncounter
-└── gm/
-    ├── handler.ts            # Core routing — fetches character from DB, Claude loop
-    ├── types.ts              # GMMessageInput: characterId + gameId (not characterContext)
-    ├── agents/
-    │   ├── summary.ts        # Session history summarization (Sonnet)
-    │   ├── npc.ts            # NPC dialogue (Haiku)
-    │   └── interaction.ts    # Difficulty resolution + stat wrappers
-    ├── services/
-    │   └── claude-service.ts # Generic eval wrapper (/eval endpoint)
-    └── tools/
-        ├── index.ts          # 9 tools: stat/level/pool + world/game queries
-        ├── db.ts             # Supabase service-role singleton
-        └── character.ts      # update_stat, update_level, restore_pools
+Player message → Auto-Hydrator → Lore-Engine → Style-Modulator
+             → Architect (streamed) → [async] Ledger → State-Executor
+             → [async, every 4 turns] Scribe
 ```
 
-Claude tool use is the core pattern — the GM calls tools to read/modify game state, then responds to the player. The conversation loop runs until `stop_reason === "end_turn"`. All tools within one round execute in parallel.
+```
+server/
+├── index.ts                       # Express entry — CORS, rate limiting, route wiring
+├── chat.ts                        # Interactive REPL: tsx chat.ts <character_id>
+├── Dockerfile / docker-compose.yml
+├── middleware/
+│   └── auth.ts                    # requireGmKey — Bearer token validation
+├── admin/
+│   ├── routes.ts                  # Admin UI: login, dashboard, logout, /health
+│   └── request-logger.ts          # In-memory ring buffer of last 100 GM requests
+├── services/
+│   ├── character-service.ts       # getCharacter, getFullCharacter, updateCharacter
+│   ├── conversation-service.ts    # saveTurn, getRecentTurns, getTurnCount
+│   ├── game-service.ts            # getGameWithMembers, getGameAllyCharacters, getActiveEncounter
+│   ├── prompt-service.ts          # loadSystemPrompt (60s cache), invalidatePromptCache
+│   └── world-service.ts           # searchWorldEntities, getCampaignFacts, getNpcsForGame
+└── gm/
+    ├── handler.ts                 # Pipeline orchestrator
+    ├── types.ts                   # GMMessageInput, ContextBlock, CheckRequired, etc.
+    ├── auto-hydrator.ts           # Layer 1: builds ContextBlock from parallel DB reads
+    ├── style-modulator.ts         # Layer 3: picks a random style file from gm/content/
+    ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB
+    ├── content/
+    │   ├── style_1.txt            # Restrained / observational
+    │   ├── style_2.txt            # Lyrical / elegiac
+    │   └── style_3.txt            # Terse / consequential
+    ├── agents/
+    │   ├── lore-engine.ts         # Layer 2: intent + mechanics (Haiku, slug: lore-engine)
+    │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect)
+    │   ├── ledger.ts              # Layer 5a: world-state audit (Sonnet, async, slug: ledger)
+    │   ├── summary.ts             # Layer 6: Scribe summarizer (Haiku, async, slug: scribe)
+    │   └── npc.ts                 # Legacy NPC dialogue (Haiku)
+    ├── services/
+    │   └── claude-service.ts      # Generic eval wrapper (/eval endpoint)
+    └── tools/
+        ├── index.ts               # Tool definitions + executeTool dispatcher
+        ├── db.ts                  # Supabase service-role singleton
+        └── character.ts           # update_stat, update_level, restore_pools
+```
+
+All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system prompts from `prompt_versions` via `services/prompt-service.ts` at request time (cached 60s), falling back to hardcoded constants. Edit prompts live at `/dev/prompt-builder` using the agent's slug.
 
 ---
 
@@ -267,7 +293,7 @@ Claude tool use is the core pattern — the GM calls tools to read/modify game s
 | Table | Purpose |
 |-------|---------|
 | `profiles` | User accounts. `username`, `avatar_url`, `is_dev` flag |
-| `characters` | Player characters. Stats, level, location, notes |
+| `characters` | Player characters. Stats, level, location, notes. AI fields: `scribe_summary`, `quest_objectives`, `key_entity_ids`, `ai_game` |
 | `character_inventory` | Items owned by characters. `condition`, `equipped` |
 | `character_skills` | Unlocked skills per character. `current_rank`, `unlocked_at` |
 | `character_spells` | Spells known by character |
@@ -285,15 +311,18 @@ Claude tool use is the core pattern — the GM calls tools to read/modify game s
 | `friends` | Friend relationships. `status`: pending → friend |
 | `npcs` | Game NPCs. Faction, personality, disposition |
 | `campaign_facts` | Session lore facts. `gm_only` flag |
-| `world_lore` | World encyclopedia. `lore_type` enum |
+| `world_entities` | World encyclopedia. Replaced `world_lore`. `type` enum, `data` JSONB, full-text `search_vector` |
+| `player_entity_mutations` | Per-player overrides on `world_entities` (e.g. hidden doors, altered descriptions) |
+| `conversation_turns` | Persisted GM conversation history. `role` (`player`\|`assistant`), `turn_number` |
+| `prompt_versions` | Versioned agent system prompts. `slug`, `version`, `prompt` JSONB, `description` |
 | `character_snapshots` | Point-in-time character state for undo/history |
 | `roll_events` | Dice roll log per game session |
 
 ### Key Enums
 
 ```sql
-lore_type:   nation | region | polis | location | npc | item | faction
-offer_type:  item | denarius | skill_point | spell
+entity_type:  nation | region | place | location | npc | item
+offer_type:   item | denarius | skill_point | spell
 ```
 
 ### Key PL/pgSQL Functions
@@ -324,6 +353,16 @@ offer_type:  item | denarius | skill_point | spell
 | `20260523110000_add_missing_rls_policies.sql` | Fill RLS gaps |
 | `20260523120000_grant_active_skills_to_authenticated.sql` | RLS grants for `active_skills` |
 | `20260523130000_fix_skills_rls_for_devs.sql` | Dev-role RLS bypass for skill editing |
+| `20260523140000_add_is_dev_service_and_normalize_policies.sql` | `is_dev` service role + policy normalization |
+| `20260523150000_add_ai_game_to_characters.sql` | `ai_game` boolean flag on `characters` |
+| `20260524000000_add_prompt_versions.sql` | `prompt_versions` table + RLS |
+| `20260524100000_add_condition_to_characters.sql` | `condition_text` field on `characters` |
+| `20260524200000_fix_prompt_versions_rls.sql` | RLS policy fixes for `prompt_versions` |
+| `20260524210000_add_gm_history_to_characters.sql` | `gm_history` JSONB on `characters` (legacy, superseded by `conversation_turns`) |
+| `20260524220000_replace_world_lore_with_entities.sql` | Replaces `world_lore` with `world_entities` + `player_entity_mutations` |
+| `20260526100000_add_conversation_turns.sql` | `conversation_turns` table — server-side GM conversation history |
+| `20260526110000_add_scribe_fields_to_characters.sql` | `scribe_summary`, `quest_objectives`, `key_entity_ids` on `characters` |
+| `20260526120000_add_description_to_prompt_versions.sql` | `description` text column on `prompt_versions` |
 
 ---
 

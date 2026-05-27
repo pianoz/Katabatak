@@ -131,7 +131,7 @@ export async function* handleGMMessage({
 
   // 12. Advance fantasy game time by 10 minutes (async, non-blocking)
   advanceGameTime(characterId).catch((err) =>
-    console.error('[GameTime] async error:', err),
+    synLog('HANDLER', `✗ [GameTime] async error: ${err instanceof Error ? err.message : String(err)}`),
   )
 
   // 13. Fire Ledger + State Executor asynchronously
@@ -142,14 +142,14 @@ export async function* handleGMMessage({
         return executeStateChanges(characterId, ledgerOutputs)
       }
     })
-    .catch((err) => console.error('[Ledger/StateExecutor] async error:', err))
+    .catch((err) => synLog('HANDLER', `✗ [Ledger/StateExecutor] async error: ${err instanceof Error ? err.message : String(err)}`))
 
   // 14. Fire Scribe every 4 turns (server-side, async)
   if (turnNumber % 4 === 0) {
     synLog('HANDLER', `→ scribe triggered (turn ${turnNumber})`)
     const recentEight = await getRecentTurns(characterId, 8)
     runScribe(characterId, recentEight).catch((err) =>
-      console.error('[Scribe] async error:', err),
+      synLog('HANDLER', `✗ [Scribe] async error: ${err instanceof Error ? err.message : String(err)}`),
     )
   }
 }

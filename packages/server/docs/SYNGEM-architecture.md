@@ -1,6 +1,6 @@
 # SYNGEM — Architecture Reference
 
-> Last meaningful update: 2026-05-26 — SYNGEM pipeline implementation
+> Last meaningful update: 2026-05-27 — file-based dev logging + runtime log-level control
 
 ---
 
@@ -247,6 +247,7 @@ The handler fetches turns directly from DB — the client sends no conversation 
 | `POST` | `/gm/scribe` | `runScribe()` | Manual Scribe trigger. Writes summary + quest + entities to DB |
 | `POST` | `/eval` | Claude eval service | Single-shot, no tools — used by dev prompt tools |
 | `GET` | `/health` | — | `{ status: 'ok' }` |
+| `POST` | `/dev/log-level` | `setLogLevel()` | Dev only. Sets in-memory log level. Body: `{ level: 'verbose' \| 'errors+' \| 'errors' \| 'silent' }` |
 
 ---
 
@@ -288,13 +289,55 @@ The handler fetches turns directly from DB — the client sends no conversation 
 
 ---
 
+## Dev Logging (`gm/logger.ts`)
+
+All pipeline diagnostic output goes through `synLog(tag, msg, detail?)`. In production (`NODE_ENV=production`) the function is a no-op. In dev, it appends to a daily rotating log file:
+
+```
+packages/server/logs/syngem-YYYY-MM-DD.log
+```
+
+The directory is created automatically on first write. Log files are gitignored.
+
+**Log entry format:**
+```
+2026-05-27T14:23:01.456Z [LORE-ENGINE] ✓ action:task requires_check:false notes:"player moves north"
+              {
+                "action_type": "task",
+                "requires_check": false,
+                "narrative_notes": "player moves north"
+              }
+```
+A blank line is inserted before each new pipeline request (`[HANDLER] → request`) for visual separation.
+
+**Log levels** — controlled at runtime via `setLogLevel()`:
+
+| Level | What is written |
+| ------- | --------------- |
+| `verbose` | Everything — all `synLog` calls including `detail` blocks |
+| `errors+` | Lines starting with `⚠`/`✗`, plus any call with a `detail` block (the parsed JSON outputs) |
+| `errors` | Only lines starting with `⚠` or `✗` |
+| `silent` | Nothing |
+
+Default level: `verbose`.
+
+**Changing the level at runtime:**
+
+- Dashboard: the **Log Level** radio group in the dev section (visible when dev mode is toggled on, `isDev` flag required)
+- Direct call: `POST /dev/log-level` with `{ "level": "errors+" }`
+- The setting is stored in localStorage and synced to the server on page load, so it survives refreshes
+
+The chosen level is stored in the express process's memory — restarting the server resets it to `verbose`.
+
+---
+
 ## Failure Modes
 
-- **Lore-Engine returns bad JSON** — `runLoreEngine()` catches parse errors and falls back to `{ action_type: 'task', requires_check: false }`. Pipeline continues.
+- **Lore-Engine returns bad JSON** — `runLoreEngine()` catches parse errors and falls back to `{ action_type: 'task', requires_check: false }`. The full raw model response is written to the log file. Pipeline continues.
 - **Architect stream fails mid-way** — partial text is already sent to the client. The handler catches and sends `{"error": "GM handler failed"}` as the final SSE event.
-- **Ledger returns bad JSON or empty** — `runLedger()` returns `[]`. State Executor is never called. Silent failure, narrative is unaffected.
-- **State Executor action fails** — each action is wrapped in try/catch. One failing action (e.g., entity not found) doesn't block others.
-- **Scribe fails** — async fire-and-forget. Error is console-logged. Characters retain their previous scribe data until the next successful Scribe run.
+- **Ledger returns bad JSON or empty** — `runLedger()` returns `[]`. State Executor is never called. The full raw model response is written to the log file. Narrative is unaffected.
+- **State Executor action fails** — each action is wrapped in try/catch. Failures are written to the log file. One failing action (e.g., entity not found) doesn't block others.
+- **Scribe / GameTime / Ledger async errors** — all `.catch` handlers write to the log file via `synLog`. Characters retain their previous scribe data until the next successful Scribe run.
 - **`prompt_versions` has no entry for a slug** — agents fall back to their hardcoded `FALLBACK_SYSTEM` (Architect falls back to the style-modulator text). Add the slug via the prompt builder to override. For the Architect, all five `architect1`–`architect5` slugs should have at least one version to avoid style-text fallbacks.
 
 ---
@@ -335,8 +378,11 @@ The REPL streams Architect output to stdout. Check interruptions are printed inl
 packages/server/
 ├── index.ts                          # Express app, routes, SSE handling
 ├── chat.ts                           # CLI REPL for testing
+├── logs/                             # Dev log files (gitignored). Created on first synLog call.
+│   └── syngem-YYYY-MM-DD.log         # Daily rotating log file
 ├── gm/
 │   ├── handler.ts                    # Pipeline orchestrator
+│   ├── logger.ts                     # synLog() + setLogLevel() — dev file logger
 │   ├── types.ts                      # All shared types
 │   ├── auto-hydrator.ts              # Layer 1: ContextBlock builder
 │   ├── style-modulator.ts            # Layer 3: Style file picker

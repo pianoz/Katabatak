@@ -49,7 +49,7 @@ katabatak/
 | `/dev/spells` | `app/dev/spells/page.tsx` | Spell editor (dev flag required) |
 | `/dev/active-skills` | `app/dev/active-skills/page.tsx` | Active skill editor (dev flag required) |
 | `/dev/users` | `app/dev/users/page.tsx` | User management |
-| `/dev/prompt-builder` | `app/dev/prompt-builder/page.tsx` | Drag-and-drop prompt block editor — save/load/test agent prompts against live GM server |
+| `/dev/prompt-builder` | `app/dev/prompt-builder/page.tsx` | Drag-and-drop prompt block editor — save/load/test agent prompts against live GM server. Auto-Hydrator block fetches context by `characterId` only (no multiplayer game picker); `syngem_game` table included in hydration output |
 | `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | Evaluate saved prompt versions against real data |
 | `/about` | `app/about/page.tsx` | About page |
 | `/auth/error` | `app/auth/error/page.tsx` | Auth error |
@@ -64,6 +64,8 @@ katabatak/
 | `POST /api/gm/save` | `app/api/gm/save/route.ts` | Persist game save state |
 | `POST /api/gm/summarize` | `app/api/gm/summarize/route.ts` | Legacy session history summarization |
 | `GET /api/dev/users` | `app/api/dev/users/route.ts` | Admin user list (dev flag required) |
+| `POST /api/dev/log-level` | `app/api/dev/log-level/route.ts` | Proxies to GM server `POST /dev/log-level`. Sets pipeline log level at runtime (dev only) |
+| `DELETE /api/dev/conversation-history` | `app/api/dev/conversation-history/route.ts` | Validates `is_dev`, proxies to GM server `DELETE /gm/conversation/:characterId` — wipes all `conversation_turns` for a character |
 | `DELETE /api/auth/delete-account` | `app/api/auth/delete-account/route.ts` | Delete account |
 | `GET /api/auth/callback` | `app/api/auth/callback/route.ts` | Supabase magic-link callback |
 
@@ -146,8 +148,8 @@ Game session view with combat, encounters, and GM tools.
 | `components/ui/` | shadcn/ui component wrappers (button, card, dialog, form, table, etc.) |
 | `header.tsx` | Top nav bar |
 | `login-form.tsx` | Magic-link email auth |
-| `dashboard-content.tsx` | Main dashboard layout |
-| `virtual-gm-component.tsx` | AI GM chat interface |
+| `dashboard-content.tsx` | Main dashboard layout. When dev mode is enabled: renders `DevToolsSection` and the **Log Level** radio group (verbose / errors+ / errors / silent), which syncs to the GM server via `/api/dev/log-level` and persists in localStorage |
+| `virtual-gm-component.tsx` | AI GM chat interface. Accepts `isDev` prop — when true, shows a **Dump History** button in the header that calls `DELETE /api/dev/conversation-history` to wipe `conversation_turns` for the current character |
 | `settings-modal.tsx` | User settings dialog |
 | `friends-modal.tsx` | Friend management |
 | `invite-notification.tsx` | In-app game invite toast |
@@ -248,12 +250,14 @@ server/
 │   └── request-logger.ts          # In-memory ring buffer of last 100 GM requests
 ├── services/
 │   ├── character-service.ts       # getCharacter, getFullCharacter, updateCharacter
-│   ├── conversation-service.ts    # saveTurn, getRecentTurns, getTurnCount
+│   ├── conversation-service.ts    # saveTurn, getRecentTurns, getTurnCount, clearConversationHistory
 │   ├── game-service.ts            # getGameWithMembers, getGameAllyCharacters, getActiveEncounter
 │   ├── prompt-service.ts          # loadSystemPrompt (60s cache), invalidatePromptCache
+│   ├── syngem-game-service.ts     # getSyngemGame, createSyngemGame, updateSyngemSummary, advanceGameTime
 │   └── world-service.ts           # searchWorldEntities, getCampaignFacts, getNpcsForGame
 └── gm/
     ├── handler.ts                 # Pipeline orchestrator
+    ├── logger.ts                  # synLog() dev file logger + LogLevel / setLogLevel()
     ├── types.ts                   # GMMessageInput, ContextBlock, CheckRequired, etc.
     ├── auto-hydrator.ts           # Layer 1: builds ContextBlock from parallel DB reads
     ├── style-modulator.ts         # Layer 3: picks a random style file from gm/content/
@@ -293,7 +297,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 | Table | Purpose |
 |-------|---------|
 | `profiles` | User accounts. `username`, `avatar_url`, `is_dev` flag |
-| `characters` | Player characters. Stats, level, location, notes. AI fields: `scribe_summary`, `quest_objectives`, `key_entity_ids`, `ai_game` |
+| `characters` | Player characters. Stats, level, `location_place` (FK to `world_entities`), notes. AI fields: `quest_objectives`, `key_entity_ids`, `ai_game` |
 | `character_inventory` | Items owned by characters. `condition`, `equipped` |
 | `character_skills` | Unlocked skills per character. `current_rank`, `unlocked_at` |
 | `character_spells` | Spells known by character |
@@ -314,6 +318,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 | `world_entities` | World encyclopedia. Replaced `world_lore`. `type` enum, `data` JSONB, full-text `search_vector` |
 | `player_entity_mutations` | Per-player overrides on `world_entities` (e.g. hidden doors, altered descriptions) |
 | `conversation_turns` | Persisted GM conversation history. `role` (`player`\|`assistant`), `turn_number` |
+| `syngem_game` | Solo AI GM session state. One row per character. `game_date_days`, `game_time_minutes`, `in_combat`, `summary`. Keyed by `character_id` (unique). Fantasy calendar: 30-day months, 12 months/year |
 | `prompt_versions` | Versioned agent system prompts. `slug`, `version`, `prompt` JSONB, `description` |
 | `character_snapshots` | Point-in-time character state for undo/history |
 | `roll_events` | Dice roll log per game session |
@@ -363,6 +368,9 @@ offer_type:   item | denarius | skill_point | spell
 | `20260526100000_add_conversation_turns.sql` | `conversation_turns` table — server-side GM conversation history |
 | `20260526110000_add_scribe_fields_to_characters.sql` | `scribe_summary`, `quest_objectives`, `key_entity_ids` on `characters` |
 | `20260526120000_add_description_to_prompt_versions.sql` | `description` text column on `prompt_versions` |
+| `20260526130000_add_syngem_game_table.sql` | `syngem_game` table — solo AI GM session state; migrates `scribe_summary` from `characters` |
+| `20260526140000_refactor_character_locations.sql` | Four-level location hierarchy: nation › region › place › immediate (FK to `world_entities`) |
+| `20260527000000_simplify_character_location.sql` | Simplifies location to single `location_place` FK; parent chain derived at query time via `parent_id` |
 
 ---
 

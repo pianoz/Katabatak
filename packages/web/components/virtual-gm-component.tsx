@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Terminal, Sparkles, User, Loader2, Dice1, Zap, Sun, Moon, X } from 'lucide-react';
+import { Send, Terminal, Sparkles, User, Loader2, Dice1, Zap, Sun, Moon, X, Trash2 } from 'lucide-react';
 import { useCharacterStore } from '@/features/characters/hooks/use-character-store';
 
 // ─── Sky Tracker ──────────────────────────────────────────────────────────────
@@ -96,6 +96,7 @@ interface ChatGMProps {
   characterId: string;
   gameId?: string;
   isSyncing?: boolean;
+  isDev?: boolean;
   onGMReply?: () => void;
   onClose?: () => void;
 }
@@ -107,6 +108,7 @@ export default function ChatGMComponent({
   characterId,
   gameId,
   isSyncing = false,
+  isDev = false,
   onGMReply,
   onClose,
 }: ChatGMProps) {
@@ -134,6 +136,27 @@ export default function ChatGMComponent({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isGMLoading, streamingContent]);
+
+  const dumpHistory = async () => {
+    if (!confirm('Delete all conversation history for this character? This cannot be undone.')) return;
+    try {
+      await fetch('/api/dev/conversation-history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characterId }),
+      });
+      setMessages([{
+        id: Date.now().toString(),
+        role: 'gm',
+        senderName: 'The Architect',
+        content: 'Conversation history cleared.',
+        timestamp: new Date(),
+      }]);
+      setTurnCount(0);
+    } catch (err) {
+      console.error('[DEV] dumpHistory error:', err);
+    }
+  };
 
   const sendToGM = async (message: string, checkResolution?: { choice: 'spend' | 'roll'; pool: string }) => {
     setIsGMLoading(true);
@@ -275,6 +298,17 @@ export default function ChatGMComponent({
           <span className="text-[9px] uppercase tracking-[0.2em] text-zinc-700 ml-1">Chronicle</span>
         </div>
         <div className="ml-auto flex items-center gap-4">
+          {isDev && (
+            <button
+              onClick={dumpHistory}
+              disabled={isGMLoading}
+              title="[DEV] Dump conversation history"
+              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-red-700 hover:text-red-400 disabled:opacity-30 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              Dump History
+            </button>
+          )}
           {gmBlocked && (
             <span className="text-[10px] uppercase tracking-widest text-amber-500/70 flex items-center gap-1">
               Syncing…

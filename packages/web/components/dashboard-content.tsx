@@ -59,12 +59,38 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
   const [activeTab, setActiveTab] = useState("games")
   const [friendsOpen, setFriendsOpen] = useState(false)
   const [devModeEnabled, setDevModeEnabled] = useState(false)
+  type LogLevel = 'verbose' | 'errors+' | 'errors' | 'silent'
+  const LOG_LEVELS: LogLevel[] = ['verbose', 'errors+', 'errors', 'silent']
+  const [logLevel, setLogLevelState] = useState<LogLevel>('verbose')
+
+  const syncLogLevel = async (level: LogLevel) => {
+    try {
+      await fetch('/api/dev/log-level', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level }),
+      })
+    } catch { /* non-critical */ }
+  }
+
   useEffect(() => {
     setDevModeEnabled(localStorage.getItem('devModeEnabled') === 'true')
+    const stored = localStorage.getItem('synLogLevel') as LogLevel | null
+    if (stored && (['verbose', 'errors+', 'errors', 'silent'] as string[]).includes(stored)) {
+      setLogLevelState(stored)
+      void syncLogLevel(stored)
+    }
   }, [])
+
   const toggleDevMode = (val: boolean) => {
     localStorage.setItem('devModeEnabled', String(val))
     setDevModeEnabled(val)
+  }
+
+  const handleLogLevelChange = (level: LogLevel) => {
+    localStorage.setItem('synLogLevel', level)
+    setLogLevelState(level)
+    void syncLogLevel(level)
   }
   const [friends, setFriends] = useState<Friend[]>(initialFriends)
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(initialFriendRequests)
@@ -188,6 +214,32 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
         </div>
 
         {devModeEnabled && <DevToolsSection />}
+        {devModeEnabled && (
+          <div className="mt-4 border border-border bg-card px-5 py-4 flex items-center gap-6 flex-wrap">
+            <span className="text-xs uppercase tracking-[0.3em] text-muted-foreground shrink-0">
+              Log Level
+            </span>
+            {LOG_LEVELS.map((level) => (
+              <label key={level} className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="radio"
+                  name="synLogLevel"
+                  value={level}
+                  checked={logLevel === level}
+                  onChange={() => handleLogLevelChange(level)}
+                  className="sr-only"
+                />
+                <span className={`text-xs uppercase tracking-widest px-3 py-1 border transition-colors ${
+                  logLevel === level
+                    ? 'border-cyan-400 text-cyan-400'
+                    : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+                }`}>
+                  {level}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
       </main>
     </div>
   )

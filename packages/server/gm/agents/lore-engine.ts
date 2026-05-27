@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
-import { synLog } from '../logger.js'
+import { synLog, synLogVerbose } from '../logger.js'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput } from '../types.js'
 
 const client = new Anthropic()
@@ -37,7 +37,7 @@ function serializeContext(ctx: ContextBlock): string {
     `Essence: ${character.current_essence}/${character.essence_max} (${essenceText})`,
     `Power: ${character.current_power}/${character.power_max} (${powerText})`,
     `Will: ${character.current_will}/${character.will_max} (${willText})`,
-    `Location: ${[character.location_place, character.location_region].filter(Boolean).join(', ') || 'Unknown'}`,
+    `Location: ${locationEntities.length ? [...locationEntities].reverse().map((e) => e.name).join(', ') : 'Unknown'}`,
   ]
   if (locationEntities.length) {
     lines.push(`Nearby: ${locationEntities.map((e) => e.name).join(', ')}`)
@@ -65,6 +65,7 @@ export async function runLoreEngine({
   const loadedPrompt = await loadSystemPrompt('lore-engine')
   const system = loadedPrompt ?? FALLBACK_SYSTEM
   synLog('LORE-ENGINE', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | input:"${playerInput.slice(0, 60)}${playerInput.length > 60 ? '...' : ''}"`)
+  synLogVerbose('LORE-ENGINE', '→ system prompt:', system)
 
   const historyBlock = lastTwoTurns.length
     ? lastTwoTurns
@@ -83,6 +84,8 @@ export async function runLoreEngine({
     playerInput,
   ].join('\n')
 
+  synLogVerbose('LORE-ENGINE', '→ user content:', userContent)
+
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
@@ -92,13 +95,13 @@ export async function runLoreEngine({
   })
 
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
+  synLogVerbose('LORE-ENGINE', '← raw response:', text)
   try {
     const result = JSON.parse(text) as LoreEngineOutput
-    synLog('LORE-ENGINE', `✓ action:${result.action_type} requires_check:${result.requires_check}${result.search_objects?.length ? ` searches:${result.search_objects.length}` : ''}${result.narrative_notes ? ` notes:"${result.narrative_notes.slice(0, 50)}"` : ''}`)
+    synLog('LORE-ENGINE', `✓ action:${result.action_type} requires_check:${result.requires_check}${result.search_objects?.length ? ` searches:${result.search_objects.length}` : ''}${result.narrative_notes ? ` notes:"${result.narrative_notes.slice(0, 50)}"` : ''}`, result)
     return result
   } catch {
-    synLog('LORE-ENGINE', `⚠ JSON parse failed — using fallback | raw:"${text.slice(0, 80)}"`)
-    console.error('[LoreEngine] Failed to parse JSON:', text)
+    synLog('LORE-ENGINE', '⚠ JSON parse failed — using fallback. Full raw response:', text)
     return { action_type: 'task', requires_check: false }
   }
 }

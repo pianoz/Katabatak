@@ -1,6 +1,6 @@
 import supabase from './tools/db.js'
 import { updateCharacter } from '../services/character-service.js'
-import { synLog } from './logger.js'
+import { synLog, synLogVerbose } from './logger.js'
 import type { Database, Json } from '@db-types'
 import type { LedgerOutput } from './types.js'
 
@@ -9,20 +9,22 @@ const VALID_LOCATION_TYPES = new Set(['nation', 'region', 'place', 'location'])
 async function moveCharacter(characterId: string, destinationEntityId: string): Promise<void> {
   const { data: entity } = await supabase
     .from('world_entities')
-    .select('id, name, type, nation_context, region_context, place_context')
+    .select('id, name, type, place_context')
     .eq('id', destinationEntityId)
     .single()
 
   if (!entity || !VALID_LOCATION_TYPES.has(entity.type)) {
-    console.warn(`[StateExecutor] move_character: entity ${destinationEntityId} is not a valid location type`)
+    synLog('STATE-EXECUTOR', `⚠ move_character: entity ${destinationEntityId} is not a valid location type`)
     return
   }
 
-  await updateCharacter(characterId, {
-    location_immediate: entity.type === 'location' ? entity.id : undefined,
-    location_place: entity.place_context ?? (entity.type === 'place' ? entity.id : undefined),
-    location_region: entity.region_context ?? (entity.type === 'region' ? entity.id : undefined),
-  })
+  // Resolve to a place-level ID: sub-place locations use their place_context
+  const locationPlace =
+    entity.type === 'location' ? entity.place_context
+    : entity.type === 'place' ? entity.id
+    : null
+
+  await updateCharacter(characterId, { location_place: locationPlace })
 }
 
 async function updateEntity(entityId: string, mutations: Record<string, unknown>): Promise<void> {
@@ -33,7 +35,7 @@ async function updateEntity(entityId: string, mutations: Record<string, unknown>
     .single()
 
   if (!existing) {
-    console.warn(`[StateExecutor] update_entity: entity ${entityId} not found`)
+    synLog('STATE-EXECUTOR', `⚠ update_entity: entity ${entityId} not found`)
     return
   }
 
@@ -43,7 +45,7 @@ async function updateEntity(entityId: string, mutations: Record<string, unknown>
 
 async function createEntity(entity: Record<string, unknown>): Promise<void> {
   if (!entity['id'] || !entity['name'] || !entity['type']) {
-    console.warn('[StateExecutor] create_entity: missing required fields (id, name, type)')
+    synLog('STATE-EXECUTOR', '⚠ create_entity: missing required fields (id, name, type)', entity)
     return
   }
   await supabase.from('world_entities').upsert({
@@ -79,6 +81,7 @@ export async function executeStateChanges(
 ): Promise<void> {
   for (const output of outputs) {
     try {
+      synLogVerbose('STATE-EXECUTOR', '→ action:', output)
       switch (output.action) {
         case 'move_character':
           synLog('STATE-EXECUTOR', `→ move_character | dest:${output.destination_entity_id}`)
@@ -98,7 +101,7 @@ export async function executeStateChanges(
           break
       }
     } catch (err) {
-      console.error(`[StateExecutor] Failed to execute ${output.action}:`, err)
+      synLog('STATE-EXECUTOR', `✗ failed to execute ${output.action}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 }

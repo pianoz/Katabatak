@@ -45,6 +45,14 @@ export async function getRecentTurns(
   return data.reverse().map((r) => ({ role: r.role as 'player' | 'assistant', content: r.content }))
 }
 
+/** Delete all conversation turns for a character (dev use only). */
+export async function clearConversationHistory(characterId: string): Promise<void> {
+  await supabase
+    .from('conversation_turns')
+    .delete()
+    .eq('character_id', characterId)
+}
+
 /** Total number of stored turns for a character. */
 export async function getTurnCount(characterId: string): Promise<number> {
   const { count } = await supabase

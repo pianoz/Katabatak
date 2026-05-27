@@ -32,6 +32,7 @@ export interface LocationEntity {
   id: string
   name: string
   short_description: string
+  long_description: string
 }
 
 /** All context assembled by the Auto-Hydrator and passed down the SYNGEM pipeline. */

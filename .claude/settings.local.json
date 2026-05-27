@@ -145,7 +145,11 @@
       "Bash(Get-ChildItem \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\supabase\\\\migrations\")",
       "Bash(Sort-Object Name)",
       "Bash(Select-Object -Last 3)",
-      "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")"
+      "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")",
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
+      "Bash(grep -E \"\\\\.tsx?$\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\api\\\\dev\\\\conversation-history\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\api\\\\dev\\\\conversation-history\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

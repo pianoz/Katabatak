@@ -13,6 +13,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_dev')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile?.is_dev) {
+    return NextResponse.json({ error: 'Access restricted to approved users.' }, { status: 403 })
+  }
+
   const body = await req.json() as {
     message?: string
     characterId?: string

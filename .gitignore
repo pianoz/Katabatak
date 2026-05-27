@@ -7,6 +7,7 @@ __v0_jsx-dev-runtime.ts
 .vercel/
 .packages/server/node_modules/
 .packages/web/node_modules/
+recovery-codes.txt
 
 # Environment variables
 .env*.local
@@ -15,3 +16,6 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+
+# Dev logs
+packages/server/logs/

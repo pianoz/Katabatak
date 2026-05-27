@@ -103,10 +103,7 @@ function buildSnapshot(char: Character, items: Item[]): CharacterSnapshot {
     weight_kgs: char.weight_kgs ?? null,
     carrying_capacity: char.carrying_capacity ?? null,
     current_carry_weight: null,
-    location_nation: char.location_nation ?? null,
-    location_region: char.location_region ?? null,
     location_place: char.location_place ?? null,
-    location_immediate: char.location_immediate ?? null,
     background_primary: char.background_primary ?? null,
     background_secondary: char.background_secondary ?? null,
     physical_description: char.physical_description ?? null,
@@ -1194,12 +1191,31 @@ export function CharacterDashboard({
       {/* SYNGEM full-screen overlay */}
       {syngemActive && (
         <div className="fixed inset-0 z-50">
-          <VirtualGMComponent
-            playerName={character.name}
-            characterId={character.id}
-            onGMReply={refreshCharacter}
-            onClose={() => setSyngemActive(false)}
-          />
+          {isDev ? (
+            <VirtualGMComponent
+              playerName={character.name}
+              characterId={character.id}
+              isDev={isDev}
+              onGMReply={refreshCharacter}
+              onClose={() => setSyngemActive(false)}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full w-full bg-zinc-950 text-center px-8">
+              <button
+                onClick={() => setSyngemActive(false)}
+                className="absolute top-6 right-6 text-zinc-600 hover:text-zinc-300 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <span className="text-[9px] uppercase tracking-[0.4em] text-cyan-900 font-mono mb-6">SYNGEM Engine</span>
+              <p className="font-playfair text-zinc-500 text-lg mb-3">Access Restricted</p>
+              <p className="text-xs uppercase tracking-widest text-zinc-700 max-w-xs leading-relaxed">
+                Only approved users can access the SYNGEM engine.<br />
+                <span className="text-zinc-800">This is because I&apos;m not a millionaire.</span>
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

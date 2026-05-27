@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { LedgerOutput } from '../types.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
-import { synLog } from '../logger.js'
+import { synLog, synLogVerbose } from '../logger.js'
 
 const client = new Anthropic()
 
@@ -41,22 +41,21 @@ export async function runLedger({
 }): Promise<LedgerOutput[]> {
   const loadedPrompt = await loadSystemPrompt('ledger')
   const system = loadedPrompt ?? FALLBACK_SYSTEM
+  const userContent = `Character ID: ${characterId}\n\nGM Narrative:\n${narrativeText}`
   synLog('LEDGER', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | narrative:${narrativeText.length}chars`)
+  synLogVerbose('LEDGER', '→ system prompt:', system)
+  synLogVerbose('LEDGER', '→ user content:', userContent)
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 500,
     temperature: 0,
     system,
-    messages: [
-      {
-        role: 'user',
-        content: `Character ID: ${characterId}\n\nGM Narrative:\n${narrativeText}`,
-      },
-    ],
+    messages: [{ role: 'user', content: userContent }],
   })
 
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
+  synLogVerbose('LEDGER', '← raw response:', text)
   try {
     const parsed = JSON.parse(text)
     if (!Array.isArray(parsed)) {
@@ -64,11 +63,10 @@ export async function runLedger({
       return []
     }
     const outputs = parsed as LedgerOutput[]
-    synLog('LEDGER', `✓ ${outputs.length} action(s)${outputs.length ? ': ' + outputs.map((o) => o.action).join(', ') : ''}`)
+    synLog('LEDGER', `✓ ${outputs.length} action(s)${outputs.length ? ': ' + outputs.map((o) => o.action).join(', ') : ''}`, outputs.length ? outputs : undefined)
     return outputs
   } catch {
-    synLog('LEDGER', `⚠ JSON parse failed | raw:"${text.slice(0, 80)}"`)
-    console.error('[Ledger] Failed to parse JSON:', text)
+    synLog('LEDGER', '⚠ JSON parse failed — full raw response:', text)
     return []
   }
 }

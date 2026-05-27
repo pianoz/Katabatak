@@ -378,10 +378,7 @@ export type Database = {
           current_carry_weight: number | null
           current_essence: number | null
           current_health: number | null
-          location_nation: string | null
-          location_region: string | null
           location_place: string | null
-          location_immediate: string | null
           current_power: number | null
           current_will: number | null
           denarius: number | null
@@ -419,10 +416,7 @@ export type Database = {
           current_carry_weight?: number | null
           current_essence?: number | null
           current_health?: number | null
-          location_nation?: string | null
-          location_region?: string | null
           location_place?: string | null
-          location_immediate?: string | null
           current_power?: number | null
           current_will?: number | null
           denarius?: number | null
@@ -459,10 +453,7 @@ export type Database = {
           current_carry_weight?: number | null
           current_essence?: number | null
           current_health?: number | null
-          location_nation?: string | null
-          location_region?: string | null
           location_place?: string | null
-          location_immediate?: string | null
           current_power?: number | null
           current_will?: number | null
           denarius?: number | null
@@ -486,7 +477,15 @@ export type Database = {
           weight_kgs?: number | null
           will_max?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "characters_location_place_fkey"
+            columns: ["location_place"]
+            isOneToOne: false
+            referencedRelation: "world_entities"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       creatures: {
         Row: {

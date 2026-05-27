@@ -2,12 +2,15 @@ import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
 import { handleGMMessage, runScribe, getRecentTurns } from './gm/handler.js'
+import { clearConversationHistory } from './services/conversation-service.js'
 import { summarizeHistory } from './gm/agents/summary.js'
 import { runEval } from './gm/services/claude-service.js'
 import { autoHydrate } from './gm/auto-hydrator.js'
 import { requireGmKey } from './middleware/auth.js'
 import { adminRouter, sessionMiddleware } from './admin/routes.js'
 import { logRequest } from './admin/request-logger.js'
+import { setLogLevel } from './gm/logger.js'
+import type { LogLevel } from './gm/logger.js'
 import type { CheckResolution, ContextBlock } from './gm/types.js'
 
 console.log('====================================================')
@@ -44,6 +47,18 @@ app.use('/admin', adminRouter)
 // Health check — public
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
+})
+
+// Dev-only: set pipeline log level at runtime
+const VALID_LOG_LEVELS: LogLevel[] = ['verbose', 'errors+', 'errors', 'silent']
+app.post('/dev/log-level', (req, res) => {
+  const { level } = req.body as { level?: string }
+  if (!level || !(VALID_LOG_LEVELS as string[]).includes(level)) {
+    res.status(400).json({ error: `level must be one of: ${VALID_LOG_LEVELS.join(', ')}` })
+    return
+  }
+  setLogLevel(level as LogLevel)
+  res.json({ ok: true, level })
 })
 
 // All /gm routes require the shared API key
@@ -179,7 +194,7 @@ app.post('/gm/scribe', async (req, res) => {
 })
 
 function formatHydration(ctx: ContextBlock, tables: string[]): string {
-  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, encounterData, npcs, inventoryWeight, game } = ctx
+  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, encounterData, npcs, inventoryWeight, syngemGame } = ctx
   const sections: string[] = []
 
   if (tables.includes('character')) {
@@ -192,8 +207,7 @@ function formatHydration(ctx: ContextBlock, tables: string[]): string {
       `Will: ${character.current_will}/${character.will_max} — ${willText}`,
       `Speed: ${character.speed ?? '?'}  |  Carry: ${inventoryWeight.current}/${inventoryWeight.max}`,
     ]
-    const locationParts = [character.location_nation, character.location_region, character.location_place].filter(Boolean)
-    if (locationParts.length) lines.push(`Location: ${locationParts.join(' › ')}`)
+    if (character.location_place) lines.push(`Location: ${character.location_place}`)
     if (character.condition_text) lines.push(`Condition: ${character.condition_text}`)
     if (character.notes) lines.push(`Notes: ${character.notes}`)
     sections.push(lines.join('\n'))
@@ -210,11 +224,16 @@ function formatHydration(ctx: ContextBlock, tables: string[]): string {
     if (lines.length > 1) sections.push(lines.join('\n'))
   }
 
-  if (tables.includes('game') && game) {
-    sections.push([
-      '=== GAME INFO ===',
-      `Game: ${game.game.name}  |  Session: ${game.game.session_number ?? '?'}  |  Members: ${game.members.length}`,
-    ].join('\n'))
+  if (tables.includes('syngem_game') && syngemGame) {
+    const day = syngemGame.game_date_days + 1
+    const hh = String(Math.floor(syngemGame.game_time_minutes / 60)).padStart(2, '0')
+    const mm = String(syngemGame.game_time_minutes % 60).padStart(2, '0')
+    const lines = [
+      '=== AI GAME SESSION ===',
+      `Day: ${day}  |  Time: ${hh}:${mm}  |  Combat: ${syngemGame.in_combat ? 'yes' : 'no'}`,
+    ]
+    if (syngemGame.summary) lines.push(`Summary: ${syngemGame.summary}`)
+    sections.push(lines.join('\n'))
   }
 
   if (tables.includes('location') && locationEntities.length > 0) {
@@ -268,6 +287,22 @@ app.post('/gm/hydrate', async (req, res) => {
     res.json({ text: formatHydration(ctx, selectedTables) })
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+// Dev-only: wipe conversation history for a character
+app.delete('/gm/conversation/:characterId', async (req, res) => {
+  const { characterId } = req.params
+  if (!characterId) {
+    res.status(400).json({ error: 'characterId is required' })
+    return
+  }
+  try {
+    await clearConversationHistory(characterId)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[DEV] clearConversationHistory error:', err instanceof Error ? err.message : String(err))
+    res.status(500).json({ error: 'Failed to clear conversation history' })
   }
 })
 

@@ -66,7 +66,7 @@ import type { SavedPromptBlock, HydraConfig } from "@/lib/services/prompt-servic
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type HydraTable = 'character' | 'inventory' | 'location' | 'npcs' | 'encounter' | 'game'
+type HydraTable = 'character' | 'inventory' | 'location' | 'npcs' | 'encounter' | 'syngem_game'
 
 type BlockKind = "system" | "user" | "assistant" | "auto-hydrator"
 
@@ -90,10 +90,6 @@ interface SkillRow {
   skill_text?: string | null
 }
 
-interface GameItem {
-  id: string
-  name: string
-}
 
 // ─── Block visual config ──────────────────────────────────────────────────────
 
@@ -137,10 +133,10 @@ const HYDRA_TABLES: Array<{ id: HydraTable; label: string }> = [
   { id: 'location', label: 'Location' },
   { id: 'npcs', label: 'NPCs' },
   { id: 'encounter', label: 'Encounter' },
-  { id: 'game', label: 'Game' },
+  { id: 'syngem_game', label: 'Syngem Game' },
 ]
 
-const DEFAULT_TABLES: HydraTable[] = ['character', 'inventory', 'location', 'npcs', 'encounter', 'game']
+const DEFAULT_TABLES: HydraTable[] = ['character', 'inventory', 'location', 'npcs', 'encounter', 'syngem_game']
 
 // ─── Sample blocks ────────────────────────────────────────────────────────────
 
@@ -244,12 +240,10 @@ function BlockOverlay({ block }: { block: Block }) {
 function AutoHydratorBlockBody({
   block,
   characters,
-  games,
   onUpdateHydra,
 }: {
   block: Block
   characters: Character[]
-  games: GameItem[]
   onUpdateHydra: (id: string, hydraConfig: HydraConfig, content?: string) => void
 }) {
   const [fetching, setFetching] = useState(false)
@@ -290,35 +284,19 @@ function AutoHydratorBlockBody({
 
   return (
     <div className="space-y-3">
-      {/* Character + Game pickers */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-violet-400/60">Character</p>
-          <Select value={hydra.characterId} onValueChange={(v) => setConfig({ characterId: v })}>
-            <SelectTrigger className="border-violet-700/40 bg-background text-xs h-7">
-              <SelectValue placeholder="Select…" />
-            </SelectTrigger>
-            <SelectContent>
-              {characters.map((c) => (
-                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-violet-400/60">Game</p>
-          <Select value={hydra.gameId || "__none__"} onValueChange={(v) => setConfig({ gameId: v === "__none__" ? '' : v })}>
-            <SelectTrigger className="border-violet-700/40 bg-background text-xs h-7">
-              <SelectValue placeholder="None" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">None</SelectItem>
-              {games.map((g) => (
-                <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      {/* Character picker */}
+      <div className="space-y-1">
+        <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-violet-400/60">Character</p>
+        <Select value={hydra.characterId} onValueChange={(v) => setConfig({ characterId: v })}>
+          <SelectTrigger className="border-violet-700/40 bg-background text-xs h-7">
+            <SelectValue placeholder="Select…" />
+          </SelectTrigger>
+          <SelectContent>
+            {characters.map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table checkboxes */}
@@ -371,7 +349,6 @@ function AutoHydratorBlockBody({
 function SortableBlock({
   block,
   characters,
-  games,
   onRemove,
   onUpdate,
   onUpdateHydra,
@@ -379,7 +356,6 @@ function SortableBlock({
 }: {
   block: Block
   characters: Character[]
-  games: GameItem[]
   onRemove: (id: string) => void
   onUpdate: (id: string, content: string) => void
   onUpdateHydra: (id: string, hydraConfig: HydraConfig, content?: string) => void
@@ -423,7 +399,6 @@ function SortableBlock({
           <AutoHydratorBlockBody
             block={block}
             characters={characters}
-            games={games}
             onUpdateHydra={onUpdateHydra}
           />
         ) : (
@@ -459,7 +434,6 @@ export default function PromptBuilderPage() {
   const [items, setItems] = useState<Item[]>([])
   const [spells, setSpells] = useState<Spell[]>([])
   const [skills, setSkills] = useState<SkillRow[]>([])
-  const [games, setGames] = useState<GameItem[]>([])
   const [dataLoading, setDataLoading] = useState(true)
 
   // Saved slugs
@@ -514,19 +488,17 @@ export default function PromptBuilderPage() {
         .single()
       if (!profile?.is_dev) { router.push("/dashboard"); return }
 
-      const [{ data: chars }, { data: itemData }, { data: spellData }, { data: skillData }, { data: gameData }] =
+      const [{ data: chars }, { data: itemData }, { data: spellData }, { data: skillData }] =
         await Promise.all([
           supabase.from("characters").select("*").eq("user_id", user.id).order("name"),
           supabase.from("items").select("*").order("name"),
           supabase.from("spells").select("*").order("name"),
           supabase.from("skills").select("id, name, skill_text").order("name"),
-          supabase.from("games").select("id, name").order("name"),
         ])
       setCharacters((chars as Character[]) ?? [])
       setItems((itemData as Item[]) ?? [])
       setSpells((spellData as Spell[]) ?? [])
       setSkills((skillData as SkillRow[]) ?? [])
-      setGames((gameData as GameItem[]) ?? [])
 
       const slugs = await getPromptSlugs(supabase)
       setSavedSlugs(slugs)
@@ -925,7 +897,6 @@ export default function PromptBuilderPage() {
                       key={block.id}
                       block={block}
                       characters={characters}
-                      games={games}
                       onRemove={removeBlock}
                       onUpdate={updateBlock}
                       onUpdateHydra={updateBlockHydra}

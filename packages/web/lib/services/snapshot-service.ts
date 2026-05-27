@@ -68,10 +68,7 @@ export interface CharacterSnapshot {
   carrying_capacity: number | null
   current_carry_weight: number | null
   // Location
-  location_nation: string | null
-  location_region: string | null
   location_place: string | null
-  location_immediate: string | null
   // Narrative
   background_primary: string | null
   background_secondary: string | null
@@ -199,10 +196,7 @@ export async function takeSnapshot(
     weight_kgs: (char.weight_kgs as number | null) ?? null,
     carrying_capacity: (char.carrying_capacity as number | null) ?? null,
     current_carry_weight: (char.current_carry_weight as number | null) ?? null,
-    location_nation: (char.location_nation as string | null) ?? null,
-    location_region: (char.location_region as string | null) ?? null,
     location_place: (char.location_place as string | null) ?? null,
-    location_immediate: (char.location_immediate as string | null) ?? null,
     background_primary: (char.background_primary as string | null) ?? null,
     background_secondary: (char.background_secondary as string | null) ?? null,
     physical_description: (char.physical_description as string | null) ?? null,

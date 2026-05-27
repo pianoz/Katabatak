@@ -15,66 +15,32 @@ function poolText(current: number | null, max: number | null): string {
   return 'Full'
 }
 
-async function resolveLocationEntities(
+export async function resolveLocationEntities(
   characterId: string,
-  character: { location_place: string | null; location_immediate: string | null; location_region: string | null },
+  locationPlaceId: string | null,
 ): Promise<LocationEntity[]> {
-  // Build filter conditions from character's location fields
-  const placeCtx = character.location_place
-  const regionCtx = character.location_region
-  const buildingId = character.location_immediate
+  if (!locationPlaceId) return []
 
-  let entityIds: string[] = []
+  // Fetch the place entity then walk up parent_id to collect region and nation
+  const chain: Array<{ id: string; name: string; parent_id: string | null; data: unknown }> = []
 
-  // If we have a building ID, fetch it and its siblings at the same parent
-  if (buildingId) {
-    const { data: building } = await supabase
+  let currentId: string | null = locationPlaceId
+  while (currentId) {
+    const { data } = await supabase
       .from('world_entities')
-      .select('id, parent_id')
-      .eq('id', buildingId)
+      .select('id, name, data, parent_id')
+      .eq('id', currentId)
       .single()
-
-    if (building?.parent_id) {
-      const { data: siblings } = await supabase
-        .from('world_entities')
-        .select('id')
-        .eq('parent_id', building.parent_id)
-        .in('type', ['location', 'place'])
-      entityIds = (siblings ?? []).map((e) => e.id)
-      if (!entityIds.includes(buildingId)) entityIds.push(buildingId)
-    } else {
-      entityIds = [buildingId]
-    }
-  } else if (placeCtx) {
-    // Fall back to filtering by place_context
-    const { data } = await supabase
-      .from('world_entities')
-      .select('id')
-      .eq('place_context', placeCtx)
-      .in('type', ['location', 'place'])
-      .limit(10)
-    entityIds = (data ?? []).map((e) => e.id)
-  } else if (regionCtx) {
-    const { data } = await supabase
-      .from('world_entities')
-      .select('id')
-      .eq('region_context', regionCtx)
-      .in('type', ['place', 'location'])
-      .limit(5)
-    entityIds = (data ?? []).map((e) => e.id)
+    if (!data) break
+    const row: { id: string; name: string; parent_id: string | null; data: unknown } = data
+    chain.push(row)
+    currentId = row.parent_id
   }
 
-  if (!entityIds.length) return []
+  if (!chain.length) return []
 
-  // Fetch base entity data
-  const { data: entities } = await supabase
-    .from('world_entities')
-    .select('id, name, data')
-    .in('id', entityIds)
-
-  if (!entities) return []
-
-  // Fetch player mutations for overrides
+  // Fetch player mutations for short_description overrides
+  const entityIds = chain.map((e) => e.id)
   const { data: mutations } = await supabase
     .from('player_entity_mutations')
     .select('entity_id, mutations')
@@ -85,14 +51,18 @@ async function resolveLocationEntities(
     (mutations ?? []).map((m) => [m.entity_id, m.mutations as Record<string, unknown>]),
   )
 
-  return entities.map((e) => {
+  return chain.map((e) => {
     const override = mutationMap.get(e.id)
     const data = e.data as Record<string, unknown>
     const short_description =
       (override?.['short_description'] as string | undefined) ??
       (data?.['short_description'] as string | undefined) ??
       ''
-    return { id: e.id, name: e.name, short_description }
+    const long_description =
+      (override?.['long_description'] as string | undefined) ??
+      (data?.['long_description'] as string | undefined) ??
+      ''
+    return { id: e.id, name: e.name, short_description, long_description }
   })
 }
 
@@ -115,11 +85,11 @@ export async function autoHydrate(
     gameId ? getGameWithMembers(gameId) : Promise.resolve(null),
     gameId ? getActiveEncounter(gameId) : Promise.resolve(null),
     gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
-    resolveLocationEntities(characterId, character),
+    resolveLocationEntities(characterId, character.location_place),
     getSyngemGame(characterId),
   ])
 
-  const locStr = [character.location_place, character.location_region].filter(Boolean).join(' > ') || 'unknown'
+  const locStr = character.location_place ?? 'unknown'
   synLog('HYDRATOR', `✓ built | ${character.name} | ${locStr} | ${locationEntities.length} entities, ${npcs.length} NPCs${encounterData?.isInCombat ? ' | COMBAT' : ''}${syngemGame ? ` | day ${syngemGame.game_date_days}` : ''}`)
 
   const equippedWeight = fullCharacter.inventory

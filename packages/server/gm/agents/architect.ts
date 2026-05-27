@@ -33,8 +33,8 @@ function serializeContextBlock(ctx: ContextBlock): string {
   const gameTime = formatGameTime(syngemGame)
   if (gameTime) lines.push(`Time: ${gameTime}`)
 
-  const locationParts = [character.location_nation, character.location_region, character.location_place]
-    .filter(Boolean)
+  // locationEntities is ordered place→region→nation; reverse for breadcrumb display
+  const locationParts = [...locationEntities].reverse().map((e) => e.name)
   if (locationParts.length) lines.push(`Region: ${locationParts.join(' › ')}`)
 
   if (syngemGame?.in_combat) lines.push('Status: IN COMBAT')

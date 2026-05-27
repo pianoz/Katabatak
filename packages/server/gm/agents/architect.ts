@@ -84,6 +84,10 @@ function serializeLoreResult(lore: LoreEngineOutput, resolution?: CheckResolutio
   return lines.join('\n')
 }
 
+/**
+ * Streams the GM narrative response chunk by chunk (claude-sonnet-4-6).
+ * Picks a random versioned Architect prompt from the DB; falls back to the style text if none exists.
+ */
 export async function* streamArchitect({
   styleText,
   contextBlock,

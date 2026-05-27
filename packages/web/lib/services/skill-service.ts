@@ -3,6 +3,7 @@ import type { Json } from "@/components/types/supabase"
 import type { Effect } from "@/lib/effect-engine"
 import { parseEffects } from "@/lib/schemas/skill-effect"
 
+/** Skill definition with parsed effects, used across the skill tree and character sheet. */
 export interface Skill {
   id: string
   name: string
@@ -16,6 +17,7 @@ export interface Skill {
   effects: Effect[]
 }
 
+/** Directed prerequisite edge between two skills in the skill tree. */
 export interface SkillEdge {
   id: string
   parent_skill_id: string | null
@@ -23,6 +25,7 @@ export interface SkillEdge {
   edge_type?: string | null
 }
 
+/** Fetches all skill definitions and tree edges in parallel, with effects parsed. */
 export async function fetchSkillTree(supabase: SupabaseClient): Promise<{ skills: Skill[]; edges: SkillEdge[] }> {
   const [skillsRes, edgesRes] = await Promise.all([
     supabase.from("skills").select("*").order("name"),
@@ -35,6 +38,7 @@ export async function fetchSkillTree(supabase: SupabaseClient): Promise<{ skills
   return { skills, edges: (edgesRes.data ?? []) as SkillEdge[] }
 }
 
+/** Returns the skill_id and current_rank for all skills unlocked by a character. */
 export async function fetchCharacterSkillData(supabase: SupabaseClient, characterId: string) {
   const { data } = await supabase
     .from("character_skills")
@@ -43,6 +47,10 @@ export async function fetchCharacterSkillData(supabase: SupabaseClient, characte
   return data ?? []
 }
 
+/**
+ * Atomically applies a batch of edge upserts and deletes via the `save_skill_edges_delta` RPC.
+ * Prefer this over individual inserts/deletes to keep the tree consistent.
+ */
 export async function saveSkillEdgesDelta(
   supabase: SupabaseClient,
   upsertEdges: { parent_skill_id: string; child_skill_id: string; edge_type?: string }[],
@@ -118,6 +126,7 @@ export async function updateSkill(
     .eq("id", skillId)
 }
 
+/** Deletes a skill and all its connected edges before removing the skill row itself. */
 export async function deleteSkill(supabase: SupabaseClient, skillId: string) {
   await supabase
     .from("skill_edges")
@@ -197,6 +206,7 @@ export async function updateCharacterSkillPoints(
   return supabase.from("characters").update({ unused_skill_points: newPoints }).eq("id", characterId)
 }
 
+/** Returns a minimal id/name list for all skills — used to populate select dropdowns. */
 export async function getSkillsCatalog(supabase: SupabaseClient) {
   const { data } = await supabase.from("skills").select("id, name").order("name")
   return data ?? []

@@ -3,11 +3,16 @@ import type { Tables } from "@/components/types/supabase"
 
 type Creature = Tables<"creatures">
 
+/** Returns all encounter creature instances for the given game session. */
 export async function getEncounterCreatures(supabase: SupabaseClient, gameId: string) {
   const { data } = await supabase.from("encounter_creatures").select("*").eq("game_id", gameId)
   return data ?? []
 }
 
+/**
+ * Adds creature templates to the active encounter by copying their stat block into encounter_creatures rows.
+ * Pools are initialized to their max values.
+ */
 export async function addCreaturesToEncounter(supabase: SupabaseClient, gameId: string, creatures: Creature[]) {
   const rows = creatures.map((c) => ({
     game_id: gameId,
@@ -31,6 +36,7 @@ export async function addCreaturesToEncounter(supabase: SupabaseClient, gameId: 
   return supabase.from("encounter_creatures").insert(rows)
 }
 
+/** Applies partial updates to an encounter_creatures row (e.g., current_health, is_alive). */
 export async function updateEncounterCreature(
   supabase: SupabaseClient,
   creatureId: string,
@@ -43,6 +49,7 @@ export async function removeEncounterCreature(supabase: SupabaseClient, creature
   return supabase.from("encounter_creatures").delete().eq("id", creatureId)
 }
 
+/** Creates a creature template, automatically stamping the current user as `created_by`. */
 export async function createCreature(supabase: SupabaseClient, payload: Record<string, unknown>) {
   const { data: { user } } = await supabase.auth.getUser()
   return supabase.from("creatures").insert({ ...payload, created_by: user?.id }).select().single()

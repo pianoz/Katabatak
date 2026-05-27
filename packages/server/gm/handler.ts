@@ -18,6 +18,11 @@ import type { GMMessageInput, CheckRequired } from './types.js'
 
 export type { GMMessageInput }
 
+/**
+ * Main SYNGEM pipeline orchestrator. Streams narrative text chunks for a player message.
+ * Yields a `CheckRequired` object mid-pipeline if a skill check must be resolved before continuing.
+ * Ledger, StateExecutor, and (every 4 turns) Scribe fire asynchronously after the stream closes.
+ */
 export async function* handleGMMessage({
   message,
   characterId,

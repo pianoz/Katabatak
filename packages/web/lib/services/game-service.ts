@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+/** Returns all games where the user is the GM, ordered newest-first. */
 export async function getDashboardGames(supabase: SupabaseClient, userId: string) {
   const { data } = await supabase
     .from("games")
@@ -9,6 +10,7 @@ export async function getDashboardGames(supabase: SupabaseClient, userId: string
   return data ?? []
 }
 
+/** Returns pending game invites for a user, shaped with the game name and starting level. */
 export async function getGameInvites(supabase: SupabaseClient, userId: string) {
   const { data: inviteRows } = await supabase
     .from("game_members")
@@ -27,6 +29,7 @@ export async function getGameInvites(supabase: SupabaseClient, userId: string) {
   })
 }
 
+/** Fetches a game and its members (with character data) in parallel. */
 export async function getGameWithMembers(supabase: SupabaseClient, gameId: string) {
   const [{ data: game }, { data: members }] = await Promise.all([
     supabase.from("games").select("*").eq("id", gameId).single(),
@@ -43,6 +46,7 @@ export async function deleteGame(supabase: SupabaseClient, gameId: string) {
   return supabase.from("games").delete().eq("id", gameId)
 }
 
+/** Looks up the profile_id for a specific character's game_members row. */
 export async function getGameMemberProfileId(
   supabase: SupabaseClient,
   gameId: string,
@@ -57,6 +61,7 @@ export async function getGameMemberProfileId(
   return data?.profile_id
 }
 
+/** Returns the profiles of all accepted friends for a user. */
 export async function getFriendProfiles(supabase: SupabaseClient, userId: string) {
   const { data: friendRows } = await (supabase as any)
     .from("friends")
@@ -81,6 +86,7 @@ export async function getFriendProfiles(supabase: SupabaseClient, userId: string
   )
 }
 
+/** Returns the game_id of the active game session a character is currently in, or null. */
 export async function getCharacterActiveGameId(supabase: SupabaseClient, characterId: string) {
   const { data } = await supabase
     .from("game_members")
@@ -91,6 +97,7 @@ export async function getCharacterActiveGameId(supabase: SupabaseClient, charact
   return data?.game_id ?? null
 }
 
+/** Returns id and name for all active characters in a game, excluding the specified character. */
 export async function getGameAllyCharacters(
   supabase: SupabaseClient,
   gameId: string,

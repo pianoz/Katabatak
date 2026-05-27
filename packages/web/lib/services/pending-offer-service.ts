@@ -6,11 +6,13 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 type OfferType = Database["public"]["Enums"]["offer_type"]
 
+/** Returns all unresolved pending_offers rows for the given character. */
 export async function getPendingOffersByCharacter(supabase: SupabaseClient, characterId: string) {
   const { data } = await supabase.from("pending_offers").select("*").eq("character_id", characterId)
   return data ?? []
 }
 
+/** Inserts a pending_offer row so the player can accept or decline it from the notification overlay. */
 export async function stagePendingOffer(
   gameId: string,
   characterId: string,
@@ -33,6 +35,12 @@ export async function stagePendingOffer(
   if (error) throw new Error(error.message)
 }
 
+/**
+ * Accepts or declines a pending offer. On accept, applies the reward to the character
+ * (item, spell, currency, or skill points) and deletes the offer row.
+ * Item peer-transfers call the `delete_giver_inventory_for_offer` RPC because direct RLS
+ * blocks deletion of another user's inventory row.
+ */
 export async function resolvePendingOffer(offerId: string, accept: boolean): Promise<void> {
   const supabase = createClient()
 

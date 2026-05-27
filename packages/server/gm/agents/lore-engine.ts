@@ -49,6 +49,10 @@ function serializeContext(ctx: ContextBlock): string {
   return lines.join('\n')
 }
 
+/**
+ * Classifies player intent and determines whether a skill check is required.
+ * Falls back to a no-check task action if the model returns unparseable JSON.
+ */
 export async function runLoreEngine({
   lastTwoTurns,
   contextBlock,

@@ -4,6 +4,7 @@ import supabase from '../gm/tools/db.js'
 export type CharacterRow = Database['public']['Tables']['characters']['Row']
 type CharacterUpdate = Database['public']['Tables']['characters']['Update']
 
+/** Inventory row joined with the item template's name and type. */
 export interface InventoryItem {
   id: string
   item_id: string | null
@@ -13,18 +14,21 @@ export interface InventoryItem {
   items: { name: string; type: string | null } | null
 }
 
+/** Character skill join row with the skill name and current rank. */
 export interface CharacterSkill {
   skill_id: string
   current_rank: number | null
   skills: { name: string } | null
 }
 
+/** Character spell join row with the spell name and damage value. */
 export interface CharacterSpell {
   id: string
   spell_id: number | null
   spells: { name: string; damage: number | null } | null
 }
 
+/** Full character state including inventory, skills, spells, and action skill IDs. */
 export interface FullCharacter {
   character: CharacterRow
   inventory: InventoryItem[]
@@ -33,6 +37,7 @@ export interface FullCharacter {
   actionSkillIds: string[]
 }
 
+/** Returns the character row for the given ID, or null if not found. */
 export async function getCharacter(id: string): Promise<CharacterRow | null> {
   const { data, error } = await supabase
     .from('characters')
@@ -43,6 +48,7 @@ export async function getCharacter(id: string): Promise<CharacterRow | null> {
   return data
 }
 
+/** Fetches a character with all associated inventory, skills, spells, and action skill IDs in parallel. */
 export async function getFullCharacter(id: string): Promise<FullCharacter | null> {
   const [charResult, inventoryResult, skillsResult, spellsResult, actionSkillsResult] =
     await Promise.all([
@@ -73,6 +79,7 @@ export async function getFullCharacter(id: string): Promise<FullCharacter | null
   }
 }
 
+/** Returns true if the character's user_id matches the given userId. Used for ownership checks before pipeline entry. */
 export async function characterBelongsToUser(
   characterId: string,
   userId: string,
@@ -86,6 +93,7 @@ export async function characterBelongsToUser(
   return !error && !!data
 }
 
+/** Applies partial updates to a character row. Returns the Supabase error message or null on success. */
 export async function updateCharacter(
   id: string,
   updates: CharacterUpdate,

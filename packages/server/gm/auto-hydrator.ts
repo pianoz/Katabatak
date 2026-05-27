@@ -96,6 +96,10 @@ async function resolveLocationEntities(
   })
 }
 
+/**
+ * Builds a full ContextBlock for a player turn from parallel DB reads.
+ * Returns null if the character cannot be found.
+ */
 export async function autoHydrate(
   characterId: string,
   gameId?: string,

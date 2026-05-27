@@ -34,12 +34,17 @@ Rules for key_entity_ids:
 - List the WorldEntity IDs (format: "loc_karkill_flounder_inn") of locations, NPCs, or items the player directly interacted with in this batch.
 - Only include entities that were named or described — not vague references.`
 
+/** Structured output produced by the Scribe agent. */
 interface ScribeOutput {
   summary: string
   quest_objectives: Array<{ id: string; title: string; status: string; description: string }>
   key_entity_ids: string[]
 }
 
+/**
+ * Compresses recent conversation turns into a narrative summary, quest objectives, and key entity IDs.
+ * Merges with the existing summary on the syngem_game row; silently returns on parse failure.
+ */
 export async function runScribe(characterId: string, history: ConversationTurn[]): Promise<void> {
   synLog('SCRIBE', `→ running | char:${characterId} turns:${history.length}`)
 

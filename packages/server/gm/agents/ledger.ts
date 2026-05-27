@@ -28,6 +28,10 @@ Rules:
 - Entity IDs must match the snake_case naming convention (e.g. "loc_karkill_flounder_inn").
 - Respond with only a JSON array — no markdown, no explanation.`
 
+/**
+ * Audits the completed GM narrative and extracts permanent world-state changes.
+ * Returns an empty array if nothing changed or if the model returns unparseable JSON.
+ */
 export async function runLedger({
   narrativeText,
   characterId,

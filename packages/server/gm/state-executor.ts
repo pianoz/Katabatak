@@ -69,6 +69,10 @@ async function deleteEntity(
   )
 }
 
+/**
+ * Applies a batch of Ledger-produced world-state changes to the database.
+ * Errors on individual actions are caught and logged; execution continues for remaining actions.
+ */
 export async function executeStateChanges(
   characterId: string,
   outputs: LedgerOutput[],

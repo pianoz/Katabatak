@@ -9,6 +9,10 @@ const STARTING_ITEM_IDS = [
   "8200bd07-931c-433f-a92e-69472d213350",
 ]
 
+/**
+ * Inserts a new character row and seeds it with the default starting inventory items.
+ * Returns the new character's ID, or null on failure.
+ */
 export async function createCharacterWithItems(
   supabase: SupabaseClient,
   payload: Record<string, unknown>
@@ -22,6 +26,7 @@ export async function createCharacterWithItems(
   return { id: charId }
 }
 
+/** Sets the character_id on a game_members invite row and marks it active. */
 export async function linkCharacterToInvite(
   supabase: SupabaseClient,
   inviteMemberId: string,
@@ -33,6 +38,7 @@ export async function linkCharacterToInvite(
     .eq("id", inviteMemberId)
 }
 
+/** Returns all characters owned by the user, ordered newest-first. */
 export async function getUserCharacters(supabase: SupabaseClient, userId: string) {
   const { data } = await supabase
     .from("characters")
@@ -42,6 +48,11 @@ export async function getUserCharacters(supabase: SupabaseClient, userId: string
   return data ?? []
 }
 
+/**
+ * Fetches a character with all related data (inventory, spells, skills, action skills) in parallel.
+ * Flattens the inventory join into a single-object array and resolves spell details by ID.
+ * Returns null if the character is not found.
+ */
 export async function getFullCharacter(supabase: SupabaseClient, characterId: string) {
   const [
     { data: character, error: characterError },
@@ -105,6 +116,7 @@ export async function getFullCharacter(supabase: SupabaseClient, characterId: st
   }
 }
 
+/** Sets a single pool field (current_health, current_essence, etc.) to an absolute value. */
 export async function updateCharacterPool(
   supabase: SupabaseClient,
   characterId: string,
@@ -117,6 +129,7 @@ export async function updateCharacterPool(
     .eq("id", characterId)
 }
 
+/** Sets the character's denarius (currency) to an absolute value. */
 export async function updateCharacterMoney(
   supabase: SupabaseClient,
   characterId: string,
@@ -133,11 +146,13 @@ export async function updateCharacterNotes(
   return supabase.from("characters").update({ notes }).eq("id", characterId)
 }
 
+/** Fetches the latest character row from the DB. Useful for syncing after server-side mutations. */
 export async function refreshCharacter(supabase: SupabaseClient, characterId: string) {
   const { data } = await supabase.from("characters").select("*").eq("id", characterId).single()
   return data
 }
 
+/** Sets a pool max (health_max, power_max, etc.) to an absolute value. */
 export async function updateCharacterStat(
   supabase: SupabaseClient,
   characterId: string,
@@ -175,6 +190,7 @@ export async function getCharacterSkillPoints(supabase: SupabaseClient, characte
   return data?.unused_skill_points ?? 0
 }
 
+/** Increments a pool max by 1. Fetches the current value first to compute the new one. */
 export async function incrementCharacterStat(
   supabase: SupabaseClient,
   characterId: string,

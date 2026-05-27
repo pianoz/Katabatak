@@ -6,11 +6,13 @@ type GameMemberRow = Database['public']['Tables']['game_members']['Row']
 type CharacterRow = Database['public']['Tables']['characters']['Row']
 type EncounterCreatureRow = Database['public']['Tables']['encounter_creatures']['Row']
 
+/** Game session row paired with all its member rows. */
 export interface GameWithMembers {
   game: GameRow
   members: GameMemberRow[]
 }
 
+/** Snapshot of the active combat encounter: alive creatures and current turn state. */
 export interface EncounterWithCreatures {
   gameId: string
   isInCombat: boolean
@@ -19,6 +21,7 @@ export interface EncounterWithCreatures {
   activeTurnIndex: number | null
 }
 
+/** Fetches a game session and all its members in parallel. Returns null if the game is not found. */
 export async function getGameWithMembers(gameId: string): Promise<GameWithMembers | null> {
   const [gameResult, membersResult] = await Promise.all([
     supabase.from('games').select('*').eq('id', gameId).single(),
@@ -31,6 +34,7 @@ export async function getGameWithMembers(gameId: string): Promise<GameWithMember
   }
 }
 
+/** Returns all active characters in the game excluding the specified character. */
 export async function getGameAllyCharacters(
   gameId: string,
   excludeCharacterId: string,
@@ -50,6 +54,7 @@ export async function getGameAllyCharacters(
   return data ?? []
 }
 
+/** Returns the active encounter for a game, or null if the game is not currently in combat. */
 export async function getActiveEncounter(gameId: string): Promise<EncounterWithCreatures | null> {
   const { data: game } = await supabase
     .from('games')

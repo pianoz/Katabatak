@@ -10,6 +10,10 @@ Write the NPC's response as they would actually say it. Stay true to the persona
 Respond with only a JSON object — no explanation, no markdown:
 {"dialogue":"<what the NPC says>","mood":"<one word: e.g. suspicious|warm|fearful|cold|evasive|hostile|amused>"}`
 
+/**
+ * Generates in-character NPC dialogue for the given situation.
+ * @param input Accepts `Record<string, unknown>` because it arrives directly from the tool dispatcher.
+ */
 export async function getNpcResponse(input: Record<string, unknown>): Promise<ToolResult> {
   const { npc_name, personality, situation, player_input } = input as {
     npc_name: string

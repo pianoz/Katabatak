@@ -175,7 +175,8 @@
       "Bash(findstr spawn-command *)",
       "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\node_modules\\\\.pnpm\\\\concurrently@8.2.2\\\\node_modules\\\\spawn-command\" /b)",
       "Bash(Start-Sleep -Seconds 8)",
-      "Bash(Get-Content \"C:\\\\Users\\\\Robert\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Robert-Documents-Katabatak\\\\d0dd4586-fecf-4f2e-9a31-7daeff267ea1\\\\tasks\\\\b2e4x871h.output\" -ErrorAction SilentlyContinue)"
+      "Bash(Get-Content \"C:\\\\Users\\\\Robert\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Robert-Documents-Katabatak\\\\d0dd4586-fecf-4f2e-9a31-7daeff267ea1\\\\tasks\\\\b2e4x871h.output\" -ErrorAction SilentlyContinue)",
+      "Bash(pnpm --version)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

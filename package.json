@@ -2,6 +2,7 @@
   "name": "katabatak-workspace",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.0.8",
   "scripts": {
     "dev": "concurrently \"pnpm --filter web dev\" \"pnpm --filter server dev\"",
     "build": "pnpm --filter web build",

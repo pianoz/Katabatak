@@ -97,7 +97,8 @@ export async function runLoreEngine({
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   synLogVerbose('LORE-ENGINE', '← raw response:', text)
   try {
-    const result = JSON.parse(text) as LoreEngineOutput
+    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
+    const result = JSON.parse(cleaned) as LoreEngineOutput
     synLog('LORE-ENGINE', `✓ action:${result.action_type} requires_check:${result.requires_check}${result.search_objects?.length ? ` searches:${result.search_objects.length}` : ''}${result.narrative_notes ? ` notes:"${result.narrative_notes.slice(0, 50)}"` : ''}`, result)
     return result
   } catch {

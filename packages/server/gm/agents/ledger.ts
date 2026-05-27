@@ -57,7 +57,8 @@ export async function runLedger({
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   synLogVerbose('LEDGER', '← raw response:', text)
   try {
-    const parsed = JSON.parse(text)
+    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
+    const parsed = JSON.parse(cleaned)
     if (!Array.isArray(parsed)) {
       synLog('LEDGER', '⚠ result not an array — returning []')
       return []

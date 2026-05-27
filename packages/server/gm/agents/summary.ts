@@ -78,7 +78,8 @@ export async function runScribe(characterId: string, history: ConversationTurn[]
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   let parsed: ScribeOutput
   try {
-    parsed = JSON.parse(text) as ScribeOutput
+    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
+    parsed = JSON.parse(cleaned) as ScribeOutput
   } catch {
     synLog('SCRIBE', `⚠ JSON parse failed | raw:"${text.slice(0, 80)}"`)
     console.error('[Scribe] Failed to parse JSON output:', text)
@@ -126,7 +127,8 @@ export async function summarizeHistory({
 
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   try {
-    const parsed = JSON.parse(text) as ScribeOutput
+    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
+    const parsed = JSON.parse(cleaned) as ScribeOutput
     return parsed.summary
   } catch {
     return text

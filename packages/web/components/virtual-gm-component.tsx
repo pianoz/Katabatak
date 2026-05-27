@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Terminal, Sparkles, User, Loader2, Dice1, Zap, Sun, Moon, X, Trash2 } from 'lucide-react';
+import { Send, Terminal, Sparkles, User, Loader2, Dice1, Zap, Sun, Moon, X, Trash2, ShieldOff } from 'lucide-react';
 import { useCharacterStore } from '@/features/characters/hooks/use-character-store';
 
 // ─── Sky Tracker ──────────────────────────────────────────────────────────────
@@ -125,6 +125,7 @@ export default function ChatGMComponent({
       timestamp: new Date(),
     }
   ]);
+  const [ledgerNeutered, setLedgerNeutered] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [isGMLoading, setIsGMLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
@@ -136,6 +137,39 @@ export default function ChatGMComponent({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isGMLoading, streamingContent]);
+
+  useEffect(() => {
+    if (!characterId) return;
+    fetch(`/api/gm/turns?characterId=${characterId}&limit=3`)
+      .then((r) => r.json())
+      .then(({ turns }: { turns?: Array<{ role: 'player' | 'assistant'; content: string }> }) => {
+        if (!turns?.length) return;
+        const loaded: Message[] = turns.map((t, i) => ({
+          id: `history-${i}`,
+          role: t.role === 'assistant' ? 'gm' : 'player',
+          senderName: t.role === 'assistant' ? 'The Architect' : playerName,
+          content: t.content,
+          timestamp: new Date(),
+        }));
+        setMessages(loaded);
+        setTurnCount(turns.filter((t) => t.role === 'assistant').length);
+      })
+      .catch(() => {});
+  }, [characterId]);
+
+  const toggleNeuterLedger = async () => {
+    const next = !ledgerNeutered;
+    try {
+      await fetch('/api/dev/neuter-ledger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      });
+      setLedgerNeutered(next);
+    } catch (err) {
+      console.error('[DEV] toggleNeuterLedger error:', err);
+    }
+  };
 
   const dumpHistory = async () => {
     if (!confirm('Delete all conversation history for this character? This cannot be undone.')) return;
@@ -298,6 +332,17 @@ export default function ChatGMComponent({
           <span className="text-[9px] uppercase tracking-[0.2em] text-zinc-700 ml-1">Chronicle</span>
         </div>
         <div className="ml-auto flex items-center gap-4">
+          {isDev && (
+            <button
+              onClick={toggleNeuterLedger}
+              disabled={isGMLoading}
+              title="[DEV] Suppress ledger DB writes"
+              className={`flex items-center gap-1 text-[10px] uppercase tracking-widest disabled:opacity-30 transition-colors ${ledgerNeutered ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+            >
+              <ShieldOff className="w-3 h-3" />
+              Neuter Ledger
+            </button>
+          )}
           {isDev && (
             <button
               onClick={dumpHistory}

@@ -165,7 +165,17 @@
       "Bash(curl -s \"http://localhost:3000/game/test-id\" -o /dev/null -w \"%{http_code}\\\\n%{redirect_url}\")",
       "Bash(curl -s \"http://localhost:3000/game/new\" -o /dev/null -w \"%{http_code}\\\\n%{redirect_url}\")",
       "Bash(pkill -f \"next dev\")",
-      "Bash(taskkill /F /IM node.exe)"
+      "Bash(taskkill /F /IM node.exe)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\node_modules\\\\.pnpm\" -Directory | Where-Object { \\(Get-ChildItem $_.FullName -Recurse -File -Filter \"package.json\" | Get-Content -Raw | Select-String -Pattern '\"glob\"'\\) } | Select-Object -First 20 -ExpandProperty Name)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\node_modules\\\\.pnpm\" -Directory | Where-Object { \\(Get-ChildItem $_.FullName -Recurse -File -Filter \"package.json\" | Get-Content -Raw | Select-String -Pattern '\"spawn-command\"'\\) } | Select-Object -ExpandProperty Name)",
+      "Bash(pnpm patch *)",
+      "Bash(pnpm patch-commit *)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/.pnpm/spawn-command@0.0.2/node_modules/spawn-command/lib/spawn-command.js'\\).toString\\(\\)\\)\")",
+      "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\node_modules\\\\.pnpm\" /b)",
+      "Bash(findstr spawn-command *)",
+      "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\node_modules\\\\.pnpm\\\\concurrently@8.2.2\\\\node_modules\\\\spawn-command\" /b)",
+      "Bash(Start-Sleep -Seconds 8)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Robert\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Robert-Documents-Katabatak\\\\d0dd4586-fecf-4f2e-9a31-7daeff267ea1\\\\tasks\\\\b2e4x871h.output\" -ErrorAction SilentlyContinue)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

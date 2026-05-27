@@ -19,4 +19,4 @@ COPY packages/server/ ./packages/server/
 WORKDIR /app/packages/server
 EXPOSE 8080
 
-CMD ["node_modules/.bin/tsx", "index.ts"]
+CMD ["pnpm", "exec", "tsx", "index.ts"]

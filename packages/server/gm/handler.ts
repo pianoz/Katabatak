@@ -18,6 +18,10 @@ import type { GMMessageInput, CheckRequired } from './types.js'
 
 export type { GMMessageInput }
 
+let ledgerNeutered = false
+export function setLedgerNeutered(v: boolean): void { ledgerNeutered = v }
+export function isLedgerNeutered(): boolean { return ledgerNeutered }
+
 /**
  * Main SYNGEM pipeline orchestrator. Streams narrative text chunks for a player message.
  * Yields a `CheckRequired` object mid-pipeline if a skill check must be resolved before continuing.
@@ -135,14 +139,18 @@ export async function* handleGMMessage({
   )
 
   // 13. Fire Ledger + State Executor asynchronously
-  synLog('HANDLER', '→ ledger + state-executor fired (async)')
-  runLedger({ narrativeText: fullResponse, characterId })
-    .then((ledgerOutputs) => {
-      if (ledgerOutputs.length) {
-        return executeStateChanges(characterId, ledgerOutputs)
-      }
-    })
-    .catch((err) => synLog('HANDLER', `✗ [Ledger/StateExecutor] async error: ${err instanceof Error ? err.message : String(err)}`))
+  if (ledgerNeutered) {
+    synLog('HANDLER', '⚠ ledger neutered — skipping DB write')
+  } else {
+    synLog('HANDLER', '→ ledger + state-executor fired (async)')
+    runLedger({ narrativeText: fullResponse, characterId })
+      .then((ledgerOutputs) => {
+        if (ledgerOutputs.length) {
+          return executeStateChanges(characterId, ledgerOutputs)
+        }
+      })
+      .catch((err) => synLog('HANDLER', `✗ [Ledger/StateExecutor] async error: ${err instanceof Error ? err.message : String(err)}`))
+  }
 
   // 14. Fire Scribe every 4 turns (server-side, async)
   if (turnNumber % 4 === 0) {

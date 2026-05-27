@@ -5,3 +5,5 @@ allowBuilds:
   supabase: true
 packages:
   - 'packages/*'
+patchedDependencies:
+  spawn-command@0.0.2: patches/spawn-command@0.0.2.patch

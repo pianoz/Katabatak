@@ -1,7 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
-import { handleGMMessage, runScribe, getRecentTurns } from './gm/handler.js'
+import { handleGMMessage, runScribe, getRecentTurns, setLedgerNeutered } from './gm/handler.js'
 import { clearConversationHistory } from './services/conversation-service.js'
 import { summarizeHistory } from './gm/agents/summary.js'
 import { runEval } from './gm/services/claude-service.js'
@@ -47,6 +47,17 @@ app.use('/admin', adminRouter)
 // Health check — public
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
+})
+
+// Dev-only: suppress ledger DB writes at runtime
+app.post('/dev/neuter-ledger', (req, res) => {
+  const { enabled } = req.body as { enabled?: boolean }
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({ error: 'enabled (boolean) is required' })
+    return
+  }
+  setLedgerNeutered(enabled)
+  res.json({ ok: true, neutered: enabled })
 })
 
 // Dev-only: set pipeline log level at runtime
@@ -334,6 +345,9 @@ const PORT = Number(process.env.PORT ?? process.env.GM_PORT ?? 3001);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🎲 GM Server listening on http://0.0.0.0:${PORT}`)
   console.log(`🔧 Admin UI: http://0.0.0.0:${PORT}/admin`)
+}).on('error', (err: NodeJS.ErrnoException) => {
+  console.error(`[FATAL] Failed to bind port ${PORT}:`, err.message)
+  process.exit(1)
 })
 
 setInterval(() => {}, 1000)

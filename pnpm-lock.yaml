@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  spawn-command@0.0.2: 9fd2e697115d8ce9485434fbc9265472948102cb82a7af391acf8fda937ba7d9
+
 importers:
 
   .:
@@ -5552,7 +5555,7 @@ snapshots:
       lodash: 4.18.1
       rxjs: 7.8.2
       shell-quote: 1.8.3
-      spawn-command: 0.0.2
+      spawn-command: 0.0.2(patch_hash=9fd2e697115d8ce9485434fbc9265472948102cb82a7af391acf8fda937ba7d9)
       supports-color: 8.1.1
       tree-kill: 1.2.2
       yargs: 17.7.2
@@ -6800,7 +6803,7 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
-  spawn-command@0.0.2: {}
+  spawn-command@0.0.2(patch_hash=9fd2e697115d8ce9485434fbc9265472948102cb82a7af391acf8fda937ba7d9): {}
 
   stackback@0.0.2: {}
 

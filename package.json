@@ -18,6 +18,12 @@
     "typescript": "5.7.3"
   },
   "pnpm": {
+    "overrides": {
+      "glob": "^7.2.3"
+    },
+    "patchedDependencies": {
+      "spawn-command@0.0.2": "patches/spawn-command@0.0.2.patch"
+    },
     "onlyBuiltDependencies": [
       "sharp",
       "supabase"

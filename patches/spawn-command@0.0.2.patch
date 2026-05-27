@@ -1,0 +1,21 @@
+diff --git a/.npmignore b/.npmignore
+deleted file mode 100644
+index b7cb9651bc27fe2bbdf17ac4c5af422f1665048d..0000000000000000000000000000000000000000
+diff --git a/lib/spawn-command.js b/lib/spawn-command.js
+index 24d56ab4583776283660ac9527262e3947fc7871..f23494c4cf2e7baadfab45d5f4f36c26343ee716 100644
+--- a/lib/spawn-command.js
++++ b/lib/spawn-command.js
+@@ -1,4 +1,3 @@
+-var util = require('util');
+ var spawn = require('child_process').spawn;
+ 
+ module.exports = function (command, options) {
+@@ -6,7 +5,7 @@ module.exports = function (command, options) {
+   if (process.platform === 'win32') {
+     file = 'cmd.exe';
+     args = ['/s', '/c', '"' + command + '"'];
+-    options = util._extend({}, options);
++    options = Object.assign({}, options);
+     options.windowsVerbatimArguments = true;
+   }
+   else {

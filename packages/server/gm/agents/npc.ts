@@ -36,7 +36,8 @@ export async function getNpcResponse(input: Record<string, unknown>): Promise<To
 
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   try {
-    return JSON.parse(text) as ToolResult
+    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
+    return JSON.parse(cleaned) as ToolResult
   } catch {
     return { error: 'Could not parse NPC response', raw: text }
   }

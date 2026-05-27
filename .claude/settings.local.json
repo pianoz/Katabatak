@@ -150,7 +150,22 @@
       "Bash(grep -E \"\\\\.tsx?$\")",
       "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\api\\\\dev\\\\conversation-history\")",
       "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\api\\\\dev\\\\conversation-history\")",
-      "Bash(pnpm why *)"
+      "Bash(pnpm why *)",
+      "Bash(npx tsx *)",
+      "Bash(node_modules/.bin/tsx --version)",
+      "Bash(node node_modules/.bin/tsx index.ts)",
+      "Bash(ls -la middleware*)",
+      "Bash(ls -la src/middleware*)",
+      "Bash(git ls-files *)",
+      "Bash(git log *)",
+      "Bash(npx next *)",
+      "Bash(curl -s http://localhost:3000 -o /dev/null -w \"%{http_code}\")",
+      "Bash(curl -s http://localhost:3000/dashboard -o /dev/null -w \"%{http_code}\\\\n%{redirect_url}\")",
+      "Bash(curl -s \"http://localhost:3000/characters/test-id\" -o /dev/null -w \"%{http_code}\\\\n%{redirect_url}\")",
+      "Bash(curl -s \"http://localhost:3000/game/test-id\" -o /dev/null -w \"%{http_code}\\\\n%{redirect_url}\")",
+      "Bash(curl -s \"http://localhost:3000/game/new\" -o /dev/null -w \"%{http_code}\\\\n%{redirect_url}\")",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(taskkill /F /IM node.exe)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

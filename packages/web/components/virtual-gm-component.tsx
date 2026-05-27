@@ -59,7 +59,7 @@ function SkyTracker({ turnCount }: { turnCount: number }) {
         ) : (
           <div className="relative flex items-center justify-center">
             <div className="absolute w-6 h-6 rounded-full bg-blue-300/10 blur-md" />
-            <Moon className="relative w-[15px] h-[15px] text-blue-100/80" />
+            <Moon className="relative w-3.75 h-3.75 text-blue-100/80" />
           </div>
         )}
       </div>

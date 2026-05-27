@@ -111,5 +111,7 @@ export async function autoHydrate(
       current: equippedWeight,
       max: character.carrying_capacity ?? 0,
     },
+    backstory: character.backstory ?? null,
+    physicalDescription: character.physical_description ?? null,
   }
 }

@@ -1,3 +1,5 @@
+/* eslint-<!-- markdownlint-disable-file --> */
+
 # Katabatak — Codebase Map
 
 ---

@@ -48,6 +48,8 @@ export interface ContextBlock {
   encounterData: EncounterWithCreatures | null
   npcs: NpcRow[]
   inventoryWeight: { current: number; max: number }
+  backstory: string | null
+  physicalDescription: string | null
 }
 
 // ─── Lore-Engine output ───────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+<!-- markdownlint-disable-file -->
 # SYNGEM — Architecture Reference
 
 > Last meaningful update: 2026-05-27 — file-based dev logging + runtime log-level control

@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput, CheckResolution } from '../types.js'
 import { loadRandomArchitectPrompt } from '../../services/prompt-service.js'
+import { synLog } from '../logger.js'
 
 const client = new Anthropic()
 
@@ -104,7 +105,9 @@ export async function* streamArchitect({
   searchResults: string | null
   playerInput: string
 }): AsyncGenerator<string> {
-  const baseSystem = (await loadRandomArchitectPrompt()) ?? styleText
+  const loadedPrompt = await loadRandomArchitectPrompt()
+  const baseSystem = loadedPrompt ?? styleText
+  synLog('ARCHITECT', `→ prompt:${loadedPrompt ? 'DB' : 'fallback(style)'} | turns:${lastFourTurns.length} | streaming...`)
   const systemParts = [baseSystem]
   if (scribeSummary) {
     systemParts.push(`=== STORY SO FAR ===\n${scribeSummary}`)

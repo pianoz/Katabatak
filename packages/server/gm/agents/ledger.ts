@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { LedgerOutput } from '../types.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
+import { synLog } from '../logger.js'
 
 const client = new Anthropic()
 
@@ -34,7 +35,9 @@ export async function runLedger({
   narrativeText: string
   characterId: string
 }): Promise<LedgerOutput[]> {
-  const system = (await loadSystemPrompt('ledger')) ?? FALLBACK_SYSTEM
+  const loadedPrompt = await loadSystemPrompt('ledger')
+  const system = loadedPrompt ?? FALLBACK_SYSTEM
+  synLog('LEDGER', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | narrative:${narrativeText.length}chars`)
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
@@ -52,9 +55,15 @@ export async function runLedger({
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   try {
     const parsed = JSON.parse(text)
-    if (!Array.isArray(parsed)) return []
-    return parsed as LedgerOutput[]
+    if (!Array.isArray(parsed)) {
+      synLog('LEDGER', '⚠ result not an array — returning []')
+      return []
+    }
+    const outputs = parsed as LedgerOutput[]
+    synLog('LEDGER', `✓ ${outputs.length} action(s)${outputs.length ? ': ' + outputs.map((o) => o.action).join(', ') : ''}`)
+    return outputs
   } catch {
+    synLog('LEDGER', `⚠ JSON parse failed | raw:"${text.slice(0, 80)}"`)
     console.error('[Ledger] Failed to parse JSON:', text)
     return []
   }

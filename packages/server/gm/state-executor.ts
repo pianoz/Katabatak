@@ -1,5 +1,6 @@
 import supabase from './tools/db.js'
 import { updateCharacter } from '../services/character-service.js'
+import { synLog } from './logger.js'
 import type { Database, Json } from '@db-types'
 import type { LedgerOutput } from './types.js'
 
@@ -76,15 +77,19 @@ export async function executeStateChanges(
     try {
       switch (output.action) {
         case 'move_character':
+          synLog('STATE-EXECUTOR', `→ move_character | dest:${output.destination_entity_id}`)
           await moveCharacter(characterId, output.destination_entity_id)
           break
         case 'update_entity':
+          synLog('STATE-EXECUTOR', `→ update_entity | id:${output.entity_id} fields:[${Object.keys(output.mutations).join(',')}]`)
           await updateEntity(output.entity_id, output.mutations)
           break
         case 'create_entity':
+          synLog('STATE-EXECUTOR', `→ create_entity | id:${output.entity['id']} name:"${output.entity['name']}"`)
           await createEntity(output.entity)
           break
         case 'delete_entity':
+          synLog('STATE-EXECUTOR', `→ delete_entity | id:${output.entity_id}`)
           await deleteEntity(characterId, output.entity_id, output.replacement_description)
           break
       }

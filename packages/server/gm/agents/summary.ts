@@ -3,6 +3,7 @@ import supabase from '../tools/db.js'
 import { getSyngemGame, updateSyngemSummary } from '../../services/syngem-game-service.js'
 import type { ConversationTurn } from '../types.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
+import { synLog } from '../logger.js'
 
 const client = new Anthropic()
 
@@ -40,12 +41,15 @@ interface ScribeOutput {
 }
 
 export async function runScribe(characterId: string, history: ConversationTurn[]): Promise<void> {
+  synLog('SCRIBE', `→ running | char:${characterId} turns:${history.length}`)
+
   const [syngemGame, { data: character }] = await Promise.all([
     getSyngemGame(characterId),
     supabase.from('characters').select('quest_objectives').eq('id', characterId).single(),
   ])
 
   const existingSummary = syngemGame?.summary ?? null
+  synLog('SCRIBE', `  prior summary:${existingSummary ? 'yes' : 'none'} | prior objectives:${((character?.quest_objectives as unknown[]) ?? []).length}`)
   const existingObjectives = (character?.quest_objectives as ScribeOutput['quest_objectives'] | null) ?? []
 
   const priorBlock = existingSummary
@@ -71,6 +75,7 @@ export async function runScribe(characterId: string, history: ConversationTurn[]
   try {
     parsed = JSON.parse(text) as ScribeOutput
   } catch {
+    synLog('SCRIBE', `⚠ JSON parse failed | raw:"${text.slice(0, 80)}"`)
     console.error('[Scribe] Failed to parse JSON output:', text)
     return
   }
@@ -85,6 +90,7 @@ export async function runScribe(characterId: string, history: ConversationTurn[]
       })
       .eq('id', characterId),
   ])
+  synLog('SCRIBE', `✓ complete | summary:${parsed.summary.length}chars objectives:${parsed.quest_objectives.length} entities:${parsed.key_entity_ids.length}`)
 }
 
 /** Legacy export — kept for the /gm/summarize endpoint if still needed. */

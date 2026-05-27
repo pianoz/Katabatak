@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
+import { synLog } from '../logger.js'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput } from '../types.js'
 
 const client = new Anthropic()
@@ -57,7 +58,9 @@ export async function runLoreEngine({
   contextBlock: ContextBlock
   playerInput: string
 }): Promise<LoreEngineOutput> {
-  const system = (await loadSystemPrompt('lore-engine')) ?? FALLBACK_SYSTEM
+  const loadedPrompt = await loadSystemPrompt('lore-engine')
+  const system = loadedPrompt ?? FALLBACK_SYSTEM
+  synLog('LORE-ENGINE', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | input:"${playerInput.slice(0, 60)}${playerInput.length > 60 ? '...' : ''}"`)
 
   const historyBlock = lastTwoTurns.length
     ? lastTwoTurns
@@ -86,9 +89,11 @@ export async function runLoreEngine({
 
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   try {
-    return JSON.parse(text) as LoreEngineOutput
+    const result = JSON.parse(text) as LoreEngineOutput
+    synLog('LORE-ENGINE', `✓ action:${result.action_type} requires_check:${result.requires_check}${result.search_objects?.length ? ` searches:${result.search_objects.length}` : ''}${result.narrative_notes ? ` notes:"${result.narrative_notes.slice(0, 50)}"` : ''}`)
+    return result
   } catch {
-    // On parse failure, default to a passthrough with no check
+    synLog('LORE-ENGINE', `⚠ JSON parse failed — using fallback | raw:"${text.slice(0, 80)}"`)
     console.error('[LoreEngine] Failed to parse JSON:', text)
     return { action_type: 'task', requires_check: false }
   }

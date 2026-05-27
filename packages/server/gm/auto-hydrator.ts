@@ -3,6 +3,7 @@ import { getGameWithMembers, getActiveEncounter } from '../services/game-service
 import { getSyngemGame } from '../services/syngem-game-service.js'
 import { getNpcsForGame } from '../services/world-service.js'
 import supabase from './tools/db.js'
+import { synLog } from './logger.js'
 import type { ContextBlock, LocationEntity } from './types.js'
 
 function poolText(current: number | null, max: number | null): string {
@@ -99,6 +100,8 @@ export async function autoHydrate(
   characterId: string,
   gameId?: string,
 ): Promise<ContextBlock | null> {
+  synLog('HYDRATOR', `→ fetching context | char:${characterId}${gameId ? ` game:${gameId}` : ''}`)
+
   const fullCharacter = await getFullCharacter(characterId)
   if (!fullCharacter) return null
 
@@ -111,6 +114,9 @@ export async function autoHydrate(
     resolveLocationEntities(characterId, character),
     getSyngemGame(characterId),
   ])
+
+  const locStr = [character.location_place, character.location_region].filter(Boolean).join(' > ') || 'unknown'
+  synLog('HYDRATOR', `✓ built | ${character.name} | ${locStr} | ${locationEntities.length} entities, ${npcs.length} NPCs${encounterData?.isInCombat ? ' | COMBAT' : ''}${syngemGame ? ` | day ${syngemGame.game_date_days}` : ''}`)
 
   const equippedWeight = fullCharacter.inventory
     .filter((i) => i.is_equipped)

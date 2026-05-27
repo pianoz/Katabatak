@@ -13,6 +13,7 @@ import {
 } from '../services/conversation-service.js'
 import { characterBelongsToUser } from '../services/character-service.js'
 import { advanceGameTime } from '../services/syngem-game-service.js'
+import { synLog } from './logger.js'
 import type { GMMessageInput, CheckRequired } from './types.js'
 
 export type { GMMessageInput }
@@ -24,6 +25,8 @@ export async function* handleGMMessage({
   gameId,
   checkResolution,
 }: GMMessageInput): AsyncGenerator<string | CheckRequired> {
+  synLog('HANDLER', `→ request | char:${characterId.slice(-8)} "${message.slice(0, 60)}${message.length > 60 ? '...' : ''}"${checkResolution ? ` [resolving:${checkResolution.choice}]` : ''}`)
+
   // 1. Verify character ownership
   const isOwner = await characterBelongsToUser(characterId, userId)
   if (!isOwner) {
@@ -33,6 +36,7 @@ export async function* handleGMMessage({
 
   // 3. Persist the player turn
   const { turnNumber } = await saveTurn(characterId, gameId, 'player', message)
+  synLog('HANDLER', `✓ turn saved — #${turnNumber}`)
 
   // 4. Build context block
   const contextBlock = await autoHydrate(characterId, gameId)
@@ -57,6 +61,7 @@ export async function* handleGMMessage({
       pool: loreResult.pool ?? 'Power',
       check_description: loreResult.check_description ?? 'Attempting a difficult task',
     }
+    synLog('HANDLER', `⚑ check required — pool:${checkRequired.pool} diff:${checkRequired.difficulty} — halting pipeline`)
     yield checkRequired
     return
   }
@@ -64,6 +69,8 @@ export async function* handleGMMessage({
   // 6. Execute world entity searches if Lore-Engine found info queries
   let searchResults: string | null = null
   if (loreResult.search_objects?.length) {
+    const targets = loreResult.search_objects.map((s) => s.target).join(', ')
+    synLog('HANDLER', `→ world search | targets: ${targets}`)
     const results = await Promise.all(
       loreResult.search_objects.map(async (s) => {
         const entities = await searchWorldEntities(s.target)
@@ -79,6 +86,7 @@ export async function* handleGMMessage({
       }),
     )
     const filtered = results.filter(Boolean)
+    synLog('HANDLER', `✓ world search — ${filtered.length}/${loreResult.search_objects.length} results`)
     if (filtered.length) searchResults = filtered.join('\n\n')
   }
 
@@ -94,6 +102,7 @@ export async function* handleGMMessage({
   const lastFourTurns = await getRecentTurns(characterId, 4)
 
   // 10. Stream Architect response
+  synLog('HANDLER', '→ architect streaming...')
   let fullResponse = ''
   for await (const chunk of streamArchitect({
     styleText,
@@ -109,9 +118,11 @@ export async function* handleGMMessage({
     fullResponse += chunk
     yield chunk
   }
+  synLog('HANDLER', `✓ architect complete — ${fullResponse.length} chars`)
 
   // 11. Persist assistant turn
   await saveTurn(characterId, gameId, 'assistant', fullResponse)
+  synLog('HANDLER', '✓ assistant turn saved')
 
   // 12. Advance fantasy game time by 10 minutes (async, non-blocking)
   advanceGameTime(characterId).catch((err) =>
@@ -119,6 +130,7 @@ export async function* handleGMMessage({
   )
 
   // 13. Fire Ledger + State Executor asynchronously
+  synLog('HANDLER', '→ ledger + state-executor fired (async)')
   runLedger({ narrativeText: fullResponse, characterId })
     .then((ledgerOutputs) => {
       if (ledgerOutputs.length) {
@@ -129,6 +141,7 @@ export async function* handleGMMessage({
 
   // 14. Fire Scribe every 4 turns (server-side, async)
   if (turnNumber % 4 === 0) {
+    synLog('HANDLER', `→ scribe triggered (turn ${turnNumber})`)
     const recentEight = await getRecentTurns(characterId, 8)
     runScribe(characterId, recentEight).catch((err) =>
       console.error('[Scribe] async error:', err),

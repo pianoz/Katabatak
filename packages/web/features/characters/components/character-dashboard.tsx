@@ -317,9 +317,10 @@ export function CharacterDashboard({
 }: CharacterDashboardProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
-  const [devModeEnabled, setDevModeEnabled] = useState(() =>
-    typeof window !== 'undefined' && localStorage.getItem('devModeEnabled') === 'true'
-  )
+  const [devModeEnabled, setDevModeEnabled] = useState(false)
+  useEffect(() => {
+    setDevModeEnabled(localStorage.getItem('devModeEnabled') === 'true')
+  }, [])
   const toggleDevMode = (val: boolean) => {
     localStorage.setItem('devModeEnabled', String(val))
     setDevModeEnabled(val)

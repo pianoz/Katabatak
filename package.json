@@ -24,7 +24,6 @@
     ]
   },
   "dependencies": {
-    "gcloud": "^0.37.2",
     "vitest": "^4.1.6"
   }
 }

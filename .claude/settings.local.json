@@ -149,7 +149,8 @@
       "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
       "Bash(grep -E \"\\\\.tsx?$\")",
       "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\api\\\\dev\\\\conversation-history\")",
-      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\api\\\\dev\\\\conversation-history\")"
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\packages\\\\web\\\\app\\\\api\\\\dev\\\\conversation-history\")",
+      "Bash(pnpm why *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

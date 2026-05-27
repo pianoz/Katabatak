@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 const GM_SERVER = process.env.GM_SERVER_URL ?? 'http://localhost:3001'
+const GM_API_KEY = process.env.GM_API_KEY
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -21,6 +22,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  if (!GM_API_KEY) {
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
+  }
+
   const { enabled } = await req.json() as { enabled?: boolean }
   if (typeof enabled !== 'boolean') {
     return NextResponse.json({ error: 'enabled (boolean) is required' }, { status: 400 })
@@ -29,7 +34,10 @@ export async function POST(req: NextRequest) {
   try {
     const res = await fetch(`${GM_SERVER}/dev/neuter-ledger`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GM_API_KEY}`,
+      },
       body: JSON.stringify({ enabled }),
     })
     const data = await res.json() as Record<string, unknown>

@@ -30,13 +30,17 @@ export async function POST(req: NextRequest) {
     checkResolution?: { choice: 'spend' | 'roll'; pool: string; roll_result?: number }
   }
 
+  if (!GM_API_KEY) {
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
+  }
+
   let serverRes: Response
   try {
     serverRes = await fetch(`${GM_SERVER}/gm`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(GM_API_KEY ? { Authorization: `Bearer ${GM_API_KEY}` } : {}),
+        Authorization: `Bearer ${GM_API_KEY}`,
       },
       body: JSON.stringify({
         message: body.message,
@@ -51,7 +55,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (!serverRes.ok) {
-    return NextResponse.json({ error: 'GM server error' }, { status: serverRes.status })
+    const errBody = await serverRes.json().catch(() => ({ error: 'GM server error' }))
+    return NextResponse.json(errBody, { status: serverRes.status })
   }
 
   const contentType = serverRes.headers.get('content-type') ?? ''

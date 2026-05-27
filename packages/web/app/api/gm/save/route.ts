@@ -11,6 +11,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  if (!GM_API_KEY) {
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
+  }
+
   const body = await req.json() as {
     characterId?: string
     recentTurns?: Array<{ role: 'player' | 'gm'; content: string }>
@@ -22,7 +26,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(GM_API_KEY ? { Authorization: `Bearer ${GM_API_KEY}` } : {}),
+        Authorization: `Bearer ${GM_API_KEY}`,
       },
       body: JSON.stringify({
         characterId: body.characterId,

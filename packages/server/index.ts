@@ -23,7 +23,9 @@ console.log('----------------------------------------------------')
 const app = express()
 
 // CORS — restrict to configured web app origin
-app.use(cors({ origin: process.env.WEB_APP_ORIGIN ?? '*', credentials: true }))
+const WEB_APP_ORIGIN = process.env.WEB_APP_ORIGIN
+if (!WEB_APP_ORIGIN) throw new Error('WEB_APP_ORIGIN must be set')
+app.use(cors({ origin: WEB_APP_ORIGIN, credentials: true }))
 
 // Body parsers
 app.use(express.json())
@@ -50,7 +52,7 @@ app.get('/health', (_req, res) => {
 })
 
 // Dev-only: suppress ledger DB writes at runtime
-app.post('/dev/neuter-ledger', (req, res) => {
+app.post('/dev/neuter-ledger', requireGmKey, (req, res) => {
   const { enabled } = req.body as { enabled?: boolean }
   if (typeof enabled !== 'boolean') {
     res.status(400).json({ error: 'enabled (boolean) is required' })
@@ -62,7 +64,7 @@ app.post('/dev/neuter-ledger', (req, res) => {
 
 // Dev-only: set pipeline log level at runtime
 const VALID_LOG_LEVELS: LogLevel[] = ['verbose', 'errors+', 'errors', 'silent']
-app.post('/dev/log-level', (req, res) => {
+app.post('/dev/log-level', requireGmKey, (req, res) => {
   const { level } = req.body as { level?: string }
   if (!level || !(VALID_LOG_LEVELS as string[]).includes(level)) {
     res.status(400).json({ error: `level must be one of: ${VALID_LOG_LEVELS.join(', ')}` })

@@ -23,7 +23,7 @@ export const sessionMiddleware = session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 8 * 60 * 60 * 1000 }, // 8h
+  cookie: { httpOnly: true, sameSite: 'strict', maxAge: 2 * 60 * 60 * 1000 }, // 2h
 })
 
 const serverStart = Date.now()

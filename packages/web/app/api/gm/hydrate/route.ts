@@ -9,6 +9,10 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  if (!GM_API_KEY) {
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
+  }
+
   const body = await req.json()
 
   let serverRes: Response
@@ -17,7 +21,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(GM_API_KEY ? { Authorization: `Bearer ${GM_API_KEY}` } : {}),
+        Authorization: `Bearer ${GM_API_KEY}`,
       },
       body: JSON.stringify(body),
     })

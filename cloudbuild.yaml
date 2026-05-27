@@ -3,9 +3,9 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 substitutions:
-  _REGION: us-central1
+  _REGION: europe-west1
   _REPO: katabatak
-  _SERVICE: gm-server
+  _SERVICE: katabatak-syngem
 
 steps:
   - name: gcr.io/cloud-builders/docker

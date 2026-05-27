@@ -3,6 +3,7 @@ import type { Json } from "@/components/types/supabase"
 import type { Effect } from "@/lib/effect-engine"
 import { parseEffects } from "@/lib/schemas/skill-effect"
 
+/** Named contextual combat action with parsed effects and an optional cooldown. */
 export interface ActiveSkill {
   id: string
   name: string
@@ -15,6 +16,7 @@ function withEffects<T extends Record<string, unknown>>(row: T): T & { effects: 
   return { ...row, effects: parseEffects(row["effects"] ?? []) }
 }
 
+/** Returns all active skill definitions ordered by name, with effects parsed. */
 export async function getAllActiveSkills(supabase: SupabaseClient) {
   const { data } = await supabase.from("active_skills").select("*").order("name")
   return (data ?? []).map(withEffects)
@@ -61,6 +63,7 @@ export async function deleteActiveSkill(supabase: SupabaseClient, id: string) {
   return supabase.from("active_skills").delete().eq("id", id)
 }
 
+/** Returns a minimal id/name list for all active skills — used to populate select dropdowns. */
 export async function getActiveSkillsCatalog(supabase: SupabaseClient) {
   const { data } = await supabase.from("active_skills").select("id, name").order("name")
   return (data ?? []) as { id: string; name: string }[]

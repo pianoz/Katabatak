@@ -17,6 +17,10 @@ import type { Effect } from "@/lib/effect-engine"
 
 export type { Skill, SkillEdge }
 
+/**
+ * Loads and manages the full skill tree (skills + edges) with CRUD operations.
+ * Each mutation re-fetches the tree from the DB to keep local state in sync.
+ */
 export function useSkillTree() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [edges, setEdges] = useState<SkillEdge[]>([])

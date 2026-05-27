@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+/**
+ * Toggles the `is_dev` flag on a user profile via the `set_user_dev_status` RPC.
+ * Requires the caller to have admin/service-role privileges; enforced server-side.
+ */
 export async function setUserDevStatus(
   supabase: SupabaseClient,
   targetUserId: string,

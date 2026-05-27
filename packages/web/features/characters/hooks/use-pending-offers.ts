@@ -8,6 +8,13 @@ import { getSpellById } from "@/lib/services/spell-service"
 import type { Tables } from "@/components/types/supabase"
 import type { PendingOfferData } from "@/features/characters/components/offers/notification-overlay"
 
+/**
+ * Tracks and resolves pending reward offers for a character.
+ * Subscribes to Realtime inserts on `pending_offers` so new GM grants appear instantly.
+ * Only active when the current user is the character's owner (`isOwner`).
+ *
+ * @param onAccepted Optional async callback invoked after a successful accept (e.g., to refresh character data).
+ */
 export function usePendingOffers(
   characterId: string,
   isOwner: boolean,

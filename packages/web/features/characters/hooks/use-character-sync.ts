@@ -8,6 +8,11 @@ import { updateCharacter } from "@/lib/services/character-service"
 
 const DEBOUNCE_MS = 1500
 
+/**
+ * Debounces dirty character state to the DB 1.5 s after the last change.
+ * Flushes synchronously on `beforeunload` to minimize data loss on page close.
+ * Returns `{ isSyncing }` — true while a write is in flight.
+ */
 export function useCharacterSync() {
   const isDirty = useCharacterStore((s) => s.isDirty)
   const markSaved = useCharacterStore((s) => s.markSaved)

@@ -1,10 +1,15 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
+/** Merges Tailwind class strings, resolving conflicts via tailwind-merge. */
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Returns an inline style object with a background-color interpolated between crimson (0%) and green (100%).
+ * Used on pool bars and condition indicators to give a visual health-at-a-glance.
+ */
 export function getConditionStyle(percent: number): React.CSSProperties {
   const p = Math.min(Math.max(percent, 1), 100) / 100
   const start = { r: 92, g: 1, b: 1 }

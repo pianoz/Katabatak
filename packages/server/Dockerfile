@@ -8,6 +8,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Copy workspace manifests so we can install only the server's deps
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY patches/ ./patches/
 COPY packages/server/package.json ./packages/server/
 COPY database.types.ts ./
 

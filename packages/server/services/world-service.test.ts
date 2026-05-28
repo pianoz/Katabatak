@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.stubEnv('SUPABASE_URL', 'http://localhost:54321')
-vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+vi.stubEnv('SUPABASE_SECRET_KEY', 'test-key')
 
 const mockFrom = vi.fn()
 const mockRpc = vi.fn()

@@ -12,6 +12,9 @@ recovery-codes.txt
 # Environment variables
 .env*.local
 
+# Claude Code local settings (may contain secrets from shell commands)
+.claude/settings.local.json
+
 # Common ignores
 node_modules
 .next/

@@ -15,7 +15,7 @@ vi.mock('../gm/tools/db.js', () => ({
 
 // Also mock env so db.ts doesn't throw on import
 vi.stubEnv('SUPABASE_URL', 'http://localhost:54321')
-vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+vi.stubEnv('SUPABASE_SECRET_KEY', 'test-key')
 
 const { getCharacter, getFullCharacter, updateCharacter } = await import('./character-service.js')
 

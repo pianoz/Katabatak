@@ -20,7 +20,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const serviceRoleKey = process.env.SUPABASE_SECRET_KEY
   if (!serviceRoleKey) {
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
   }

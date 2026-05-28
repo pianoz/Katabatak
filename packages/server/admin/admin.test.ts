@@ -6,7 +6,7 @@ vi.stubEnv('ADMIN_USERNAME', 'testadmin')
 vi.stubEnv('ADMIN_PASSWORD', 'testpass')
 vi.stubEnv('SESSION_SECRET', 'test-session-secret-long-enough')
 vi.stubEnv('SUPABASE_URL', 'http://localhost:54321')
-vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+vi.stubEnv('SUPABASE_SECRET_KEY', 'test-key')
 vi.stubEnv('GM_API_KEY', 'test-gm-key')
 
 const { adminRouter, sessionMiddleware } = await import('./routes.js')

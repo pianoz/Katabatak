@@ -10,7 +10,7 @@ export async function DELETE() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const serviceRoleKey = process.env.SUPABASE_SECRET_KEY
   if (!serviceRoleKey) {
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
   }

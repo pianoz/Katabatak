@@ -194,7 +194,9 @@
       "Read(//c/Users/Robert/**)",
       "PowerShell(Get-Process -Id 67860)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git check-ignore *)",
+      "Bash(grep -n \"settings.local\" .gitignore)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

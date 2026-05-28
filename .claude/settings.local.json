@@ -176,7 +176,25 @@
       "Bash(dir \"c:\\\\Users\\\\Robert\\\\Documents\\\\Katabatak\\\\node_modules\\\\.pnpm\\\\concurrently@8.2.2\\\\node_modules\\\\spawn-command\" /b)",
       "Bash(Start-Sleep -Seconds 8)",
       "Bash(Get-Content \"C:\\\\Users\\\\Robert\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Robert-Documents-Katabatak\\\\d0dd4586-fecf-4f2e-9a31-7daeff267ea1\\\\tasks\\\\b2e4x871h.output\" -ErrorAction SilentlyContinue)",
-      "Bash(pnpm --version)"
+      "Bash(pnpm --version)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/health)",
+      "Bash(curl -s -X POST http://localhost:3001/gm -H 'Authorization: Bearer d7b9bff3f12e112bff7834b4e53da333adea457e3f584bed012a96eef1b7e1b7' -H 'Content-Type: application/json' -d '{\"message\":\"hello\",\"characterId\":\"test-id\",\"userId\":\"test-user\"}')",
+      "Bash(findstr '\"version\"')",
+      "Bash(curl -s 'https://saejphxigsjpbeaakqez.supabase.co/rest/v1/characters?id=eq.60395dae-76bb-480d-9c81-c3da1bd80d65&select=id,user_id,name' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNhZWpwaHhpZ3NqcGJlYWFrcWV6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODAxMDczOSwiZXhwIjoyMDkzNTg2NzM5fQ.Mmys3f_IW_9xlbb-EUHeROR9RKUHKqDncg1UL6zIf5M' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNhZWpwaHhpZ3NqcGJlYWFrcWV6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODAxMDczOSwiZXhwIjoyMDkzNTg2NzM5fQ.Mmys3f_IW_9xlbb-EUHeROR9RKUHKqDncg1UL6zIf5M')",
+      "Bash(curl -s -X POST http://localhost:3001/gm -H 'Authorization: Bearer d7b9bff3f12e112bff7834b4e53da333adea457e3f584bed012a96eef1b7e1b7' -H 'Content-Type: application/json' -d '{\"message\":\"where am I?\",\"characterId\":\"60395dae-76bb-480d-9c81-c3da1bd80d65\",\"userId\":\"235724a6-5fed-451b-aa6f-9781d80c3c10\"}')",
+      "Bash(curl -s -v -X POST http://localhost:3001/gm -H 'Authorization: Bearer d7b9bff3f12e112bff7834b4e53da333adea457e3f584bed012a96eef1b7e1b7' -H 'Content-Type: application/json' -d '{\"message\":\"where am I?\",\"characterId\":\"60395dae-76bb-480d-9c81-c3da1bd80d65\",\"userId\":\"235724a6-5fed-451b-aa6f-9781d80c3c10\"}')",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('engines:', d.get\\('engines',{}\\)\\)\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('main:', d.get\\('main',''\\)\\); print\\('exports:', list\\(d.get\\('exports',{}\\).keys\\(\\)\\)[:5]\\)\")",
+      "Bash(node --env-file=.env.local -e ' *)",
+      "Bash(node -e \"console.log\\('sys ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY?.slice\\(0,30\\) ?? 'NOT SET'\\)\" --input-type=module)",
+      "Bash(./node_modules/.bin/tsx --version)",
+      "Bash(powershell -Command \"[System.Environment]::GetEnvironmentVariable\\('ANTHROPIC_API_KEY', 'User'\\); [System.Environment]::GetEnvironmentVariable\\('ANTHROPIC_API_KEY', 'Machine'\\)\")",
+      "Bash(printenv ANTHROPIC_API_KEY)",
+      "Bash(grep -r \"ANTHROPIC_API_KEY\" ~/.bashrc ~/.bash_profile ~/.profile ~/.bash_login ~/.zshrc 2>/dev/null || echo \"Not found in shell profiles\")",
+      "Read(//c/Users/Robert/**)",
+      "PowerShell(Get-Process -Id 67860)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Robert\\Documents\\Katabatak\\packages\\web\\app\\dev"

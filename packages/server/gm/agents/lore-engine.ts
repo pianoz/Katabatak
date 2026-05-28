@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
+import { contextBlock } from '../auto-hydrator.js'
 import { synLog, synLogVerbose } from '../logger.js'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput } from '../types.js'
 
@@ -7,7 +8,8 @@ const client = new Anthropic()
 
 const FALLBACK_SYSTEM = `You are the Lore-Engine, the mechanical gatekeeper for the Katabatak RPG. Your sole job is to parse player intent and translate it into structured game mechanics.
 
-Respond with a single JSON object — no markdown, no explanation. No other text.
+Respond with a single JSON object — no markdown, no explanation. No other text. action_type must be
+one of the threen given. All others will be discarded.
 
 Schema:
 {
@@ -29,33 +31,13 @@ Rules:
 - Difficulty 0–10: trivial. 11–20: moderate. 21–35: hard. 36–50: extreme or near-impossible.
 - Pool choice: Power for physical effort, Essence for magic/perception/lore, Will for social/mental/endurance.`
 
-function serializeContext(ctx: ContextBlock): string {
-  const { character: { character }, healthText, essenceText, powerText, willText, locationEntities, encounterData } = ctx
-  const lines = [
-    `Character: ${character.name} (Level ${character.level ?? '?'})`,
-    `Health: ${character.current_health}/${character.health_max} (${healthText})`,
-    `Essence: ${character.current_essence}/${character.essence_max} (${essenceText})`,
-    `Power: ${character.current_power}/${character.power_max} (${powerText})`,
-    `Will: ${character.current_will}/${character.will_max} (${willText})`,
-    `Location: ${locationEntities.length ? [...locationEntities].reverse().map((e) => e.name).join(', ') : 'Unknown'}`,
-  ]
-  if (locationEntities.length) {
-    lines.push(`Nearby: ${locationEntities.map((e) => e.name).join(', ')}`)
-  }
-  if (encounterData?.isInCombat) {
-    const aliveCount = encounterData.creatures.filter((c) => c.is_alive).length
-    lines.push(`IN COMBAT — ${aliveCount} enemies active`)
-  }
-  return lines.join('\n')
-}
-
 /**
  * Classifies player intent and determines whether a skill check is required.
  * Falls back to a no-check task action if the model returns unparseable JSON.
  */
 export async function runLoreEngine({
   lastTwoTurns,
-  contextBlock,
+  contextBlock: ctx,
   playerInput,
 }: {
   lastTwoTurns: ConversationTurn[]
@@ -75,7 +57,7 @@ export async function runLoreEngine({
 
   const userContent = [
     '=== GAME STATE ===',
-    serializeContext(contextBlock),
+    contextBlock(ctx),
     '',
     '=== RECENT HISTORY ===',
     historyBlock,
@@ -86,13 +68,19 @@ export async function runLoreEngine({
 
   synLogVerbose('LORE-ENGINE', '→ user content:', userContent)
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    temperature: 0,
-    system,
-    messages: [{ role: 'user', content: userContent }],
-  })
+  let response: Awaited<ReturnType<typeof client.messages.create>>
+  try {
+    response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      temperature: 0,
+      system,
+      messages: [{ role: 'user', content: userContent }],
+    })
+  } catch (apiErr) {
+    synLog('LORE-ENGINE', `✗ API error: ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`)
+    return { action_type: 'task', requires_check: false }
+  }
 
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   synLogVerbose('LORE-ENGINE', '← raw response:', text)

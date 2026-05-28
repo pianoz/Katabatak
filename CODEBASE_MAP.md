@@ -51,6 +51,7 @@ katabatak/
 | `/dev/spells` | `app/dev/spells/page.tsx` | Spell editor (dev flag required) |
 | `/dev/active-skills` | `app/dev/active-skills/page.tsx` | Active skill editor (dev flag required) |
 | `/dev/users` | `app/dev/users/page.tsx` | User management |
+| `/syngem/intro` | `app/syngem/intro/page.tsx` | Atmospheric character creation intro — typewriter Q&A flow, calls `/api/character-creator`, creates SYNGEM character |
 | `/dev/prompt-builder` | `app/dev/prompt-builder/page.tsx` | Drag-and-drop prompt block editor — save/load/test agent prompts against live GM server. Auto-Hydrator block fetches context by `characterId` only (no multiplayer game picker); `syngem_game` table included in hydration output |
 | `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | Evaluate saved prompt versions against real data |
 | `/about` | `app/about/page.tsx` | About page |
@@ -65,6 +66,7 @@ katabatak/
 | `GET /api/gm/health` | `app/api/gm/health/route.ts` | GM server liveness check |
 | `POST /api/gm/save` | `app/api/gm/save/route.ts` | Persist game save state |
 | `POST /api/gm/summarize` | `app/api/gm/summarize/route.ts` | Legacy session history summarization |
+| `POST /api/character-creator` | `app/api/character-creator/route.ts` | Proxies Q&A payload to GM server `POST /character-creator` — generates character background/description/backstory. Auth-gated (no `is_dev` required) |
 | `GET /api/dev/users` | `app/api/dev/users/route.ts` | Admin user list (dev flag required) |
 | `POST /api/dev/log-level` | `app/api/dev/log-level/route.ts` | Proxies to GM server `POST /dev/log-level`. Sets pipeline log level at runtime (dev only) |
 | `DELETE /api/dev/conversation-history` | `app/api/dev/conversation-history/route.ts` | Validates `is_dev`, proxies to GM server `DELETE /gm/conversation/:characterId` — wipes all `conversation_turns` for a character |
@@ -85,8 +87,8 @@ Character sheet, creation, and management.
 
 | File | Purpose |
 |------|---------|
-| `components/character-creation.tsx` | Full multi-step character creation flow |
-| `components/character-dashboard.tsx` | Character sheet hub (stats, pools, inventory) |
+| `components/character-creation.tsx` | Full multi-step character creation flow (IRL characters) |
+| `components/character-dashboard.tsx` | Character sheet hub (stats, pools, inventory). Accepts `variant` prop: `"irl"` (default — flat pool grid, SYNGEM as overlay) or `"syngem"` (3-column layout: ES+PW pools \| SYNGEM window \| WP+HP pools, tabs below) |
 | `components/character-card.tsx` | Summary card with inventory, pools, stats |
 | `components/character-display-card.tsx` | Read-only character view |
 | `components/character-select-modal.tsx` | Pick character for a game |
@@ -150,7 +152,8 @@ Game session view with combat, encounters, and GM tools.
 | `components/ui/` | shadcn/ui component wrappers (button, card, dialog, form, table, etc.) |
 | `header.tsx` | Top nav bar |
 | `login-form.tsx` | Magic-link email auth |
-| `dashboard-content.tsx` | Main dashboard layout. When dev mode is enabled: renders `DevToolsSection` and the **Log Level** radio group (verbose / errors+ / errors / silent), which syncs to the GM server via `/api/dev/log-level` and persists in localStorage |
+| `dashboard-content.tsx` | Main dashboard layout. Top-level **IRL** / **SYNGEM** tabs. IRL tab shows games + characters where `syngem_game = false`. SYNGEM tab shows a "New Game" CTA (→ `/syngem/intro`) and a "Chronicles" list of `syngem_game = true` characters. Dev mode toggle shows `DevToolsSection` and **Log Level** radio group |
+| `syngem-intro.tsx` | Client component for the SYNGEM character creation intro — typewriter text reveal, sequential Q&A (5 hardcoded questions), loading state, calls `/api/character-creator`, then creates character via `createCharacterWithItems` + `createSyngemGame` |
 | `virtual-gm-component.tsx` | AI GM chat interface. Accepts `isDev` prop — when true, shows a **Dump History** button in the header that calls `DELETE /api/dev/conversation-history` to wipe `conversation_turns` for the current character |
 | `settings-modal.tsx` | User settings dialog |
 | `friends-modal.tsx` | Friend management |
@@ -230,7 +233,7 @@ Express server on port 3001. Proxied by `POST /api/gm` on the web app.
 
 > Deep-dive: [`packages/server/docs/SYNGEM-architecture.md`](packages/server/docs/SYNGEM-architecture.md)
 
-**Auth:** All `/gm/*` routes require `Authorization: Bearer <GM_API_KEY>`. Admin UI at `/admin` uses session-based auth (separate credentials). Standalone deploy: see `packages/server/docker-compose.yml`.
+**Auth:** All `/gm/*` and `/character-creator` routes require `Authorization: Bearer <GM_API_KEY>`. Admin UI at `/admin` uses session-based auth (separate credentials). Standalone deploy: see `packages/server/docker-compose.yml`.
 
 The server implements the **SYNGEM** pipeline — each player message passes through five deterministic and AI layers before a streamed narrative response is returned:
 
@@ -273,6 +276,7 @@ server/
     │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect)
     │   ├── ledger.ts              # Layer 5a: world-state audit (Sonnet, async, slug: ledger)
     │   ├── summary.ts             # Layer 6: Scribe summarizer (Haiku, async, slug: scribe)
+    │   ├── character-creator.ts   # One-shot: builds character profile from Q&A (Sonnet, temp 0.9, max 1200 tokens). Called by POST /character-creator
     │   └── npc.ts                 # Legacy NPC dialogue (Haiku)
     ├── services/
     │   └── claude-service.ts      # Generic eval wrapper (/eval endpoint)
@@ -299,7 +303,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 | Table | Purpose |
 |-------|---------|
 | `profiles` | User accounts. `username`, `avatar_url`, `is_dev` flag |
-| `characters` | Player characters. Stats, level, `location_place` (FK to `world_entities`), notes. AI fields: `quest_objectives`, `key_entity_ids`, `ai_game` |
+| `characters` | Player characters. Stats, level, `location_place` (FK to `world_entities`), notes. AI fields: `quest_objectives`, `key_entity_ids`, `ai_game`, `syngem_game`. `syngem_game = true` marks a dedicated SYNGEM AI character (created via intro flow); `ai_game = true` marks the AI pipeline active |
 | `character_inventory` | Items owned by characters. `condition`, `equipped` |
 | `character_skills` | Unlocked skills per character. `current_rank`, `unlocked_at` |
 | `character_spells` | Spells known by character |
@@ -373,6 +377,7 @@ offer_type:   item | denarius | skill_point | spell
 | `20260526130000_add_syngem_game_table.sql` | `syngem_game` table — solo AI GM session state; migrates `scribe_summary` from `characters` |
 | `20260526140000_refactor_character_locations.sql` | Four-level location hierarchy: nation › region › place › immediate (FK to `world_entities`) |
 | `20260527000000_simplify_character_location.sql` | Simplifies location to single `location_place` FK; parent chain derived at query time via `parent_id` |
+| `20260527100000_add_syngem_game_to_characters.sql` | `syngem_game boolean NOT NULL DEFAULT false` on `characters` — distinguishes dedicated SYNGEM AI characters from IRL characters |
 
 ---
 

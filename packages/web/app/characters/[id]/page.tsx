@@ -31,6 +31,8 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
 
   const { character, flattenedItems, spells, activeSkills, actionSkills, level } = characterData
 
+  const isSyngemCharacter = character.syngem_game === true
+
   return (
     <CharacterDashboard
       character={character}
@@ -41,6 +43,7 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
       isDev={profile?.is_dev ?? false}
       level={level}
       actionSkills={actionSkills}
+      variant={isSyngemCharacter ? "syngem" : "irl"}
     />
   )
 }

@@ -56,14 +56,68 @@ export async function resolveLocationEntities(
     const data = e.data as Record<string, unknown>
     const short_description =
       (override?.['short_description'] as string | undefined) ??
+      (override?.['short_desc'] as string | undefined) ??
       (data?.['short_description'] as string | undefined) ??
+      (data?.['short_desc'] as string | undefined) ??
       ''
     const long_description =
       (override?.['long_description'] as string | undefined) ??
+      (override?.['long_desc'] as string | undefined) ??
       (data?.['long_description'] as string | undefined) ??
+      (data?.['long_desc'] as string | undefined) ??
       ''
     return { id: e.id, name: e.name, short_description, long_description }
   })
+}
+
+/**
+ * Serializes a ContextBlock into a standardized plain-text prompt section.
+ * Includes character stats, location chain with short descriptions, and game time.
+ */
+export function contextBlock(ctx: ContextBlock): string {
+  const {
+    character: { character },
+    healthText,
+    essenceText,
+    powerText,
+    willText,
+    locationEntities,
+    encounterData,
+    syngemGame,
+    physicalDescription,
+  } = ctx
+
+  const lines: string[] = [`Character: ${character.name} (Level ${character.level ?? '?'})`]
+
+  if (physicalDescription) lines.push(`Description: ${physicalDescription}`)
+
+  lines.push(
+    `Health: ${character.current_health}/${character.health_max} (${healthText})`,
+    `Essence: ${character.current_essence}/${character.essence_max} (${essenceText})`,
+    `Power: ${character.current_power}/${character.power_max} (${powerText})`,
+    `Will: ${character.current_will}/${character.will_max} (${willText})`,
+  )
+
+  if (locationEntities.length) {
+    const chain = [...locationEntities].reverse()
+    lines.push(`Location: ${chain.map((e) => e.name).join(' > ')}`)
+    for (const entity of chain) {
+      if (entity.short_description) lines.push(`  ${entity.name}: ${entity.short_description}`)
+    }
+  } else {
+    lines.push('Location: Unknown')
+  }
+
+  if (syngemGame) {
+    lines.push(`Game Time: Day ${syngemGame.game_date_days}, ${syngemGame.game_time_minutes} min`)
+  }
+
+  if (encounterData?.isInCombat) {
+    const aliveCount = encounterData.creatures.filter((c) => c.is_alive).length
+    lines.push(`IN COMBAT — ${aliveCount} enemies active`)
+  }
+
+  return lines.join('\n')
 }
 
 /**

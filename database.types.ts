@@ -398,6 +398,7 @@ export type Database = {
           gm_history: Json | null
           key_entity_ids: string[] | null
           quest_objectives: Json | null
+          syngem_game: boolean | null
           unused_skill_points: number
           user_id: string | null
           weight_kgs: number | null
@@ -435,6 +436,7 @@ export type Database = {
           power_max?: number | null
           quest_objectives?: Json | null
           speed?: number | null
+          syngem_game?: boolean | null
           unused_skill_points?: number
           user_id?: string | null
           weight_kgs?: number | null
@@ -472,6 +474,7 @@ export type Database = {
           power_max?: number | null
           quest_objectives?: Json | null
           speed?: number | null
+          syngem_game?: boolean | null
           unused_skill_points?: number
           user_id?: string | null
           weight_kgs?: number | null

@@ -4,12 +4,13 @@ import rateLimit from 'express-rate-limit'
 import { handleGMMessage, runScribe, getRecentTurns, setLedgerNeutered } from './gm/handler.js'
 import { clearConversationHistory } from './services/conversation-service.js'
 import { summarizeHistory } from './gm/agents/summary.js'
+import { runCharacterCreator } from './gm/agents/character-creator.js'
 import { runEval } from './gm/services/claude-service.js'
 import { autoHydrate } from './gm/auto-hydrator.js'
 import { requireGmKey } from './middleware/auth.js'
 import { adminRouter, sessionMiddleware } from './admin/routes.js'
 import { logRequest } from './admin/request-logger.js'
-import { setLogLevel } from './gm/logger.js'
+import { setLogLevel, synLog } from './gm/logger.js'
 import type { LogLevel } from './gm/logger.js'
 import type { CheckResolution, ContextBlock } from './gm/types.js'
 
@@ -135,7 +136,9 @@ app.post('/gm', async (req, res) => {
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
     res.end()
   } catch (err) {
-    console.error('[GM] Error:', err instanceof Error ? err.message : String(err))
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error('[GM] Error:', errMsg)
+    synLog('HANDLER', `✗ pipeline error: ${errMsg}`)
     statusCode = 500
     if (!res.headersSent) {
       res.status(500).json({ error: 'GM handler failed' })
@@ -316,6 +319,25 @@ app.delete('/gm/conversation/:characterId', async (req, res) => {
   } catch (err) {
     console.error('[DEV] clearConversationHistory error:', err instanceof Error ? err.message : String(err))
     res.status(500).json({ error: 'Failed to clear conversation history' })
+  }
+})
+
+// Character creator — one-shot call from the SYNGEM intro flow
+app.post('/character-creator', requireGmKey, async (req, res) => {
+  const { questions, answers } = req.body as { questions?: unknown; answers?: unknown }
+  if (!Array.isArray(questions) || !Array.isArray(answers)) {
+    res.status(400).json({ error: 'questions and answers arrays are required' })
+    return
+  }
+  try {
+    const result = await runCharacterCreator({
+      questions: questions as string[],
+      answers: answers as string[],
+    })
+    res.json(result)
+  } catch (err) {
+    console.error('[CHARACTER-CREATOR] Error:', err instanceof Error ? err.message : String(err))
+    res.status(500).json({ error: 'Character creator failed' })
   }
 })
 

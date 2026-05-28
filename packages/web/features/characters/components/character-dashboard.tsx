@@ -303,6 +303,8 @@ interface CharacterDashboardProps {
   isDev: boolean
   level: number
   actionSkills: ActionSkill[]
+  /** "syngem" renders the 3-column SYNGEM-first layout; "irl" is the default. */
+  variant?: "irl" | "syngem"
 }
 
 export function CharacterDashboard({
@@ -314,6 +316,7 @@ export function CharacterDashboard({
   isDev,
   level,
   actionSkills,
+  variant = "irl",
 }: CharacterDashboardProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -652,7 +655,7 @@ export function CharacterDashboard({
                 </label>
               </div>
             )}
-            {isOwner && (
+            {isOwner && variant !== "syngem" && (
               <button
                 onClick={handleEnterSyngem}
                 className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest border border-cyan-900/40 text-cyan-500/60 px-3 py-1.5 hover:bg-cyan-950/30 hover:border-cyan-700/60 hover:text-cyan-400 transition-all"
@@ -735,75 +738,147 @@ export function CharacterDashboard({
       </header>
 
       <main className="px-6 md:px-12 lg:px-20 py-8">
-        <section className="mb-10">
-          <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">Skill Checks</h2>
-          <SkillCheckPanel character={character} onCharacterUpdate={patch => setCharacter(prev => ({ ...prev, ...patch }))} />
-        </section>
-
-        <section className="mb-10">
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Pools</h2>
-            <InfoTooltip text="Your four resource pools — Essence, Power, Will, and Health — each start at 10. They are spent on actions and combat, and their current level has passive effects on your character." />
-            {isOwner && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleRest}
-                className="ml-auto text-[10px] uppercase tracking-widest border border-border text-muted-foreground hover:text-foreground h-7 px-3"
-              >
-                Long Rest
-              </Button>
-            )}
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-full">
-            <PoolCounter
-              label={`Essence (${character.essence_max})`}
-              value={character.current_essence ?? 0}
-              max={character.essence_max ?? 0}
-              onIncrement={() => updatePool("current_essence", 1)}
-              onDecrement={() => updatePool("current_essence", -1)}
-              disabled={!isOwner}
-            />
-            <PoolCounter
-              label={`Power (${character.power_max})`}
-              value={character.current_power ?? 0}
-              max={character.power_max ?? 0}
-              onIncrement={() => updatePool("current_power", 1)}
-              onDecrement={() => updatePool("current_power", -1)}
-              disabled={!isOwner}
-            />
-            <PoolCounter
-              label={`Will (${character.will_max})`}
-              value={character.current_will ?? 0}
-              max={character.will_max ?? 0}
-              onIncrement={() => updatePool("current_will", 1)}
-              onDecrement={() => updatePool("current_will", -1)}
-              disabled={!isOwner}
-            />
-            <PoolCounter
-              label={`Health (${character.health_max})`}
-              value={character.current_health ?? 0}
-              max={character.health_max ?? 0}
-              onIncrement={() => updatePool("current_health", 1)}
-              onDecrement={() => updatePool("current_health", -1)}
-              disabled={!isOwner}
-            />
-          </div>
-        </section>
-
         {repairPopup && <RepairToast message={repairPopup} />}
 
-        {/* AI GM burndown timers — only visible when ai_game is enabled */}
-        {(character as Character & { ai_game?: boolean }).ai_game && (
+        {variant === "syngem" ? (
+          /* ── SYNGEM variant: 3-column pools | window | pools ──────── */
           <section className="mb-10">
-            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">Active Effects</h2>
-            <div className="space-y-2">
-              {/* Timers are injected here by the AI GM. Placeholder shown while no timers are active. */}
-              <p className="font-serif text-xs text-muted-foreground/40 italic border border-border/30 p-3">
-                No active timed effects.
-              </p>
+            <div
+              className="grid gap-4"
+              style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr) minmax(0,1fr)", minHeight: "620px" }}
+            >
+              {/* Left: Essence + Power */}
+              <div className="flex flex-col gap-4">
+                <PoolCounter
+                  label={`ES (${character.essence_max})`}
+                  value={character.current_essence ?? 0}
+                  max={character.essence_max ?? 0}
+                  onIncrement={() => updatePool("current_essence", 1)}
+                  onDecrement={() => updatePool("current_essence", -1)}
+                  disabled={!isOwner}
+                />
+                <PoolCounter
+                  label={`PW (${character.power_max})`}
+                  value={character.current_power ?? 0}
+                  max={character.power_max ?? 0}
+                  onIncrement={() => updatePool("current_power", 1)}
+                  onDecrement={() => updatePool("current_power", -1)}
+                  disabled={!isOwner}
+                />
+                {isOwner && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRest}
+                    className="text-[10px] uppercase tracking-widest border border-border text-muted-foreground hover:text-foreground h-7 px-3 mt-auto"
+                  >
+                    Long Rest
+                  </Button>
+                )}
+              </div>
+
+              {/* Center: SYNGEM window */}
+              <div className="overflow-hidden border border-cyan-900/30 min-h-0">
+                <VirtualGMComponent
+                  playerName={character.name}
+                  characterId={character.id}
+                  isDev={devModeEnabled}
+                  onGMReply={refreshCharacter}
+                />
+              </div>
+
+              {/* Right: Will + Health */}
+              <div className="flex flex-col gap-4">
+                <PoolCounter
+                  label={`WP (${character.will_max})`}
+                  value={character.current_will ?? 0}
+                  max={character.will_max ?? 0}
+                  onIncrement={() => updatePool("current_will", 1)}
+                  onDecrement={() => updatePool("current_will", -1)}
+                  disabled={!isOwner}
+                />
+                <PoolCounter
+                  label={`HP (${character.health_max})`}
+                  value={character.current_health ?? 0}
+                  max={character.health_max ?? 0}
+                  onIncrement={() => updatePool("current_health", 1)}
+                  onDecrement={() => updatePool("current_health", -1)}
+                  disabled={!isOwner}
+                />
+              </div>
             </div>
           </section>
+        ) : (
+          /* ── IRL variant: skill checks + flat pool grid ─────────────── */
+          <>
+            <section className="mb-10">
+              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">Skill Checks</h2>
+              <SkillCheckPanel character={character} onCharacterUpdate={patch => setCharacter(prev => ({ ...prev, ...patch }))} />
+            </section>
+
+            <section className="mb-10">
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Pools</h2>
+                <InfoTooltip text="Your four resource pools — Essence, Power, Will, and Health — each start at 10. They are spent on actions and combat, and their current level has passive effects on your character." />
+                {isOwner && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRest}
+                    className="ml-auto text-[10px] uppercase tracking-widest border border-border text-muted-foreground hover:text-foreground h-7 px-3"
+                  >
+                    Long Rest
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-full">
+                <PoolCounter
+                  label={`Essence (${character.essence_max})`}
+                  value={character.current_essence ?? 0}
+                  max={character.essence_max ?? 0}
+                  onIncrement={() => updatePool("current_essence", 1)}
+                  onDecrement={() => updatePool("current_essence", -1)}
+                  disabled={!isOwner}
+                />
+                <PoolCounter
+                  label={`Power (${character.power_max})`}
+                  value={character.current_power ?? 0}
+                  max={character.power_max ?? 0}
+                  onIncrement={() => updatePool("current_power", 1)}
+                  onDecrement={() => updatePool("current_power", -1)}
+                  disabled={!isOwner}
+                />
+                <PoolCounter
+                  label={`Will (${character.will_max})`}
+                  value={character.current_will ?? 0}
+                  max={character.will_max ?? 0}
+                  onIncrement={() => updatePool("current_will", 1)}
+                  onDecrement={() => updatePool("current_will", -1)}
+                  disabled={!isOwner}
+                />
+                <PoolCounter
+                  label={`Health (${character.health_max})`}
+                  value={character.current_health ?? 0}
+                  max={character.health_max ?? 0}
+                  onIncrement={() => updatePool("current_health", 1)}
+                  onDecrement={() => updatePool("current_health", -1)}
+                  disabled={!isOwner}
+                />
+              </div>
+            </section>
+
+            {/* AI GM burndown timers — only visible when ai_game is enabled */}
+            {(character as Character & { ai_game?: boolean }).ai_game && (
+              <section className="mb-10">
+                <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">Active Effects</h2>
+                <div className="space-y-2">
+                  <p className="font-serif text-xs text-muted-foreground/40 italic border border-border/30 p-3">
+                    No active timed effects.
+                  </p>
+                </div>
+              </section>
+            )}
+          </>
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1189,8 +1264,8 @@ export function CharacterDashboard({
         />
       )}
 
-      {/* SYNGEM full-screen overlay */}
-      {syngemActive && (
+      {/* SYNGEM full-screen overlay — IRL variant only */}
+      {variant !== "syngem" && syngemActive && (
         <div className="fixed inset-0 z-50">
           {isDev ? (
             <VirtualGMComponent

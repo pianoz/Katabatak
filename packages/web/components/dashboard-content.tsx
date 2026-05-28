@@ -1,11 +1,11 @@
-﻿"use client"
+"use client"
 
 import React, { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { LogOut, Plus, Swords, Users } from "lucide-react"
+import { LogOut, Plus, Sparkles, Swords, Users } from "lucide-react"
 import { DevToolsSection } from "@/features/devtools/components/devtools-section"
 import { createClient } from "@/lib/supabase/client"
 import { archiveGame, deleteGame } from "@/lib/services/game-service"
@@ -34,6 +34,7 @@ interface Character {
   game_id?: string
   user_id: string | null
   created_at: string | null
+  syngem_game?: boolean | null
 }
 
 interface DashboardContentProps {
@@ -56,12 +57,16 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
     class_archetype: c.class_archetype ?? c.class ?? null,
   }))
   const router = useRouter()
+  const [topTab, setTopTab] = useState("irl")
   const [activeTab, setActiveTab] = useState("games")
   const [friendsOpen, setFriendsOpen] = useState(false)
   const [devModeEnabled, setDevModeEnabled] = useState(false)
   type LogLevel = 'verbose' | 'errors+' | 'errors' | 'silent'
   const LOG_LEVELS: LogLevel[] = ['verbose', 'errors+', 'errors', 'silent']
   const [logLevel, setLogLevelState] = useState<LogLevel>('verbose')
+
+  const irlCharacters = characters.filter((c) => !c.syngem_game)
+  const syngemCharacters = characters.filter((c) => c.syngem_game)
 
   const syncLogLevel = async (level: LogLevel) => {
     try {
@@ -119,10 +124,9 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
               <span className="text-xs uppercase tracking-widest text-muted-foreground hidden md:block">
                 Traveler: <span className="text-foreground">{username}</span>
               </span>
-              {/* This is where the Modal will be triggered */}
-              <SettingsModal 
-                userId={userId} 
-                initialProfile={{ username, fullName}} 
+              <SettingsModal
+                userId={userId}
+                initialProfile={{ username, fullName}}
               />
             </div>
 
@@ -177,41 +181,69 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
       )}
 
       <main className="px-6 md:px-12 lg:px-20 py-8">
-        {/* Mobile Tabs */}
-        <div className="md:hidden">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="w-full bg-secondary mb-6">
-              <TabsTrigger 
-                value="games" 
-                className="flex-1 uppercase tracking-widest text-xs data-[state=active]:bg-card"
-              >
-                <Swords className="w-4 h-4 mr-2" />
-                Games
-              </TabsTrigger>
-              <TabsTrigger 
-                value="characters" 
-                className="flex-1 uppercase tracking-widest text-xs data-[state=active]:bg-card"
-              >
-                <Users className="w-4 h-4 mr-2" />
-                Characters
-              </TabsTrigger>
-            </TabsList>
+        {/* Top-level IRL / SYNGEM tabs */}
+        <Tabs value={topTab} onValueChange={setTopTab}>
+          <TabsList className="bg-secondary mb-8">
+            <TabsTrigger
+              value="irl"
+              className="uppercase tracking-widest text-xs data-[state=active]:bg-card px-6"
+            >
+              <Swords className="w-3.5 h-3.5 mr-2" />
+              IRL
+            </TabsTrigger>
+            <TabsTrigger
+              value="syngem"
+              className="uppercase tracking-widest text-xs data-[state=active]:bg-card px-6"
+            >
+              <Sparkles className="w-3.5 h-3.5 mr-2" />
+              Syngem
+            </TabsTrigger>
+          </TabsList>
 
-            <TabsContent value="games">
+          {/* ── IRL tab ──────────────────────────────────────────────── */}
+          <TabsContent value="irl">
+            {/* Mobile nested tabs */}
+            <div className="md:hidden">
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="w-full bg-secondary mb-6">
+                  <TabsTrigger
+                    value="games"
+                    className="flex-1 uppercase tracking-widest text-xs data-[state=active]:bg-card"
+                  >
+                    <Swords className="w-4 h-4 mr-2" />
+                    Games
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="characters"
+                    className="flex-1 uppercase tracking-widest text-xs data-[state=active]:bg-card"
+                  >
+                    <Users className="w-4 h-4 mr-2" />
+                    Characters
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="games">
+                  <GamesList games={games} userId={userId} />
+                </TabsContent>
+
+                <TabsContent value="characters">
+                  <CharactersList characters={irlCharacters} />
+                </TabsContent>
+              </Tabs>
+            </div>
+
+            {/* Desktop side-by-side */}
+            <div className="hidden md:grid md:grid-cols-2 gap-8 lg:gap-12">
               <GamesList games={games} userId={userId} />
-            </TabsContent>
+              <CharactersList characters={irlCharacters} />
+            </div>
+          </TabsContent>
 
-            <TabsContent value="characters">
-              <CharactersList characters={characters} />
-            </TabsContent>
-          </Tabs>
-        </div>
-
-        {/* Desktop Side-by-Side */}
-        <div className="hidden md:grid md:grid-cols-2 gap-8 lg:gap-12">
-          <GamesList games={games} userId={userId} />
-          <CharactersList characters={characters} />
-        </div>
+          {/* ── SYNGEM tab ───────────────────────────────────────────── */}
+          <TabsContent value="syngem">
+            <SyngemSection characters={syngemCharacters} />
+          </TabsContent>
+        </Tabs>
 
         {devModeEnabled && <DevToolsSection />}
         {devModeEnabled && (
@@ -244,6 +276,62 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
     </div>
   )
 }
+
+// ─── SYNGEM Section ───────────────────────────────────────────────────────────
+
+function SyngemSection({ characters }: { characters: Character[] }) {
+  return (
+    <div className="space-y-8">
+      {/* New Game CTA */}
+      <div className="border border-cyan-900/40 bg-card p-10 text-center">
+        <Sparkles className="w-8 h-8 text-cyan-500/60 mx-auto mb-4" />
+        <p className="font-serif text-xl text-foreground/80 mb-2">
+          The Chronicle Awaits
+        </p>
+        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground mb-6">
+          Begin a new AI-guided campaign
+        </p>
+        <Link href="/syngem/intro">
+          <Button className="bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 hover:bg-cyan-900/60 hover:border-cyan-600 uppercase tracking-widest text-xs px-8">
+            <Sparkles className="w-3.5 h-3.5 mr-2" />
+            New Game
+          </Button>
+        </Link>
+      </div>
+
+      {/* Resume section */}
+      {characters.length > 0 && (
+        <section>
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
+              Chronicles
+            </h2>
+          </div>
+          <div className="space-y-3">
+            {characters.map((character) => (
+              <Link
+                key={character.id}
+                href={`/characters/${character.id}`}
+                className="block border border-border bg-card p-4 hover:border-cyan-900/60 transition-colors group"
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="font-serif text-lg text-foreground group-hover:text-foreground/80">
+                    {character.name}
+                  </h3>
+                  <span className="text-[10px] uppercase tracking-[0.3em] text-cyan-600/60">
+                    Resume
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
+
+// ─── Games List ───────────────────────────────────────────────────────────────
 
 function GamesList({ games, userId }: { games: Game[], userId: string }) {
   const router = useRouter()
@@ -411,6 +499,8 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
     </section>
   )
 }
+
+// ─── Characters List ──────────────────────────────────────────────────────────
 
 function CharactersList({ characters }: { characters: Character[] }) {
   return (

@@ -10,7 +10,7 @@ vi.mock('../gm/tools/db.js', () => ({
   default: { from: mockFrom, rpc: mockRpc },
 }))
 
-const { searchWorldLore, getCampaignFacts, getNpc, getNpcsForGame } = await import(
+const { searchWorldEntities, getCampaignFacts, getNpc, getNpcsForGame } = await import(
   './world-service.js'
 )
 
@@ -48,17 +48,17 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('searchWorldLore', () => {
-  it('returns matching lore rows', async () => {
+describe('searchWorldEntities', () => {
+  it('returns matching entity rows', async () => {
     mockRpc.mockResolvedValue({ data: [fakeLoreRow], error: null })
-    const results = await searchWorldLore('Kataba')
+    const results = await searchWorldEntities('Kataba')
     expect(results).toHaveLength(1)
     expect(results[0].name).toBe('Kataba')
   })
 
   it('returns empty array on rpc error', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: 'error' } })
-    const results = await searchWorldLore('anything')
+    const results = await searchWorldEntities('anything')
     expect(results).toEqual([])
   })
 })

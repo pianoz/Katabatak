@@ -5,6 +5,7 @@ export interface RequestLogEntry {
   toolCallCount: number
   durationMs: number
   statusCode: number
+  errorMessage?: string
 }
 
 const MAX_ENTRIES = 100

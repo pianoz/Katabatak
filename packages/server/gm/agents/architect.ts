@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput, CheckResolution } from '../types.js'
-import { loadRandomArchitectPrompt } from '../../services/prompt-service.js'
+import { loadArchitectPrompt } from '../../services/prompt-service.js'
 import { synLog } from '../logger.js'
 
 const client = new Anthropic()
@@ -86,7 +86,7 @@ function serializeLoreResult(lore: LoreEngineOutput, resolution?: CheckResolutio
 
 /**
  * Streams the GM narrative response chunk by chunk (claude-sonnet-4-6).
- * Picks a random versioned Architect prompt from the DB; falls back to the style text if none exists.
+ * Loads the `architect1` prompt from the DB; falls back to the style text if none exists.
  */
 export async function* streamArchitect({
   styleText,
@@ -109,7 +109,7 @@ export async function* streamArchitect({
   searchResults: string | null
   playerInput: string
 }): AsyncGenerator<string> {
-  const loadedPrompt = await loadRandomArchitectPrompt()
+  const loadedPrompt = await loadArchitectPrompt()
   const baseSystem = loadedPrompt ?? styleText
   synLog('ARCHITECT', `→ prompt:${loadedPrompt ? 'DB' : 'fallback(style)'} | turns:${lastFourTurns.length} | streaming...`)
   const systemParts = [baseSystem]

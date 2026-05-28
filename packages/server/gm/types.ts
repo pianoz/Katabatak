@@ -18,7 +18,7 @@ export interface ConversationTurn {
 export interface GMMessageInput {
   message: string
   characterId: string
-  userId: string
+  userId?: string
   gameId?: string
   checkResolution?: CheckResolution
 }

@@ -102,6 +102,7 @@ app.post('/gm', async (req, res) => {
 
   const start = Date.now()
   let statusCode = 200
+  let errorMessage: string | undefined
 
   try {
     const generator = handleGMMessage({ message, characterId, userId, gameId, checkResolution })
@@ -137,9 +138,11 @@ app.post('/gm', async (req, res) => {
     res.end()
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
-    console.error('[GM] Error:', errMsg)
+    const stack = err instanceof Error ? (err.stack ?? errMsg) : errMsg
+    console.error('[GM] Error:', stack)
     synLog('HANDLER', `✗ pipeline error: ${errMsg}`)
     statusCode = 500
+    errorMessage = stack
     if (!res.headersSent) {
       res.status(500).json({ error: 'GM handler failed' })
     } else {
@@ -154,6 +157,7 @@ app.post('/gm', async (req, res) => {
       toolCallCount: 0,
       durationMs: Date.now() - start,
       statusCode,
+      errorMessage,
     })
   }
 })
@@ -170,6 +174,7 @@ app.post('/gm/summarize', async (req, res) => {
 
   const start = Date.now()
   let statusCode = 200
+  let errorMessage: string | undefined
 
   try {
     const summary = await summarizeHistory({
@@ -178,8 +183,10 @@ app.post('/gm/summarize', async (req, res) => {
     })
     res.json({ summary })
   } catch (err) {
-    console.error('[SUMMARY] Error:', err instanceof Error ? err.message : String(err))
+    const stack = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    console.error('[SUMMARY] Error:', stack)
     statusCode = 500
+    errorMessage = stack
     res.status(500).json({ error: 'Summary agent failed' })
   } finally {
     logRequest({
@@ -188,6 +195,7 @@ app.post('/gm/summarize', async (req, res) => {
       toolCallCount: 0,
       durationMs: Date.now() - start,
       statusCode,
+      errorMessage,
     })
   }
 })

@@ -5,7 +5,7 @@ import { streamArchitect } from './agents/architect.js'
 import { runLedger } from './agents/ledger.js'
 import { executeStateChanges } from './state-executor.js'
 import { runScribe } from './agents/summary.js'
-import { searchWorldEntities } from '../services/world-service.js'
+import { searchWorldEntities, searchLoreInHierarchy } from '../services/world-service.js'
 import {
   saveTurn,
   getRecentTurns,
@@ -36,11 +36,13 @@ export async function* handleGMMessage({
 }: GMMessageInput): AsyncGenerator<string | CheckRequired> {
   synLog('HANDLER', `→ request | char:${characterId.slice(-8)} "${message.slice(0, 60)}${message.length > 60 ? '...' : ''}"${checkResolution ? ` [resolving:${checkResolution.choice}]` : ''}`)
 
-  // 1. Verify character ownership
-  const isOwner = await characterBelongsToUser(characterId, userId)
-  if (!isOwner) {
-    yield '[GM Error: character not found]'
-    return
+  // 1. Verify character ownership (skipped when userId absent — CLI / trusted contexts)
+  if (userId) {
+    const isOwner = await characterBelongsToUser(characterId, userId)
+    if (!isOwner) {
+      yield '[GM Error: character not found]'
+      return
+    }
   }
 
   // 3. Persist the player turn
@@ -76,8 +78,18 @@ export async function* handleGMMessage({
   }
 
   // 6. Execute world entity searches if Lore-Engine found info queries
+  const locationId = (contextBlock.character.character as Record<string, unknown>)['location_place'] as string | null ?? null
   let searchResults: string | null = null
-  if (loreResult.search_objects?.length) {
+  if (loreResult.action_type === 'info' && loreResult.search_objects?.length && locationId) {
+    const targets = loreResult.search_objects.map((s) => s.target).join(', ')
+    synLog('HANDLER', `→ lore search | targets: ${targets}`)
+    const results = await Promise.all(
+      loreResult.search_objects.map((s) => searchLoreInHierarchy(s.target, locationId)),
+    )
+    const found = results.filter((r) => r !== 'What the player asked about is unknown').length
+    synLog('HANDLER', `✓ lore search — ${found}/${results.length} found`)
+    searchResults = results.join('\n\n')
+  } else if (loreResult.search_objects?.length) {
     const targets = loreResult.search_objects.map((s) => s.target).join(', ')
     synLog('HANDLER', `→ world search | targets: ${targets}`)
     const results = await Promise.all(

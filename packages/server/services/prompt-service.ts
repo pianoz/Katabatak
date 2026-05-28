@@ -37,13 +37,8 @@ export async function loadSystemPrompt(slug: string): Promise<string | null> {
   return value
 }
 
-/**
- * Picks one of the five architect prompt variants at random (`architect1`–`architect5`)
- * and returns the latest DB version of it. Returns null if the chosen slug has no DB entry.
- */
-export async function loadRandomArchitectPrompt(): Promise<string | null> {
-  const idx = Math.floor(Math.random() * 5) + 1
-  return loadSystemPrompt(`architect${idx}`)
+export async function loadArchitectPrompt(): Promise<string | null> {
+  return loadSystemPrompt('architect1')
 }
 
 /** Clears the prompt cache for a specific slug (or all slugs if omitted). */

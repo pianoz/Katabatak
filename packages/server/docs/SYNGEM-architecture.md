@@ -1,7 +1,7 @@
 <!-- markdownlint-disable-file -->
 # SYNGEM — Architecture Reference
 
-> Last meaningful update: 2026-05-27 — file-based dev logging + runtime log-level control
+> Last meaningful update: 2026-05-28 — Hierarchical lore search for `info` actions; `long_description` replaces `short_description` in search results
 
 ---
 
@@ -142,7 +142,15 @@ Haiku sub-agent. Receives the last 2 turns + serialized `ContextBlock` + player 
 
 If `requires_check: true` and no `checkResolution` present → pipeline halts, returns `CheckRequired` to client.
 
-If `search_objects` present → handler calls `searchWorldEntities()` for each and assembles results into a `searchResults` string for the Architect.
+**Search behavior differs by action type:**
+
+- `action_type: 'info'` → handler calls `searchLoreInHierarchy(keyword, locationId)` for each search object. This performs a **two-phase hierarchical search**:
+  1. **Global entities** (`parent_id IS NULL`) — general lore, history, mechanics. First match returned.
+  2. **Location hierarchy** — searches within the player's current `location_place`, escalating to region then nation if nothing found. Up to 3 results (randomly sampled if more). Returns `long_description`.
+  - If nothing found at any level: returns `"What the player asked about is unknown"`.
+  - All results (global + local) are combined and passed to the Architect as `searchResults`.
+
+- `action_type: 'task'` or `'attack'` with `search_objects` → flat `searchWorldEntities()` RPC call, `short_description`, up to 3 results.
 
 ---
 
@@ -163,7 +171,7 @@ To update style content, edit the `.txt` files directly or use the prompt builde
 
 Sonnet. Streamed. **No tools.** Pure narrative generation.
 
-**Slugs:** `architect1` – `architect5` — one is selected at random per request via `loadRandomArchitectPrompt()` in `services/prompt-service.ts`. Each call fetches the latest version of whichever slug was chosen (cached 60 s per slug independently). Falls back to the random style file from `style-modulator.ts` if the chosen slug has no DB entry.
+**Slug:** `architect1` — loaded via `loadArchitectPrompt()` in `services/prompt-service.ts`. Fetches the latest version of that slug (cached 60 s). Falls back to the style file from `style-modulator.ts` if no DB entry exists for `architect1`.
 
 Returns an `AsyncGenerator<string>` of text chunks. The `handler.ts` yields each chunk to the Express route, which forwards them as SSE events:
 
@@ -339,7 +347,7 @@ The chosen level is stored in the express process's memory — restarting the se
 - **Ledger returns bad JSON or empty** — `runLedger()` returns `[]`. State Executor is never called. The full raw model response is written to the log file. Narrative is unaffected.
 - **State Executor action fails** — each action is wrapped in try/catch. Failures are written to the log file. One failing action (e.g., entity not found) doesn't block others.
 - **Scribe / GameTime / Ledger async errors** — all `.catch` handlers write to the log file via `synLog`. Characters retain their previous scribe data until the next successful Scribe run.
-- **`prompt_versions` has no entry for a slug** — agents fall back to their hardcoded `FALLBACK_SYSTEM` (Architect falls back to the style-modulator text). Add the slug via the prompt builder to override. For the Architect, all five `architect1`–`architect5` slugs should have at least one version to avoid style-text fallbacks.
+- **`prompt_versions` has no entry for a slug** — agents fall back to their hardcoded `FALLBACK_SYSTEM` (Architect falls back to the style-modulator text). Add the slug via the prompt builder to override. For the Architect, the `architect1` slug must have at least one version to avoid style-text fallback.
 
 ---
 
@@ -354,7 +362,7 @@ Use the prompt builder at `/dev/prompt-builder`. Save with the agent's slug:
 | Agent | Slug(s) |
 | ----- | ------- |
 | Lore-Engine | `lore-engine` |
-| Architect | `architect1` – `architect5` (one picked at random per request) |
+| Architect | `architect1` |
 | Ledger | `ledger` |
 | Scribe | `scribe` |
 
@@ -410,7 +418,7 @@ packages/server/
 │   ├── conversation-service.ts       # saveTurn / getRecentTurns / getTurnCount
 │   ├── game-service.ts               # getGameWithMembers / getActiveEncounter
 │   ├── prompt-service.ts             # loadSystemPrompt (cached) / invalidatePromptCache
-│   └── world-service.ts              # searchWorldEntities / getNpcsForGame
+│   └── world-service.ts              # searchWorldEntities / searchLoreInHierarchy / getNpcsForGame
 ├── middleware/
 │   └── auth.ts                       # requireGmKey() Bearer token check
 └── admin/

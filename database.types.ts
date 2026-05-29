@@ -368,7 +368,6 @@ export type Database = {
       characters: {
         Row: {
           background_primary: string | null
-          background_secondary: string | null
           backstory: string | null
           carrying_capacity: number | null
           class_archetype: string | null
@@ -407,7 +406,6 @@ export type Database = {
         Insert: {
           ai_game?: boolean | null
           background_primary?: string | null
-          background_secondary?: string | null
           backstory?: string | null
           carrying_capacity?: number | null
           class_archetype?: string | null
@@ -445,7 +443,6 @@ export type Database = {
         Update: {
           ai_game?: boolean | null
           background_primary?: string | null
-          background_secondary?: string | null
           backstory?: string | null
           carrying_capacity?: number | null
           class_archetype?: string | null

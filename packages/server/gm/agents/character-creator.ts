@@ -67,7 +67,6 @@ The story above is fixed — the waystone, the fire, Brin, the flight to Karkill
 Respond with only valid JSON — no markdown, no explanation:
 {
   "background_primary": "<2-3 sentences: who this character was before any of this — their trade, home, the ordinary shape of their days, colored entirely by the Q&A answers>",
-  "background_secondary": "<1-2 sentences: the waystone finding — where they were, what they were doing, the first moment they knew the needle was wrong>",
   "physical_description": "<2-3 vivid sentences of appearance — what a stranger sees first, distinguishing marks, the wear the road has put on them>",
   "backstory": "<4-6 sentences weaving the Q&A identity into the full arc: ordinary life → found the disc → showed it and learned what it was → the trouble that followed → the fire and Brin → moving fast toward Karkill>",
   "story_hook": "<The full story told in rich atmospheric prose. 8-12 sentences minimum. Written in second person (you) or close third. Begin before the inn — the journey south, the company of strangers, small kindnesses. Then the fire. Then the aftermath. End on the road to Karkill in the grey morning light, the waystone in hand, its needle pointing east for the first time. Let the reader feel the exhaustion, the grief, the impossible weight of what points toward them. Do not resolve the tension. End in motion.>",
@@ -90,7 +89,6 @@ export interface CharacterCreatorInput {
 
 export interface CharacterCreatorOutput {
   background_primary: string
-  background_secondary: string
   physical_description: string
   backstory: string
   story_hook: string
@@ -121,5 +119,11 @@ export async function runCharacterCreator(
 
   const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
   const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-  return JSON.parse(cleaned) as CharacterCreatorOutput
+  const result = JSON.parse(cleaned) as CharacterCreatorOutput
+  if (!result.story_hook) {
+    // DB prompt is likely outdated — use backstory as fallback so the reveal doesn't stall
+    synLog('CHARACTER-CREATOR', 'WARNING: story_hook missing from response, falling back to backstory')
+    result.story_hook = result.backstory ?? ''
+  }
+  return result
 }

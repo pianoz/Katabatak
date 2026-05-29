@@ -63,17 +63,12 @@ const QUESTIONS = [
   "What caused you to leave your previous life?"
 ]
 
-const STORY = [
-  `
-  You have been traveling for days. Originally you took up with caravan heading south because that was where you though answers might lie. You packed up and took your time. 
-  `
-]
-
 // ─── Typewriter hook ──────────────────────────────────────────────────────────
 
 function useTypewriter(text: string, speed = 18) {
   const [displayed, setDisplayed] = useState("")
   const [done, setDone] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     setDisplayed("")
@@ -81,18 +76,26 @@ function useTypewriter(text: string, speed = 18) {
     if (!text) return
 
     let i = 0
-    const interval = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       i++
       setDisplayed(text.slice(0, i))
       if (i >= text.length) {
-        clearInterval(interval)
+        clearInterval(intervalRef.current!)
         setDone(true)
       }
     }, speed)
-    return () => clearInterval(interval)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
   }, [text, speed])
 
-  return { displayed, done }
+  const skip = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    setDisplayed(text)
+    setDone(true)
+  }
+
+  return { displayed, done, skip }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -105,7 +108,6 @@ type Phase = "intro" | "questions" | "loading" | "reveal" | "error"
 
 interface CreatorResult {
   background_primary: string
-  background_secondary: string
   physical_description: string
   backstory: string
   story_hook: string
@@ -132,10 +134,10 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
       : phase === "questions"
       ? QUESTIONS[questionIndex]
       : phase === "reveal"
-      ? (creatorResult?.story_hook ?? "")
+      ? (creatorResult?.story_hook || creatorResult?.backstory || "")
       : ""
 
-  const { displayed, done: typewritingDone } = useTypewriter(
+  const { displayed, done: typewritingDone, skip } = useTypewriter(
     activeText,
     phase === "intro" ? 18 : 28
   )
@@ -190,7 +192,6 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
         syngem_game: true,
         ai_game: true,
         background_primary: creatorResult.background_primary,
-        background_secondary: creatorResult.background_secondary,
         physical_description: creatorResult.physical_description,
         backstory: creatorResult.backstory,
         quest_objectives: creatorResult.initial_quest ? [creatorResult.initial_quest] : [],
@@ -255,6 +256,16 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
                 )}
               </p>
             </div>
+            {!typewritingDone && (
+              <div className="text-right">
+                <button
+                  onClick={skip}
+                  className="text-[9px] uppercase tracking-[0.4em] text-zinc-700 hover:text-zinc-400 transition-colors font-mono"
+                >
+                  Skip
+                </button>
+              </div>
+            )}
             {typewritingDone && (
               <div className="text-center animate-in fade-in duration-700">
                 <button
@@ -365,7 +376,7 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
                   )}
                 </p>
               </div>
-              {typewritingDone && (
+              {(typewritingDone || !creatorResult.story_hook) && (
                 <div className="pl-6 animate-in fade-in duration-700">
                   <button
                     onClick={handleRevealAdvance}

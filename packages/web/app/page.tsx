@@ -6,7 +6,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
-      
+
       <main className="flex-1 flex flex-col px-6 md:px-12 lg:px-20 pt-24 pb-12">
         {/* Hero Title */}
         <div className="text-center md:text-left mb-12">
@@ -33,9 +33,6 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="py-8 text-left">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground/50">
-          A Tool for Tabletop Adventurers
-        </p>
       </footer>
     </div>
   )

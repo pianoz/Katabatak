@@ -84,6 +84,10 @@ export interface EnrichedNpc {
   isFollowing: boolean
   lastEncounterSummary: string | null
   currentTask: NpcCurrentTask | null
+  /** Populated only for party members (isFollowing === true) */
+  personality: string | null
+  /** One-liner for bystanders (isFollowing === false) */
+  smallSummary: string | null
 }
 
 // ─── World entities ───────────────────────────────────────────────────────────
@@ -94,6 +98,12 @@ export interface LocationEntity {
   name: string
   short_description: string
   long_description: string
+}
+
+/** GM-only notes for an active quest, fetched from quest_templates. Not shown to the player. */
+export interface ActiveQuestNote {
+  questId: string
+  gmNotes: string
 }
 
 /** All context assembled by the Auto-Hydrator and passed down the SYNGEM pipeline. */
@@ -111,6 +121,7 @@ export interface ContextBlock {
   inventoryWeight: { current: number; max: number }
   backstory: string | null
   physicalDescription: string | null
+  activeQuestNotes: ActiveQuestNote[]
 }
 
 // ─── Lore-Engine output ───────────────────────────────────────────────────────
@@ -143,11 +154,13 @@ export interface CheckRequired {
   check_description: string
 }
 
-/** Player's resolution of a check — either spending from a pool (auto-success) or rolling a d10. */
+/** Player's resolution of a check — either spending from a pool (auto-success) or rolling a d20. */
 export interface CheckResolution {
   choice: 'spend' | 'roll'
   pool: 'Power' | 'Essence' | 'Will'
   roll_result?: number
+  pool_contributed?: number
+  succeeded?: boolean
 }
 
 // ─── Ledger output ────────────────────────────────────────────────────────────
@@ -159,3 +172,4 @@ export type LedgerOutput =
   | { action: 'create_entity'; entity: Record<string, unknown> }
   | { action: 'delete_entity'; entity_id: string; replacement_description: string }
   | { action: 'update_npc'; npc_id: string; mutations: NpcMutations }
+  | { action: 'long_rest' }

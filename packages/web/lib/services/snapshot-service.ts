@@ -71,7 +71,6 @@ export interface CharacterSnapshot {
   location_place: string | null
   // Narrative
   background_primary: string | null
-  background_secondary: string | null
   physical_description: string | null
   backstory: string | null
   notes: string | null
@@ -198,7 +197,6 @@ export async function takeSnapshot(
     current_carry_weight: (char.current_carry_weight as number | null) ?? null,
     location_place: (char.location_place as string | null) ?? null,
     background_primary: (char.background_primary as string | null) ?? null,
-    background_secondary: (char.background_secondary as string | null) ?? null,
     physical_description: (char.physical_description as string | null) ?? null,
     backstory: (char.backstory as string | null) ?? null,
     notes: (char.notes as string | null) ?? null,

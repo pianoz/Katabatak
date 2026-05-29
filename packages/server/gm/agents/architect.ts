@@ -55,14 +55,27 @@ function serializeContextBlock(ctx: ContextBlock): string {
     }
   }
 
-  if (npcs.length) {
-    lines.push('', '=== NEARBY NPCs ===')
-    for (const npc of npcs) {
+  const partyMembers = npcs.filter((n) => n.isFollowing)
+  const bystanders = npcs.filter((n) => !n.isFollowing)
+
+  if (partyMembers.length) {
+    lines.push('', '=== PARTY MEMBERS ===')
+    for (const npc of partyMembers) {
       const nameTag = npc.title ? `${npc.name}, ${npc.title}` : npc.name
-      const followTag = npc.isFollowing ? ' [following you]' : ''
-      lines.push(`${nameTag} [${npc.dispositionLabel}]${followTag}`)
+      lines.push(`${nameTag} [${npc.dispositionLabel}] (disposition: ${npc.disposition})`)
+      if (npc.faction) lines.push(`  Faction: ${npc.faction}`)
+      if (npc.personality) lines.push(`  Personality: ${npc.personality}`)
       if (npc.lastEncounterSummary) lines.push(`  Prior encounter: ${npc.lastEncounterSummary}`)
       if (npc.currentTask) lines.push(`  Current task: ${npc.currentTask.description}`)
+    }
+  }
+
+  if (bystanders.length) {
+    lines.push('', '=== NEARBY NPCs ===')
+    for (const npc of bystanders) {
+      const nameTag = npc.title ? `${npc.name}, ${npc.title}` : npc.name
+      lines.push(`${nameTag} [${npc.dispositionLabel}]`)
+      if (npc.smallSummary) lines.push(`  ${npc.smallSummary}`)
     }
   }
 
@@ -81,9 +94,15 @@ function serializeLoreResult(lore: LoreEngineOutput, resolution?: CheckResolutio
   const lines = [`Action type: ${lore.action_type}`]
   if (lore.narrative_notes) lines.push(`Context: ${lore.narrative_notes}`)
   if (resolution) {
-    lines.push(
-      `Check resolved: ${resolution.choice === 'spend' ? `Player spent from ${resolution.pool} pool — SUCCESS` : `Player rolled ${resolution.roll_result ?? '?'} on d10 — resolve outcome accordingly`}`,
-    )
+    if (resolution.choice === 'spend') {
+      const contrib = resolution.pool_contributed ?? 0
+      lines.push(`Check resolved: Player guaranteed success — contributed ${contrib} from ${resolution.pool} pool`)
+    } else {
+      const roll = resolution.roll_result ?? '?'
+      const outcome = resolution.succeeded ? 'SUCCESS' : 'FAILURE'
+      const contrib = resolution.pool_contributed ?? 0
+      lines.push(`Check resolved: Player rolled ${roll} on d20 (contributed ${contrib} from ${resolution.pool} pool) — ${outcome}`)
+    }
   }
   return lines.join('\n')
 }
@@ -131,6 +150,12 @@ export async function* streamArchitect({
   }
   if (questObjectives) {
     systemBlocks.push({ type: 'text', text: `=== QUESTS & OBJECTIVES ===\n${JSON.stringify(questObjectives, null, 2)}` })
+  }
+  if (contextBlock.activeQuestNotes?.length) {
+    const notes = contextBlock.activeQuestNotes
+      .map((n) => `[${n.questId}]: ${n.gmNotes}`)
+      .join('\n\n')
+    systemBlocks.push({ type: 'text', text: `=== ACTIVE QUEST CONTEXT (GM ONLY — do not reveal to player) ===\n${notes}` })
   }
 
   // Build message history from last 4 turns

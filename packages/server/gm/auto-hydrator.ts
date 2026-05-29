@@ -1,11 +1,11 @@
 import { getFullCharacter } from '../services/character-service.js'
 import { getGameWithMembers, getActiveEncounter } from '../services/game-service.js'
 import { getSyngemGame } from '../services/syngem-game-service.js'
-import { getNpcsForGame, computeNpcRoutineLocation } from '../services/world-service.js'
+import { getNpcsForGame, getNpcsForCharacter, computeNpcRoutineLocation } from '../services/world-service.js'
 import type { NpcRow } from '../services/world-service.js'
 import supabase from './tools/db.js'
 import { synLog } from './logger.js'
-import type { ContextBlock, LocationEntity, EnrichedNpc, NpcPersonalityProfile } from './types.js'
+import type { ContextBlock, LocationEntity, EnrichedNpc, NpcPersonalityProfile, ActiveQuestNote } from './types.js'
 
 function poolText(current: number | null, max: number | null): string {
   if (current === null || max === null || max === 0) return 'Unknown'
@@ -173,6 +173,8 @@ function enrichAndFilterNpcs(
       isFollowing,
       lastEncounterSummary: profile.memory?.last_encounter_summary ?? null,
       currentTask: profile.current_task ?? null,
+      personality: isFollowing ? (profile.personality ?? null) : null,
+      smallSummary: isFollowing ? null : (npc.small_summary ?? null),
     })
   }
 
@@ -194,13 +196,40 @@ export async function autoHydrate(
 
   const { character } = fullCharacter
 
-  const [game, encounterData, allNpcs, locationEntities, syngemGame] = await Promise.all([
-    gameId ? getGameWithMembers(gameId) : Promise.resolve(null),
-    gameId ? getActiveEncounter(gameId) : Promise.resolve(null),
-    gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
-    resolveLocationEntities(characterId, character.location_place),
-    getSyngemGame(characterId),
-  ])
+  // Fetch quest objectives to look up GM notes for active quests
+  const questObjectives = (character as Record<string, unknown>)['quest_objectives'] as
+    | Array<{ id: string; status: string }>
+    | null
+    | undefined
+  const activeQuestIds = (questObjectives ?? [])
+    .filter((q) => q.status === 'active')
+    .map((q) => q.id)
+
+  const [game, encounterData, gameNpcs, companionNpcs, locationEntities, syngemGame, questTemplates] =
+    await Promise.all([
+      gameId ? getGameWithMembers(gameId) : Promise.resolve(null),
+      gameId ? getActiveEncounter(gameId) : Promise.resolve(null),
+      gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
+      getNpcsForCharacter(characterId),
+      resolveLocationEntities(characterId, character.location_place),
+      getSyngemGame(characterId),
+      activeQuestIds.length
+        ? supabase
+            .from('quest_templates')
+            .select('id, description_gm')
+            .in('id', activeQuestIds)
+            .then(({ data }) => data ?? [])
+        : Promise.resolve([]),
+    ])
+
+  const activeQuestNotes: ActiveQuestNote[] = questTemplates.map((t) => ({
+    questId: t.id,
+    gmNotes: t.description_gm,
+  }))
+
+  // Merge game NPCs and companion NPCs, deduplicating by id
+  const npcMap = new Map([...gameNpcs, ...companionNpcs].map((n) => [n.id, n]))
+  const allNpcs = Array.from(npcMap.values())
 
   const npcs = enrichAndFilterNpcs(
     allNpcs,
@@ -233,5 +262,6 @@ export async function autoHydrate(
     },
     backstory: character.backstory ?? null,
     physicalDescription: character.physical_description ?? null,
+    activeQuestNotes,
   }
 }

@@ -238,6 +238,13 @@ INSERT INTO public.creatures (
 
 ON CONFLICT (id) DO NOTHING;
 
+-- ASCII sprite art for seeded creatures (6 lines × ~8 chars)
+UPDATE public.creatures SET ascii_art = E' [╬╬] \n ╬▓╬ \n╬╬╬╬╬\n ╬╬╬ \n ╬ ╬ \n░░ ░░' WHERE id = 'e1000000-0000-0000-0000-000000000001'; -- Hollow Guard
+UPDATE public.creatures SET ascii_art = E'      \n ░▓░▓ \n▓░▓▓░▓\n ▒▓▒▒ \n░▒▒▒▒░\n──────' WHERE id = 'e1000000-0000-0000-0000-000000000002'; -- Bog Lurker
+UPDATE public.creatures SET ascii_art = E' ░░░░ \n▓█▓█▓ \n▓████▓\n ████ \n █ █  \n░░  ░░' WHERE id = 'e1000000-0000-0000-0000-000000000003'; -- Ashwalker
+UPDATE public.creatures SET ascii_art = E'╌╌╌╌╌╌\n╌╌▒░╌╌\n╌░▒▒░╌\n╌╌▒░╌╌\n╌╌╌╌╌╌\n      ' WHERE id = 'e1000000-0000-0000-0000-000000000004'; -- Veilwraith
+UPDATE public.creatures SET ascii_art = E'  ▓▓  \n▓▓▓▓▓▓\n██████\n ████ \n▓█ █▓ \n  ‖‖  ' WHERE id = 'e1000000-0000-0000-0000-000000000005'; -- Ironback Boar
+
 -- -------------------------------------------------------------
 -- World lore
 -- -------------------------------------------------------------
@@ -306,7 +313,7 @@ INSERT INTO public.characters (
   essence_max, current_essence,
   level, denarius, unused_skill_points,
   current_location_region, current_location_polis,
-  background_primary, background_secondary,
+  background_primary,
   physical_description, backstory, in_game
 ) VALUES (
   'b0000000-0000-0000-0000-000000000001',
@@ -318,7 +325,7 @@ INSERT INTO public.characters (
   8,  8,
   3, 85, 2,
   'Tuur-Thalen', 'Vael''kast',
-  'Sell-sword', 'Former Compact guard',
+  'Sell-sword',
   'Lean and weather-beaten. A scar bisects his left eyebrow. He wears a dull iron pauldron that has seen better days.',
   'Aldric spent seven years riding escort for Ashen Compact caravans before a contract gone wrong left him stranded and owed coin he will never see. He takes work where he finds it and trusts the road more than any employer.',
   false

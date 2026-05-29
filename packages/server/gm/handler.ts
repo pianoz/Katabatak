@@ -13,6 +13,7 @@ import {
 } from '../services/conversation-service.js'
 import { characterBelongsToUser } from '../services/character-service.js'
 import { advanceGameTime } from '../services/syngem-game-service.js'
+import { applyQuestCompletionGrants } from '../services/quest-engine.js'
 import { synLog } from './logger.js'
 import { createClaudeClient } from './claude-client.js'
 import { checkBudget } from './budget-guard.js'
@@ -181,9 +182,20 @@ export async function* handleGMMessage({
   if (turnNumber % 4 === 0) {
     synLog('HANDLER', `→ scribe triggered (turn ${turnNumber})`)
     const recentEight = await getRecentTurns(characterId, 8)
-    runScribe(characterId, recentEight, client, userId).catch((err) =>
-      synLog('HANDLER', `✗ [Scribe] async error: ${err instanceof Error ? err.message : String(err)}`),
-    )
+    runScribe(characterId, recentEight, client, userId)
+      .then(({ completedQuestIds }) => {
+        if (completedQuestIds.length) {
+          synLog('HANDLER', `→ quest completion grants firing for: ${completedQuestIds.join(', ')}`)
+          return Promise.all(
+            completedQuestIds.map((questId) =>
+              applyQuestCompletionGrants(characterId, questId).catch((err) =>
+                synLog('HANDLER', `✗ [QuestEngine] grant error for ${questId}: ${err instanceof Error ? err.message : String(err)}`),
+              ),
+            ),
+          )
+        }
+      })
+      .catch((err) => synLog('HANDLER', `✗ [Scribe] async error: ${err instanceof Error ? err.message : String(err)}`))
   }
 }
 

@@ -30,18 +30,29 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Character not found' }, { status: 404 })
   }
 
-  const { data, error } = await supabase
-    .from('conversation_turns')
-    .select('role, content')
-    .eq('character_id', characterId)
-    .order('turn_number', { ascending: false })
-    .limit(limit)
+  const [turnsResult, gameResult] = await Promise.all([
+    supabase
+      .from('conversation_turns')
+      .select('role, content')
+      .eq('character_id', characterId)
+      .order('turn_number', { ascending: false })
+      .limit(limit),
+    supabase
+      .from('syngem_game')
+      .select('game_time_minutes, game_date_days')
+      .eq('character_id', characterId)
+      .maybeSingle(),
+  ])
 
-  if (error) {
+  if (turnsResult.error) {
     return NextResponse.json({ error: 'Failed to fetch turns' }, { status: 500 })
   }
 
   // Reverse to chronological order
-  const turns = (data ?? []).reverse()
-  return NextResponse.json({ turns })
+  const turns = (turnsResult.data ?? []).reverse()
+  return NextResponse.json({
+    turns,
+    game_time_minutes: gameResult.data?.game_time_minutes ?? null,
+    game_date_days: gameResult.data?.game_date_days ?? null,
+  })
 }

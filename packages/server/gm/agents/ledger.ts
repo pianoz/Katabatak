@@ -33,12 +33,16 @@ Valid actions:
 - delete_entity: an entity was destroyed, consumed, or hidden from the player permanently.
   {"action":"delete_entity","entity_id":"<id>","replacement_description":"<what the player now sees instead>"}
 
+- long_rest: the player character completed a full long rest (slept at an inn, camped overnight, rested until morning).
+  {"action":"long_rest"}
+
 Rules:
 - Only record changes that are permanent and world-altering — not temporary narrative flourishes.
 - Do NOT emit update_npc for routine small talk or information-only exchanges — only meaningful shifts.
 - Do NOT emit update_npc for NPC routine movement — that is handled automatically by the system.
 - If the narrative is ambiguous about whether movement occurred, omit move_character.
 - Entity IDs must match the snake_case naming convention (e.g. "loc_karkill_flounder_inn").
+- Emit long_rest only when the narrative confirms a full overnight rest occurred. Do NOT emit for short breaks, sitting down, or meditation.
 - Respond with only a JSON array — no markdown, no explanation.
 
 Examples:
@@ -49,6 +53,9 @@ Examples:
 - Player asks Marta to patrol the docks -> update_npc {npc_id:"marta_karkill", mutations:{current_task:{description:"Patrol the docks for suspicious activity",target_location_id:"loc_karkill_docks",assigned_tick:0}}}
 - Player asks the innkeeper for directions -> [] (no state change)
 - Player insults the merchant -> update_npc {npc_id:"merchant_bazaar", mutations:{disposition_delta:-25, memory_append:"Player insulted them in front of customers."}}
+- Player rests at the inn overnight, GM narrates waking refreshed -> long_rest
+- Player sits to catch their breath -> [] (short rest, no action)
+- Player: "I want to rest for the night -> long_rest
 `
 
 /**

@@ -54,6 +54,7 @@ katabatak/
 | `/syngem/intro` | `app/syngem/intro/page.tsx` | Atmospheric character creation intro — typewriter Q&A flow, calls `/api/character-creator`, creates SYNGEM character |
 | `/dev/prompt-builder` | `app/dev/prompt-builder/page.tsx` | Drag-and-drop prompt block editor — save/load/test agent prompts against live GM server. Auto-Hydrator block fetches context by `characterId` only (no multiplayer game picker); `syngem_game` table included in hydration output |
 | `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | Evaluate saved prompt versions against real data |
+| `/dev/combat` | `app/dev/combat/page.tsx` | Combat system test harness — pick any character + up to 5 creatures + game session, start/abort combat without SYNGEM |
 | `/about` | `app/about/page.tsx` | About page |
 | `/auth/error` | `app/auth/error/page.tsx` | Auth error |
 
@@ -70,6 +71,11 @@ katabatak/
 | `POST /api/gm/save` | `app/api/gm/save/route.ts` | Persist game save state |
 | `POST /api/gm/summarize` | `app/api/gm/summarize/route.ts` | Legacy session history summarization |
 | `POST /api/character-creator` | `app/api/character-creator/route.ts` | Proxies Q&A payload to GM server `POST /character-creator` — fits character into Waystone story scaffold, returns background/description/backstory/story_hook/initial_quest. Auth-gated (no `is_dev` required) |
+| `POST /api/gm/quest/start` | `app/api/gm/quest/start/route.ts` | Proxies to GM server `POST /gm/quest/start` — fires quest start grants (items + companion NPCs) for a given `characterId` + `questId`. Called by `syngem-intro.tsx` after character creation |
+| `POST /api/gm/combat/start` | `app/api/gm/combat/start/route.ts` | Proxies to GM server — initializes combat for a game session (sets `is_in_combat`, `combat_phase`, turn order) |
+| `POST /api/gm/combat/player-attack` | `app/api/gm/combat/player-attack/route.ts` | Proxies Phase A resolution — player picks weapon + attack type + target; Haiku picks creature defence; damage resolved |
+| `POST /api/gm/combat/player-defend` | `app/api/gm/combat/player-defend/route.ts` | Proxies Phase B resolution — all alive creatures attack; player picks one defend type applied against all |
+| `POST /api/gm/combat/end` | `app/api/gm/combat/end/route.ts` | Proxies combat teardown — resets `is_in_combat`, `combat_phase`, clears log |
 | `GET /api/dev/users` | `app/api/dev/users/route.ts` | Admin user list (dev flag required) |
 | `POST /api/dev/log-level` | `app/api/dev/log-level/route.ts` | Proxies to GM server `POST /dev/log-level`. Sets pipeline log level at runtime (dev only) |
 | `DELETE /api/dev/conversation-history` | `app/api/dev/conversation-history/route.ts` | Validates `is_dev`, proxies to GM server `DELETE /gm/conversation/:characterId` — wipes all `conversation_turns` for a character |
@@ -91,7 +97,7 @@ Character sheet, creation, and management.
 | File | Purpose |
 |------|---------|
 | `components/character-creation.tsx` | Full multi-step character creation flow (IRL characters) |
-| `components/character-dashboard.tsx` | Character sheet hub (stats, pools, inventory). Accepts `variant` prop: `"irl"` (default — flat pool grid, SYNGEM as overlay) or `"syngem"` (3-column layout: ES+PW pools \| SYNGEM window \| WP+HP pools, tabs below) |
+| `components/character-dashboard.tsx` | Character sheet hub (stats, pools, inventory). Accepts `variant` prop: `"irl"` (default — flat pool grid, SYNGEM as overlay) or `"syngem"` (3-column layout: ES+PW pools \| SYNGEM window \| WP+HP pools, tabs below). Subscribes to `game_members` realtime to detect when the linked game enters combat; mounts `<CombatOverlay>` when `is_in_combat = true` |
 | `components/character-card.tsx` | Summary card with inventory, pools, stats |
 | `components/character-display-card.tsx` | Read-only character view |
 | `components/character-select-modal.tsx` | Pick character for a game |
@@ -105,13 +111,26 @@ Character sheet, creation, and management.
 | `hooks/use-character-store.ts` | Character state management (optimistic updates) |
 | `hooks/use-character-sync.ts` | Real-time character sync with DB |
 
+#### `features/combat/`
+
+Player-facing combat overlay. Shown when `games.is_in_combat = true`. Full-screen terminal-aesthetic overlay over the character dashboard. All resolution is server-authoritative via the GM server combat routes.
+
+**Round structure:** Phase A — player attacks one target (Haiku picks creature's hidden defence, deterministic resolve). Phase B — all alive creatures attack simultaneously; player picks one defend type that applies against every incoming roll.
+
+| File | Purpose |
+|------|---------|
+| `components/combat-overlay.tsx` | Root overlay — subscribes to `games`, `characters`, `encounter_creatures` realtime. Manages phase state, loads weapons/defence values, dispatches Phase A and B actions |
+| `components/creature-display.tsx` | One of 5 fixed-height columns — ASCII sprite (`ascii_art` from creatures table, 6-line monospace block), HP + pool bars. Amber border when it's Phase B (all enemies active) |
+| `components/combat-log-panel.tsx` | Scrolling terminal log — flavor lines (italic), mechanical lines (mono `roll=N def=N net=N`), outcome banners |
+| `components/phase-controls.tsx` | `PhaseAControls` (weapon selector, target picker when >1 enemy, Attack / Strong Attack buttons with cost labels) and `PhaseBControls` (Defend / Strong Defend buttons with AC values and Will cost) |
+
 #### `features/games/`
 
 Game session view with combat, encounters, and GM tools.
 
 | File | Purpose |
 |------|---------|
-| `combat-panel.tsx` | Combat UI — turn order, initiative |
+| `combat-panel.tsx` | GM-side debug tool — manually adjust creature HP/pools, trigger attacks, log to localStorage. Not the player-facing system (see `features/combat/`) |
 | `encounter-panel.tsx` | Encounter management |
 | `creature-section.tsx` | NPC/creature display |
 | `invite-panel.tsx` | Invite players via join code |
@@ -156,7 +175,7 @@ Game session view with combat, encounters, and GM tools.
 | `header.tsx` | Top nav bar |
 | `login-form.tsx` | Magic-link email auth |
 | `dashboard-content.tsx` | Main dashboard layout. Top-level **IRL** / **SYNGEM** tabs. IRL tab shows games + characters where `syngem_game = false`. SYNGEM tab shows a "New Game" CTA (→ `/syngem/intro`) and a "Chronicles" list of `syngem_game = true` characters. Dev mode toggle shows `DevToolsSection` and **Log Level** radio group |
-| `syngem-intro.tsx` | Client component for the SYNGEM character creation intro — phases: `intro` (typewriter world lore) → `questions` (10 hardcoded Q&A) → `loading` → `reveal` (two-column: character identity left, typewritten story hook center, "Enter the World" CTA) → redirect to character page. Calls `/api/character-creator`, creates character via `createCharacterWithItems` (seeding `quest_objectives` from `initial_quest`) + `createSyngemGame` |
+| `syngem-intro.tsx` | Client component for the SYNGEM character creation intro — phases: `intro` (typewriter world lore) → `questions` (10 hardcoded Q&A) → `loading` → `reveal` (two-column: character identity left, typewritten story hook center, "Enter the World" CTA) → redirect to character page. Calls `/api/character-creator`, creates character via `createCharacterWithItems` (seeding `quest_objectives` from `initial_quest`) + `createSyngemGame`, then fires `POST /api/gm/quest/start` (non-blocking) to apply Waystone quest start grants (Brin NPC + starter items) |
 | `virtual-gm-component.tsx` | AI GM chat interface. Accepts `isDev` prop — when true, shows a **Dump History** button. Reads API key from `useApiKey` hook and attaches it as `X-Anthropic-Key` header on every `/api/gm` fetch |
 | `settings-modal.tsx` | User settings dialog — includes `ApiKeySettings` and `TokenSpendDashboard` sections. Accepts optional `tokenBudget` prop passed from the dashboard page |
 | `api-key-settings.tsx` | BYOK: API key management section — masked display, visibility toggle, clear button, validate-then-save flow via `/api/validate-key`. Shows "browser-only" disclaimer |
@@ -184,7 +203,7 @@ All database access goes through typed service functions. No raw Supabase calls 
 | `item-service.ts` | Item CRUD, generation, trading between characters |
 | `spell-service.ts` | Spell management, granting, removal |
 | `game-service.ts` | Game session CRUD, combat turn order, player membership |
-| `encounter-service.ts` | Combat encounter lifecycle, creature management |
+| `encounter-service.ts` | Combat encounter lifecycle, creature management. `addCreaturesToEncounter` copies the full creature stat block including `strong_cost` and `strong_defence` |
 | `invite-service.ts` | Game invite create/accept/decline/cleanup |
 | `friend-service.ts` | Friend request → pending → accepted workflow |
 | `profile-service.ts` | User profile reads and updates |
@@ -267,7 +286,10 @@ server/
 │   ├── game-service.ts            # getGameWithMembers, getGameAllyCharacters, getActiveEncounter
 │   ├── prompt-service.ts          # loadSystemPrompt (60s cache), invalidatePromptCache
 │   ├── syngem-game-service.ts     # getSyngemGame, createSyngemGame, updateSyngemSummary, advanceGameTime
-│   └── world-service.ts           # searchWorldEntities, getCampaignFacts, getNpcsForGame
+│   ├── world-service.ts           # searchWorldEntities, getCampaignFacts, getNpcsForGame, getNpcsForCharacter
+│   ├── quest-engine.ts            # applyQuestStartGrants, applyQuestCompletionGrants — idempotent grant engine for the Quest system
+│   ├── effect-processor.ts        # computeSkillModifiers — sums {"type":"modifier","attribute":"attack"|"defence","value":N} effects from passive skills with rank scaling
+│   └── combat-engine.ts           # initCombat, resolvePlayerAttack, resolvePlayerDefend, endCombat — full round/phase logic. Phase A: player attacks, Haiku picks creature defence (hidden), deterministic damage resolve. Phase B: Haiku picks each creature's attack in parallel, player's single defend choice applied against all, total damage summed
 └── gm/
     ├── handler.ts                 # Pipeline orchestrator — creates per-request client, runs budget check
     ├── logger.ts                  # synLog() dev file logger + LogLevel / setLogLevel()
@@ -314,7 +336,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 | Table | Purpose |
 |-------|---------|
 | `profiles` | User accounts. `username`, `avatar_url`, `is_dev` flag, `token_budget` (nullable int — BYOK spend cap) |
-| `characters` | Player characters. Stats, level, `location_place` (FK to `world_entities`), notes. AI fields: `quest_objectives`, `key_entity_ids`, `ai_game`, `syngem_game`. `syngem_game = true` marks a dedicated SYNGEM AI character (created via intro flow); `ai_game = true` marks the AI pipeline active |
+| `characters` | Player characters. Stats, level, `location_place` (FK to `world_entities`), notes. AI fields: `quest_objectives` (JSONB array of `{id, title, status, description, current_stage?, grants_applied?}`), `key_entity_ids`, `ai_game`, `syngem_game`. `syngem_game = true` marks a dedicated SYNGEM AI character (created via intro flow); `ai_game = true` marks the AI pipeline active |
 | `character_inventory` | Items owned by characters. `condition`, `equipped` |
 | `character_skills` | Unlocked skills per character. `current_rank`, `unlocked_at` |
 | `character_spells` | Spells known by character |
@@ -324,13 +346,14 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 | `items` | Item templates. Damage, defense, cost, weight, `effects` (JSONB) |
 | `spells` | Spell definitions. Damage, AOE, range, cast_time, cooldown, `effects` (JSONB) |
 | `active_skills` | Named contextual combat actions with `effects` (JSONB) |
-| `games` | Game sessions. `gm_id`, `join_code`, combat state |
+| `games` | Game sessions. `gm_id`, `join_code`, `is_in_combat` (bool), `combat_phase` (`player_attack`\|`player_defend`\|null), `current_turn_order` (alive creature IDs for Phase B), `active_turn_index`, `combat_log` (string[]) |
 | `game_members` | Player membership. `character_id`, `role`, `status` |
-| `creatures` | Enemy/NPC templates |
-| `encounter_creatures` | Creature instances in active encounters |
+| `creatures` | Enemy/NPC templates. `ascii_art` (6-line monospace string for terminal sprite display) |
+| `encounter_creatures` | Creature instances in active encounters. Copies full stat block including `strong_cost` and `strong_defence` from the creature template |
 | `pending_offers` | Rewards awaiting player acceptance |
 | `friends` | Friend relationships. `status`: pending → friend |
-| `npcs` | Game NPCs. Faction, personality, disposition |
+| `npcs` | Game NPCs. Faction, personality, disposition. `game_id` nullable — companion NPCs (e.g. Brin) have `game_id = null` and are linked via `following_character_id` |
+| `quest_templates` | Quest definitions. `stages` JSONB (id, title, description, completion_hints), `start_grants` JSONB (items, NPCs), `completion_grants` JSONB (skill_points, denarius, items). `description_gm` is injected into Architect context but never shown to the player |
 | `campaign_facts` | Session lore facts. `gm_only` flag |
 | `world_entities` | World encyclopedia. Replaced `world_lore`. `type` enum, `data` JSONB, full-text `search_vector` |
 | `player_entity_mutations` | Per-player overrides on `world_entities` (e.g. hidden doors, altered descriptions) |
@@ -392,6 +415,9 @@ offer_type:   item | denarius | skill_point | spell
 | `20260527100000_add_syngem_game_to_characters.sql` | `syngem_game boolean NOT NULL DEFAULT false` on `characters` — distinguishes dedicated SYNGEM AI characters from IRL characters |
 | `20260528000000_add_following_to_npcs.sql` | `following_character_id` FK on `npcs` — tracks which character an NPC is following |
 | `20260529000000_add_byok_token_tracking.sql` | `token_budget` column on `profiles` + new `token_usage` table with RLS (BYOK spend tracking) |
+| `20260529100000_drop_background_secondary.sql` | Drops unused `background_secondary` column from `characters` |
+| `20260529200000_add_quest_engine.sql` | Makes `npcs.game_id` nullable; creates `quest_templates` table (RLS: service_role write, authenticated read); seeds 4 items (waystone, backpack, rations, tarp); seeds the `follow_the_waystone` quest template with Brin's NPC template, 7 stages, start grants, and completion grants |
+| `20260529230000_add_combat_fields.sql` | Adds `ascii_art text` to `creatures`; adds `combat_phase text` (CHECK: player_attack\|player_defend) to `games`; adds `strong_cost integer` and `strong_defence integer` to `encounter_creatures` |
 
 ---
 
@@ -466,6 +492,7 @@ node --env-file=.env.local packages/server/chat.js    # Interactive GM REPL
 
 ## In Progress / Planned
 
+- **Combat system Phase 2:** status effects / conditions, consumable items in combat, flee mechanic, XP/loot grants on victory, ally turns (infrastructure present — `ally_` prefix in turn order)
 - Body-part armor loadout system
 - Scavenge module (timed item discovery)
 - Crafting mechanic

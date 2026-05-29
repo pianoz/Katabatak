@@ -135,8 +135,21 @@ export async function getNpc(npcId: string): Promise<NpcRow | null> {
   return data ?? null
 }
 
+/** Fetches game-specific NPCs plus global world NPCs (game_id IS NULL, not following anyone). */
 export async function getNpcsForGame(gameId: string): Promise<NpcRow[]> {
-  const { data } = await supabase.from('npcs').select('*').eq('game_id', gameId)
+  const [{ data: gameNpcs }, { data: globalNpcs }] = await Promise.all([
+    supabase.from('npcs').select('*').eq('game_id', gameId),
+    supabase.from('npcs').select('*').is('game_id', null).is('following_character_id', null),
+  ])
+  return [...(gameNpcs ?? []), ...(globalNpcs ?? [])]
+}
+
+/** Fetches companion NPCs following a specific character (no game_id required). */
+export async function getNpcsForCharacter(characterId: string): Promise<NpcRow[]> {
+  const { data } = await supabase
+    .from('npcs')
+    .select('*')
+    .eq('following_character_id', characterId)
   return data ?? []
 }
 

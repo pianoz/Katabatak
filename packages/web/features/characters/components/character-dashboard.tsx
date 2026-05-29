@@ -41,6 +41,7 @@ import { SkillCheckPanel } from "@/features/characters/components/actions/skill-
 import { ActionSkillModal, type ActionSkill } from "@/features/characters/components/actions/action-skill-modal"
 import { PoolCounter } from "@/features/characters/components/pools/pool-counter"
 import { usePendingOffers } from "@/features/characters/hooks/use-pending-offers"
+import { CombatOverlay } from "@/features/combat/components/combat-overlay"
 
 interface Item {
   id: string
@@ -105,7 +106,6 @@ function buildSnapshot(char: Character, items: Item[]): CharacterSnapshot {
     current_carry_weight: null,
     location_place: char.location_place ?? null,
     background_primary: char.background_primary ?? null,
-    background_secondary: char.background_secondary ?? null,
     physical_description: char.physical_description ?? null,
     backstory: char.backstory ?? null,
     notes: null,
@@ -330,14 +330,61 @@ export function CharacterDashboard({
   }
   const [activeTab,      setActiveTab]      = useState("actions")
   const [syngemActive,   setSyngemActive]   = useState(false)
+  const [combatGameId,   setCombatGameId]   = useState<string | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+    let channel: ReturnType<typeof supabase.channel> | null = null
+
+    async function watchCombat() {
+      // Find character's active game via game_members
+      const { data: membership } = await supabase
+        .from("game_members")
+        .select("game_id, games!inner(is_in_combat, combat_phase)")
+        .eq("character_id", initialCharacter.id)
+        .limit(1)
+        .single()
+
+      if (!membership) return
+      const gameId = membership.game_id
+      const game = membership.games as unknown as { is_in_combat: boolean | null; combat_phase: string | null }
+      if (game.is_in_combat) setCombatGameId(gameId)
+
+      channel = supabase
+        .channel(`dashboard-combat-${gameId}`)
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "games", filter: `id=eq.${gameId}` }, (payload) => {
+          const updated = payload.new as { is_in_combat: boolean | null }
+          if (updated.is_in_combat) setCombatGameId(gameId)
+          else setCombatGameId(null)
+        })
+        .subscribe()
+    }
+
+    void watchCombat()
+    return () => { if (channel) void supabase.removeChannel(channel) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCharacter.id])
+
+  useEffect(() => {
+    if (localStorage.getItem(`syngemActive_${initialCharacter.id}`) === 'true') {
+      setSyngemActive(true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCharacter.id])
 
   const handleEnterSyngem = async () => {
     setSyngemActive(true)
+    localStorage.setItem(`syngemActive_${character.id}`, 'true')
     const charWithAiGame = character as Character & { ai_game?: boolean }
     if (!charWithAiGame.ai_game) {
       await updateCharacter(createClient(), character.id, { ai_game: true } as Record<string, unknown>)
       setCharacter(prev => ({ ...prev, ai_game: true } as Character))
     }
+  }
+
+  const handleCloseSyngem = () => {
+    setSyngemActive(false)
+    localStorage.removeItem(`syngemActive_${character.id}`)
   }
 
   const [character,      setCharacter]      = useState(initialCharacter)
@@ -538,28 +585,6 @@ export function CharacterDashboard({
     } else {
       console.error("Repair error:", error)
     }
-  }
-
-  const handleRest = () => {
-    if (!isOwner) return
-    const BASE_REST = 7
-    const restAdd = (pool: string) => skillFx.restModifiers[pool]?.add ?? 0
-    const restMul = (pool: string) => skillFx.restModifiers[pool]?.multiply ?? 1
-    const newHealth  = Math.min(character.health_max  ?? 0, ((character.current_health  ?? 0) + BASE_REST + restAdd('health'))  * restMul('health'))
-    const newEssence = Math.min(character.essence_max ?? 0, ((character.current_essence ?? 0) + BASE_REST + restAdd('essence')) * restMul('essence'))
-    const newPower   = Math.min(character.power_max   ?? 0, ((character.current_power   ?? 0) + BASE_REST + restAdd('power'))   * restMul('power'))
-    const newWill    = Math.min(character.will_max    ?? 0, ((character.current_will    ?? 0) + BASE_REST + restAdd('will'))    * restMul('will'))
-    storeUpdatePool("health",  newHealth)
-    storeUpdatePool("essence", newEssence)
-    storeUpdatePool("power",   newPower)
-    storeUpdatePool("will",    newWill)
-    setCharacter(prev => ({
-      ...prev,
-      current_health:  newHealth,
-      current_essence: newEssence,
-      current_power:   newPower,
-      current_will:    newWill,
-    }))
   }
 
   const handleConsume = async (item: Item) => {
@@ -765,16 +790,6 @@ export function CharacterDashboard({
                   onDecrement={() => updatePool("current_power", -1)}
                   disabled={!isOwner}
                 />
-                {isOwner && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleRest}
-                    className="text-[10px] uppercase tracking-widest border border-border text-muted-foreground hover:text-foreground h-7 px-3 mt-auto"
-                  >
-                    Long Rest
-                  </Button>
-                )}
               </div>
 
               {/* Center: SYNGEM window */}
@@ -820,16 +835,6 @@ export function CharacterDashboard({
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Pools</h2>
                 <InfoTooltip text="Your four resource pools — Essence, Power, Will, and Health — each start at 10. They are spent on actions and combat, and their current level has passive effects on your character." />
-                {isOwner && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleRest}
-                    className="ml-auto text-[10px] uppercase tracking-widest border border-border text-muted-foreground hover:text-foreground h-7 px-3"
-                  >
-                    Long Rest
-                  </Button>
-                )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-full">
                 <PoolCounter
@@ -1094,7 +1099,6 @@ export function CharacterDashboard({
 
                 <div className="space-y-4">
                   <DescriptionBlock label="Primary Background"   text={character.background_primary ?? undefined}   />
-                  <DescriptionBlock label="Secondary Background" text={character.background_secondary ?? undefined} />
                   <DescriptionBlock label="Physical Description" text={character.physical_description ?? undefined} onSave={isOwner ? (v) => handleSaveDescription("physical_description", v) : undefined} />
                   <DescriptionBlock label="Backstory"            text={character.backstory ?? undefined} expandable onSave={isOwner ? (v) => handleSaveDescription("backstory", v) : undefined} />
                 </div>
@@ -1264,6 +1268,15 @@ export function CharacterDashboard({
         />
       )}
 
+      {/* Combat overlay — shown when game is_in_combat */}
+      {combatGameId && (
+        <CombatOverlay
+          gameId={combatGameId}
+          characterId={character.id}
+          onCombatEnd={() => setCombatGameId(null)}
+        />
+      )}
+
       {/* SYNGEM full-screen overlay — IRL variant only */}
       {variant !== "syngem" && syngemActive && (
         <div className="fixed inset-0 z-50">
@@ -1273,12 +1286,12 @@ export function CharacterDashboard({
               characterId={character.id}
               isDev={isDev}
               onGMReply={refreshCharacter}
-              onClose={() => setSyngemActive(false)}
+              onClose={handleCloseSyngem}
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full w-full bg-zinc-950 text-center px-8">
               <button
-                onClick={() => setSyngemActive(false)}
+                onClick={handleCloseSyngem}
                 className="absolute top-6 right-6 text-zinc-600 hover:text-zinc-300 transition-colors"
                 aria-label="Close"
               >

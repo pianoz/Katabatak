@@ -23,6 +23,8 @@ export async function addCreaturesToEncounter(supabase: SupabaseClient, gameId: 
     attack_cost: c.attack_cost,
     defence: c.defence,
     strong_attack: c.strong_attack,
+    strong_cost: c.strong_cost,
+    strong_defence: c.strong_defence,
     health_max: c.health_max,
     current_health: c.health_max ?? 0,
     power_max: c.power_max,

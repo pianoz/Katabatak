@@ -8,8 +8,6 @@ import { useApiKey } from '@/hooks/use-api-key';
 
 // ─── Sky Tracker ──────────────────────────────────────────────────────────────
 
-const GAME_START_MINUTE = 480; // 8:00 AM in-game
-
 function getSkyBackground(hours: number): string {
   if (hours < 5 || hours >= 22) return 'linear-gradient(180deg, #04040b 0%, #0c0c1a 50%, #04040b 100%)';
   if (hours < 7)  return 'linear-gradient(180deg, #09091a 0%, #1c0f08 65%, #09091a 100%)';
@@ -20,13 +18,10 @@ function getSkyBackground(hours: number): string {
   return 'linear-gradient(180deg, #04040b 0%, #0c0c1a 50%, #04040b 100%)';
 }
 
-function SkyTracker({ turnCount }: { turnCount: number }) {
-  const totalMinutes = GAME_START_MINUTE + turnCount * 10;
-  const minuteOfDay = totalMinutes % 1440;
-  const dayNumber = Math.floor(totalMinutes / 1440) + 1;
-  const hours = Math.floor(minuteOfDay / 60);
-  const mins = minuteOfDay % 60;
-  const positionPct = (minuteOfDay / 1440) * 100;
+function SkyTracker({ gameTimeMinutes, gameDateDays }: { gameTimeMinutes: number; gameDateDays: number }) {
+  const hours = Math.floor(gameTimeMinutes / 60);
+  const mins = gameTimeMinutes % 60;
+  const positionPct = (gameTimeMinutes / 1440) * 100;
   const isDay = hours >= 6 && hours < 20;
   const timeStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
 
@@ -67,9 +62,8 @@ function SkyTracker({ turnCount }: { turnCount: number }) {
 
       {/* Time readout */}
       <div className="absolute bottom-1.5 left-4 flex items-center gap-3">
-        <span className="text-[8px] uppercase tracking-[0.3em] text-zinc-600 font-mono">Day {dayNumber}</span>
+        <span className="text-[8px] uppercase tracking-[0.3em] text-zinc-600 font-mono">Day {gameDateDays}</span>
         <span className="text-[8px] uppercase tracking-[0.3em] text-zinc-500 font-mono">{timeStr}</span>
-        <span className="text-[8px] uppercase tracking-[0.3em] text-zinc-700 font-mono">Turn {turnCount + 1}</span>
       </div>
     </div>
   );
@@ -90,6 +84,11 @@ interface PendingCheck {
   pool: 'Power' | 'Essence' | 'Will';
   check_description: string;
   originalMessage: string;
+  basePoolValue: number;
+}
+
+function poolToStoreKey(pool: 'Power' | 'Essence' | 'Will'): 'power' | 'will' | 'essence' {
+  return pool.toLowerCase() as 'power' | 'will' | 'essence'
 }
 
 interface ChatGMProps {
@@ -117,7 +116,8 @@ export default function ChatGMComponent({
   const gmBlocked = isDirty || isSyncing;
   const { apiKey } = useApiKey();
 
-  const [turnCount, setTurnCount] = useState(0);
+  const [gameTimeMinutes, setGameTimeMinutes] = useState(1020); // 17:00 default matches DB default
+  const [gameDateDays, setGameDateDays]       = useState(1);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -132,6 +132,7 @@ export default function ChatGMComponent({
   const [isGMLoading, setIsGMLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [pendingCheck, setPendingCheck] = useState<PendingCheck | null>(null);
+  const [poolContributed, setPoolContributed] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -144,17 +145,23 @@ export default function ChatGMComponent({
     if (!characterId) return;
     fetch(`/api/gm/turns?characterId=${characterId}&limit=3`)
       .then((r) => r.json())
-      .then(({ turns }: { turns?: Array<{ role: 'player' | 'assistant'; content: string }> }) => {
-        if (!turns?.length) return;
-        const loaded: Message[] = turns.map((t, i) => ({
-          id: `history-${i}`,
-          role: t.role === 'assistant' ? 'gm' : 'player',
-          senderName: t.role === 'assistant' ? 'The Architect' : playerName,
-          content: t.content,
-          timestamp: new Date(),
-        }));
-        setMessages(loaded);
-        setTurnCount(turns.filter((t) => t.role === 'assistant').length);
+      .then(({ turns, game_time_minutes, game_date_days }: {
+        turns?: Array<{ role: 'player' | 'assistant'; content: string }>;
+        game_time_minutes?: number | null;
+        game_date_days?: number | null;
+      }) => {
+        if (turns?.length) {
+          const loaded: Message[] = turns.map((t, i) => ({
+            id: `history-${i}`,
+            role: t.role === 'assistant' ? 'gm' : 'player',
+            senderName: t.role === 'assistant' ? 'The Architect' : playerName,
+            content: t.content,
+            timestamp: new Date(),
+          }));
+          setMessages(loaded);
+        }
+        if (game_time_minutes != null) setGameTimeMinutes(game_time_minutes);
+        if (game_date_days   != null) setGameDateDays(game_date_days);
       })
       .catch(() => {});
   }, [characterId]);
@@ -188,13 +195,12 @@ export default function ChatGMComponent({
         content: 'Conversation history cleared.',
         timestamp: new Date(),
       }]);
-      setTurnCount(0);
     } catch (err) {
       console.error('[DEV] dumpHistory error:', err);
     }
   };
 
-  const sendToGM = async (message: string, checkResolution?: { choice: 'spend' | 'roll'; pool: string }) => {
+  const sendToGM = async (message: string, checkResolution?: { choice: 'spend' | 'roll'; pool: string; roll_result?: number; pool_contributed?: number; succeeded?: boolean }) => {
     setIsGMLoading(true);
     setStreamingContent('');
 
@@ -223,11 +229,16 @@ export default function ChatGMComponent({
       if (!contentType.includes('text/event-stream')) {
         const data = await res.json() as { type?: string; difficulty?: number; pool?: string; check_description?: string };
         if (data.type === 'check_required') {
+          const pool = (data.pool ?? 'Power') as PendingCheck['pool'];
+          const storeState = useCharacterStore.getState();
+          const basePoolValue = storeState[poolToStoreKey(pool)]?.current ?? 0;
+          setPoolContributed(0);
           setPendingCheck({
             difficulty: data.difficulty ?? 10,
-            pool: (data.pool ?? 'Power') as PendingCheck['pool'],
+            pool,
             check_description: data.check_description ?? 'Attempting a difficult task',
             originalMessage: message,
+            basePoolValue,
           });
           setStreamingContent(null);
           return;
@@ -277,7 +288,15 @@ export default function ChatGMComponent({
           content: fullText,
           timestamp: new Date(),
         }]);
-        setTurnCount(prev => prev + 1);
+        // Advance game time by 10 minutes per turn (mirrors server TIME_INCREMENT)
+        setGameTimeMinutes(prev => {
+          const next = prev + 10;
+          if (next >= 1440) {
+            setGameDateDays(d => d + 1);
+            return next % 1440;
+          }
+          return next;
+        });
         onGMReply?.();
       }
     } catch (err) {
@@ -304,30 +323,55 @@ export default function ChatGMComponent({
     await sendToGM(content);
   };
 
-  const resolveCheck = async (choice: 'spend' | 'roll') => {
-    if (!pendingCheck) return;
-    const { originalMessage, pool } = pendingCheck;
-    setPendingCheck(null);
+  const handleAddPool = () => {
+    if (!pendingCheck || poolContributed >= pendingCheck.basePoolValue) return;
+    const next = poolContributed + 1;
+    setPoolContributed(next);
+    useCharacterStore.getState().updatePool(poolToStoreKey(pendingCheck.pool), pendingCheck.basePoolValue - next);
+  };
 
-    const rollResult = choice === 'roll' ? Math.floor(Math.random() * 10) + 1 : undefined;
+  const handleRemovePool = () => {
+    if (!pendingCheck || poolContributed <= 0) return;
+    const next = poolContributed - 1;
+    setPoolContributed(next);
+    useCharacterStore.getState().updatePool(poolToStoreKey(pendingCheck.pool), pendingCheck.basePoolValue - next);
+  };
+
+  const resolveCheck = async (autoSucceed: boolean) => {
+    if (!pendingCheck) return;
+    const { originalMessage, pool, difficulty, basePoolValue } = pendingCheck;
+    const contributed = poolContributed;
+    const totalBase = basePoolValue + contributed;
+
+    setPendingCheck(null);
+    setPoolContributed(0);
+
+    const rollResult = autoSucceed ? undefined : Math.floor(Math.random() * 20) + 1;
+    const succeeded = autoSucceed || (totalBase + (rollResult ?? 0)) >= difficulty;
 
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
       role: 'player',
       senderName: playerName,
-      content: choice === 'spend'
-        ? `[Spent from ${pool} pool — auto-succeeding]`
-        : `[Rolling dice — result: ${rollResult}]`,
+      content: autoSucceed
+        ? `[Guaranteed — base ${totalBase}${contributed > 0 ? ` (${contributed} contributed)` : ''} vs difficulty ${difficulty}]`
+        : `[Roll: ${rollResult} | Total: ${totalBase + rollResult!} vs ${difficulty} — ${succeeded ? 'SUCCESS' : 'FAILURE'}]`,
       timestamp: new Date(),
     }]);
 
-    await sendToGM(originalMessage, { choice, pool, ...(rollResult !== undefined ? { roll_result: rollResult } : {}) });
+    await sendToGM(originalMessage, {
+      choice: autoSucceed ? 'spend' : 'roll',
+      pool,
+      ...(rollResult !== undefined ? { roll_result: rollResult } : {}),
+      pool_contributed: contributed,
+      succeeded,
+    });
   };
 
   return (
     <div className="flex flex-col h-full w-full bg-zinc-950 font-sans text-zinc-200 overflow-hidden">
       {/* Sky Tracker */}
-      <SkyTracker turnCount={turnCount} />
+      <SkyTracker gameTimeMinutes={gameTimeMinutes} gameDateDays={gameDateDays} />
 
       {/* Header */}
       <header className="h-14 border-b border-zinc-800 flex items-center px-6 bg-zinc-900/50 backdrop-blur-md shrink-0">
@@ -435,37 +479,69 @@ export default function ChatGMComponent({
       </div>
 
       {/* Check Interruption Panel */}
-      {pendingCheck && (
-        <div className="border-t border-amber-800/50 bg-zinc-900/90 px-6 py-4 shrink-0">
-          <div className="flex items-start gap-3 mb-3">
-            <Dice1 className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs uppercase tracking-widest text-amber-400 font-bold mb-1">Fate Check Required</p>
-              <p className="text-sm text-zinc-300">{pendingCheck.check_description}</p>
-              <p className="text-xs text-zinc-500 mt-1">
-                Difficulty: <span className="text-amber-400 font-bold">{pendingCheck.difficulty}</span>
-                {' '}— Pool: <span className="text-amber-400 font-bold">{pendingCheck.pool}</span>
-              </p>
+      {pendingCheck && (() => {
+        const totalBase = pendingCheck.basePoolValue + poolContributed;
+        const autoSucceed = totalBase >= pendingCheck.difficulty;
+        const remainingPool = pendingCheck.basePoolValue - poolContributed;
+        return (
+          <div className="border-t border-amber-800/50 bg-zinc-900/90 px-6 py-4 shrink-0">
+            <div className="flex items-start gap-3 mb-4">
+              <Dice1 className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs uppercase tracking-widest text-amber-400 font-bold mb-1">Fate Check Required</p>
+                <p className="text-sm text-zinc-300 mb-2">{pendingCheck.check_description}</p>
+                <p className="text-xs text-zinc-500">
+                  Difficulty: <span className="text-amber-400 font-bold text-sm">{pendingCheck.difficulty}</span>
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="flex gap-3">
+
+            {/* Score breakdown */}
+            <div className="mb-4 bg-zinc-950/60 border border-zinc-800 rounded px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs uppercase tracking-widest text-zinc-500">Base ({pendingCheck.pool})</span>
+                <span className="text-amber-400 font-bold font-mono">{totalBase}</span>
+              </div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs uppercase tracking-widest text-zinc-500">Die</span>
+                <span className="text-zinc-400 font-mono text-xs">+ 1d20</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-zinc-800 pt-2">
+                <span className="text-xs uppercase tracking-widest text-zinc-500">
+                  Sacrifice ({remainingPool} {pendingCheck.pool} left)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRemovePool}
+                    disabled={poolContributed <= 0}
+                    className="w-6 h-6 flex items-center justify-center border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors"
+                  >−</button>
+                  <span className="text-amber-400 font-mono text-sm w-8 text-center">
+                    {poolContributed > 0 ? `+${poolContributed}` : '0'}
+                  </span>
+                  <button
+                    onClick={handleAddPool}
+                    disabled={poolContributed >= pendingCheck.basePoolValue}
+                    className="w-6 h-6 flex items-center justify-center border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors"
+                  >+</button>
+                </div>
+              </div>
+            </div>
+
             <button
-              onClick={() => resolveCheck('spend')}
-              className="flex items-center gap-1.5 px-4 py-2 bg-amber-900/40 border border-amber-700/50 text-amber-300 text-xs uppercase tracking-widest hover:bg-amber-900/60 transition-colors rounded"
+              onClick={() => resolveCheck(autoSucceed)}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs uppercase tracking-widest font-bold transition-colors rounded ${
+                autoSucceed
+                  ? 'bg-amber-900/60 border border-amber-600/70 text-amber-300 hover:bg-amber-900/80'
+                  : 'bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+              }`}
             >
-              <Zap className="w-3 h-3" />
-              Spend {pendingCheck.difficulty} {pendingCheck.pool} — Guarantee Success
-            </button>
-            <button
-              onClick={() => resolveCheck('roll')}
-              className="flex items-center gap-1.5 px-4 py-2 bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs uppercase tracking-widest hover:bg-zinc-700 transition-colors rounded"
-            >
-              <Dice1 className="w-3 h-3" />
-              Roll the Dice
+              {autoSucceed ? <Zap className="w-3 h-3" /> : <Dice1 className="w-3 h-3" />}
+              {autoSucceed ? 'Succeed' : 'Roll'}
             </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Input Footer */}
       <footer className="p-4 bg-zinc-900/80 border-t border-zinc-800 backdrop-blur-xl shrink-0">

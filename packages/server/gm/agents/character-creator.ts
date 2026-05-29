@@ -11,9 +11,9 @@ Magic — Essence — has been absent for more than a thousand years. No one exp
 
 You will receive a series of questions and answers from a new player. Use those answers to understand WHO this character is:
 their name, where they come from, what they've done, how they speak, what they carry in their chest.
-Then place that specific person inside the following fixed story, which has already begun.
+Then place that specific person inside the following fixed story, which introduces them to the world and their first quest.
 
-## The Story That Has Already Happened
+## The Story That needs the character inserted
 
 Several weeks ago, while going about whatever ordinary thing they were doing, the character found an object.
 A small crystal disc — no larger than a palm — smooth on both faces, with a slender needle suspended inside beneath glass.
@@ -66,9 +66,9 @@ The story above is fixed — the waystone, the fire, Brin, the flight to Karkill
 
 Respond with only valid JSON — no markdown, no explanation:
 {
-  "background_primary": "<2-3 sentences: who this character was before any of this — their trade, home, the ordinary shape of their days, colored entirely by the Q&A answers>",
+  "background_primary": "<1-3 words which encapsulate who this character was and is>",
   "physical_description": "<2-3 vivid sentences of appearance — what a stranger sees first, distinguishing marks, the wear the road has put on them>",
-  "backstory": "<4-6 sentences weaving the Q&A identity into the full arc: ordinary life → found the disc → showed it and learned what it was → the trouble that followed → the fire and Brin → moving fast toward Karkill>",
+  "backstory": "<4-6 sentences weaving the Q&A identity into a full picture of who this person was before the events described took place. What they did, what they desired, what they thought.>",
   "story_hook": "<The full story told in rich atmospheric prose. 8-12 sentences minimum. Written in second person (you) or close third. Begin before the inn — the journey south, the company of strangers, small kindnesses. Then the fire. Then the aftermath. End on the road to Karkill in the grey morning light, the waystone in hand, its needle pointing east for the first time. Let the reader feel the exhaustion, the grief, the impossible weight of what points toward them. Do not resolve the tension. End in motion.>",
   "initial_quest": {
     "id": "follow_the_waystone",
@@ -79,8 +79,7 @@ Respond with only valid JSON — no markdown, no explanation:
 }
 
 Tone: melancholic, atmospheric, intimate. Ghibli, Steinbeck, Faulkner, Márquez. Humor and grief are bedfellows.
-The world is hard and there are small kindnesses that make it seem worth continuing. Do not write toward heroism.
-Write toward truth.`
+The world is hard and there are small kindnesses that make it seem worth continuing. Do not write toward heroism. Write toward truth. Insert lines of dialogue to ground what is happening occasionally, or draw attention to individual events or conditions.`
 
 export interface CharacterCreatorInput {
   questions: string[]
@@ -118,8 +117,9 @@ export async function runCharacterCreator(
   })
 
   const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
-  const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-  const result = JSON.parse(cleaned) as CharacterCreatorOutput
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error(`No JSON object found in character creator response. Raw: ${text.slice(0, 200)}`)
+  const result = JSON.parse(jsonMatch[0]) as CharacterCreatorOutput
   if (!result.story_hook) {
     // DB prompt is likely outdated — use backstory as fallback so the reveal doesn't stall
     synLog('CHARACTER-CREATOR', 'WARNING: story_hook missing from response, falling back to backstory')

@@ -69,6 +69,22 @@ export function DevToolsSection() {
             Prompt Builder
           </Button>
         </Link>
+        <Link href="/dev/logs">
+          <Button
+            variant="outline"
+            className="border-cyan-700/50 text-cyan-400 hover:bg-cyan-950/20 uppercase tracking-widest text-xs"
+          >
+            View Logs
+          </Button>
+        </Link>
+        <Link href="/dev/combat">
+          <Button
+            variant="outline"
+            className="border-destructive/50 text-destructive hover:bg-destructive/10 uppercase tracking-widest text-xs"
+          >
+            Combat Test
+          </Button>
+        </Link>
       </div>
     </div>
   )

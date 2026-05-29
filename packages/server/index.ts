@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
@@ -5,6 +7,8 @@ import { handleGMMessage, runScribe, getRecentTurns, setLedgerNeutered } from '.
 import { clearConversationHistory } from './services/conversation-service.js'
 import { summarizeHistory } from './gm/agents/summary.js'
 import { runCharacterCreator } from './gm/agents/character-creator.js'
+import { applyQuestStartGrants } from './services/quest-engine.js'
+import { initCombat, resolvePlayerAttack, resolvePlayerDefend, resolvePlayerEquip, endCombat } from './services/combat-engine.js'
 import { runEval } from './gm/services/claude-service.js'
 import { autoHydrate } from './gm/auto-hydrator.js'
 import { requireGmKey } from './middleware/auth.js'
@@ -61,6 +65,19 @@ app.post('/dev/neuter-ledger', requireGmKey, (req, res) => {
   }
   setLedgerNeutered(enabled)
   res.json({ ok: true, neutered: enabled })
+})
+
+// Dev-only: serve today's log file
+app.get('/dev/logs', requireGmKey, (_req, res) => {
+  const date = new Date().toISOString().slice(0, 10)
+  const logPath = path.join(process.cwd(), 'logs', `syngem-${date}.log`)
+  try {
+    const content = fs.readFileSync(logPath, 'utf-8')
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    res.send(content)
+  } catch {
+    res.status(404).json({ error: 'Log file not found' })
+  }
 })
 
 // Dev-only: set pipeline log level at runtime
@@ -330,6 +347,106 @@ app.delete('/gm/conversation/:characterId', async (req, res) => {
   } catch (err) {
     console.error('[DEV] clearConversationHistory error:', err instanceof Error ? err.message : String(err))
     res.status(500).json({ error: 'Failed to clear conversation history' })
+  }
+})
+
+// Quest start — fires start grants for the initial quest after character creation
+app.post('/gm/quest/start', requireGmKey, async (req, res) => {
+  const { characterId, questId } = req.body as { characterId?: string; questId?: string }
+  if (!characterId || !questId) {
+    res.status(400).json({ error: 'characterId and questId are required' })
+    return
+  }
+  try {
+    await applyQuestStartGrants(characterId, questId)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[QUEST-START] Error:', err instanceof Error ? err.message : String(err))
+    res.status(500).json({ error: 'Quest start grants failed' })
+  }
+})
+
+// ─── Combat routes ────────────────────────────────────────────────────────────
+
+app.post('/gm/combat/start', async (req, res) => {
+  const { gameId } = req.body as { gameId?: string }
+  if (!gameId) { res.status(400).json({ error: 'gameId is required' }); return }
+  try {
+    const result = await initCombat(gameId)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+app.post('/gm/combat/player-attack', async (req, res) => {
+  const { gameId, characterId, weaponInventoryId, attackType, targetCreatureId } = req.body as {
+    gameId?: string
+    characterId?: string
+    weaponInventoryId?: string
+    attackType?: string
+    targetCreatureId?: string
+  }
+  if (!gameId || !characterId || !weaponInventoryId || !attackType || !targetCreatureId) {
+    res.status(400).json({ error: 'gameId, characterId, weaponInventoryId, attackType, targetCreatureId required' })
+    return
+  }
+  try {
+    const result = await resolvePlayerAttack(gameId, characterId, {
+      weaponInventoryId,
+      attackType: attackType === 'strong' ? 'strong' : 'normal',
+      targetCreatureId,
+    })
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+app.post('/gm/combat/player-defend', async (req, res) => {
+  const { gameId, characterId, defendType } = req.body as {
+    gameId?: string
+    characterId?: string
+    defendType?: string
+  }
+  if (!gameId || !characterId || !defendType) {
+    res.status(400).json({ error: 'gameId, characterId, defendType required' })
+    return
+  }
+  try {
+    const result = await resolvePlayerDefend(gameId, characterId, defendType === 'strong' ? 'strong' : 'normal')
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+app.post('/gm/combat/player-equip', async (req, res) => {
+  const { gameId, characterId, inventoryId } = req.body as {
+    gameId?: string
+    characterId?: string
+    inventoryId?: string
+  }
+  if (!gameId || !characterId || !inventoryId) {
+    res.status(400).json({ error: 'gameId, characterId, inventoryId required' })
+    return
+  }
+  try {
+    const result = await resolvePlayerEquip(gameId, characterId, inventoryId)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+app.post('/gm/combat/end', async (req, res) => {
+  const { gameId } = req.body as { gameId?: string }
+  if (!gameId) { res.status(400).json({ error: 'gameId is required' }); return }
+  try {
+    const result = await endCombat(gameId)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
   }
 })
 

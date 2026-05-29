@@ -1,7 +1,7 @@
 <!-- markdownlint-disable-file -->
 # SYNGEM — Architecture Reference
 
-> Last meaningful update: 2026-05-29 — BYOK architecture: per-request Anthropic client, token tracking, budget enforcement
+> Last meaningful update: 2026-05-29 — Quest Engine: quest_templates table, Scribe-driven stage progression, idempotent grants, Brin companion NPC, auto-hydrator companion fetch, GM quest notes in Architect context
 
 ---
 
@@ -28,9 +28,11 @@ Player message (POST /gm)
   ├─ [2] auto-hydrator.autoHydrate()             // build ContextBlock
   │       ├ getFullCharacter()
   │       ├ getGameWithMembers() + getActiveEncounter()
-  │       ├ getNpcsForGame() → enrichAndFilterNpcs()
+  │       ├ getNpcsForGame() + getNpcsForCharacter() → merged, deduped
+  │       │   enrichAndFilterNpcs()
   │       │   ├ lazy routine placement (fire-and-forget DB update)
   │       │   └ filter to player's location + following NPCs → EnrichedNpc[]
+  │       ├ quest_templates.description_gm for active quests → activeQuestNotes[]
   │       ├ world_entities + player_entity_mutations (delta resolution)
   │       └ semantic pool text tags (Full/Moderate/Low/Critical)
   │
@@ -44,13 +46,14 @@ Player message (POST /gm)
   │
   ├─ [5] architect.streamArchitect()             // Sonnet, Temp 0.5, STREAMED
   │       Context assembled in order:
-  │         1. Style-modulator text
+  │         1. Style-modulator text (cached ephemeral)
   │         2. ContextBlock (character state + location entities + combat)
-  │         3. Scribe summary (characters.scribe_summary)
+  │         3. Scribe summary (syngem_game.summary)
   │         4. Quest objectives (characters.quest_objectives)
-  │         5. Lore-Engine result + check resolution
-  │         6. Last 4 conversation turns (from DB)
-  │         7. New player input
+  │         5. Active quest GM notes (quest_templates.description_gm) — GM only, never revealed
+  │         6. Lore-Engine result + check resolution
+  │         7. Last 4 conversation turns (from DB)
+  │         8. New player input
   │       → Chunks streamed as SSE to client
   │       → recordTokenUsage() via stream.finalMessage().usage (after stream closes)
   │
@@ -66,10 +69,18 @@ Player message (POST /gm)
   │               └ delete_entity → player_entity_mutations
   │
   └─ [async, every 4 turns] summary.runScribe()  // Haiku, Temp 0.5
-          ├ Task 1: compressed narrative → characters.scribe_summary
-          ├ Task 2: quest objectives → characters.quest_objectives
-          ├ Task 3: key entity IDs → characters.key_entity_ids
-          └ recordTokenUsage() (fire-and-forget)
+          ├ Fetches quest_templates.stages for active quests (stage hints)
+          ├ Section 1: compressed narrative → syngem_game.summary
+          ├ Section 2: quest_updates → characters.quest_objectives
+          │   ├ advances current_stage based on narrative + stage completion_hints
+          │   ├ preserves grants_applied (Quest Engine owns that field)
+          │   └ returns completed_quest_ids for handler
+          ├ Section 3: key entity IDs → characters.key_entity_ids
+          ├ recordTokenUsage() (fire-and-forget)
+          └ returns { completedQuestIds } to handler
+
+  └─ [async, post-Scribe] quest-engine.applyQuestCompletionGrants()
+          └ fires for each newly completed quest: +skill_points, +denarius, +items
 ```
 
 ---
@@ -112,16 +123,18 @@ The Architect then incorporates the outcome into its narrative.
 
 Deterministic function. Builds a `ContextBlock` from multiple parallel DB reads.
 
-**Fetches:**
+**Fetches (all in parallel):**
 - `getFullCharacter()` — character + inventory + skills + spells
-- `getGameWithMembers()` — game state
+- `getGameWithMembers()` — game state (multiplayer only; skipped for solo SYNGEM)
 - `getActiveEncounter()` — if `game.is_in_combat === true`
-- `getNpcsForGame()` — all NPCs for the game, then passed through `enrichAndFilterNpcs()`
+- `getNpcsForGame()` — game-scoped NPCs (multiplayer path; empty for solo SYNGEM)
+- `getNpcsForCharacter()` — companion NPCs (`following_character_id = characterId`); always fetched regardless of gameId. Deduped and merged with game NPCs before enrichment.
+- `quest_templates` — `description_gm` for each active quest → `activeQuestNotes[]`
 - `world_entities` — location entities matching character's current location hierarchy
 - `player_entity_mutations` — per-player overrides; mutations override base entity descriptions
 
 **NPC enrichment (`enrichAndFilterNpcs`):**
-For each NPC, the Auto-Hydrator computes a routine-based placement using `computeNpcRoutineLocation()` (reads `personality_profile.routine` + current `game_time_minutes` → time slot → location_id). If the NPC's computed location matches the player's location, it appears in context. If the NPC's DB `current_location_id` differs from the computed location, a fire-and-forget update is issued. NPCs with `following_character_id = characterId` appear regardless of location. The result is `EnrichedNpc[]` — NPCs stripped down to what the Architect needs: name, title, faction, disposition label, last encounter summary, current task, and following status.
+For each NPC, the Auto-Hydrator computes a routine-based placement using `computeNpcRoutineLocation()` (reads `personality_profile.routine` + current `game_time_minutes` → time slot → location_id). If the NPC's computed location matches the player's location, it appears in context. If the NPC's DB `current_location_id` differs from the computed location, a fire-and-forget update is issued. NPCs with `following_character_id = characterId` appear regardless of location (including companion NPCs with `game_id = null`). The result is `EnrichedNpc[]` — NPCs stripped down to what the Architect needs: name, title, faction, disposition label, last encounter summary, current task, and following status.
 
 **Produces semantic pool tags** (on top of raw numbers):
 | Ratio | Tag |
@@ -187,6 +200,8 @@ Sonnet. Streamed. **No tools.** Pure narrative generation.
 
 **Slug:** `architect1` — loaded via `loadArchitectPrompt()` in `services/prompt-service.ts`. Fetches the latest version of that slug (cached 60 s). Falls back to the style file from `style-modulator.ts` if no DB entry exists for `architect1`.
 
+**GM quest notes:** If `contextBlock.activeQuestNotes` is non-empty, the auto-hydrator has fetched `quest_templates.description_gm` for each active quest. These are injected as a system block labeled `=== ACTIVE QUEST CONTEXT (GM ONLY — do not reveal to player) ===`. This gives the Architect the full narrative scope of a quest (what the waystone actually points to, antagonist motivations, hidden truths) without those facts appearing in player-visible quest text.
+
 Returns an `AsyncGenerator<string>` of text chunks. The `handler.ts` yields each chunk to the Express route, which forwards them as SSE events:
 
 ```
@@ -239,10 +254,15 @@ Errors are logged and swallowed — a Ledger failure never crashes a player turn
 
 Haiku. Async. Triggered server-side every 4 player turns. **Slug:** `"scribe"` — loaded via `services/prompt-service.ts`. Falls back to `FALLBACK_SYSTEM` if no DB version found. (based on `conversation_turns.turn_number % 4 === 0`).
 
-**Outputs three things in a single JSON response:**
-1. `summary` → written to `characters.scribe_summary` — exponentially compressed narrative prose. Fed back to Architect as "Story So Far."
-2. `quest_objectives` → written to `characters.quest_objectives` — structured array of active/completed/failed objectives. Fed back to Architect. Note: also seeded at character creation with `initial_quest` from the Character Creator agent — the Scribe merges from that seed forward.
-3. `key_entity_ids` → written to `characters.key_entity_ids` — entity IDs the player interacted with, used by Auto-Hydrator to prioritize what to fetch.
+**Before calling the model**, the Scribe fetches `quest_templates.stages` for all active quests. These stage definitions (with `completion_hints`) are injected into the prompt so the model can accurately detect when a stage has been reached.
+
+**Outputs four things in a single JSON response (`quest_updates` replaces the old flat `quest_objectives`):**
+1. `summary` → written to `syngem_game.summary` — exponentially compressed narrative prose. Fed back to Architect as "Story So Far."
+2. `quest_updates.objectives` → written to `characters.quest_objectives` — updated array including `current_stage` advancement. The model preserves `grants_applied` (owned by the Quest Engine) and updates `description` (player-facing) and `current_stage` (internal stage tracker).
+3. `quest_updates.completed_quest_ids` → returned to `handler.ts` to trigger `applyQuestCompletionGrants()` for any newly completed quests.
+4. `key_entity_ids` → written to `characters.key_entity_ids` — entity IDs the player interacted with.
+
+**Return value:** `{ completedQuestIds: string[] }` — handler uses this to fire completion grants post-Scribe.
 
 Can be triggered manually via `POST /gm/scribe` with `{ characterId }`.
 
@@ -270,6 +290,7 @@ The handler fetches turns directly from DB — the client sends no conversation 
 | Method | Path | Handler | Notes |
 |--------|------|---------|-------|
 | `POST` | `/gm` | `handleGMMessage()` | Main pipeline. Returns SSE stream or `{type:'check_required'}` JSON |
+| `POST` | `/gm/quest/start` | `applyQuestStartGrants()` | Fires quest start grants (items + companion NPCs). Body: `{ characterId, questId }`. Called by frontend after character creation |
 | `POST` | `/gm/summarize` | `summarizeHistory()` | Legacy endpoint. Returns `{summary}` text only (no DB write) |
 | `POST` | `/gm/scribe` | `runScribe()` | Manual Scribe trigger. Writes summary + quest + entities to DB |
 | `POST` | `/eval` | Claude eval service | Single-shot, no tools — used by dev prompt tools |
@@ -484,7 +505,7 @@ NPCs out of the player's view cease to exist in the simulation until the player 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | text | snake_case slug |
-| `game_id` | uuid | FK → games |
+| `game_id` | uuid? | FK → games. **Nullable** — companion NPCs (e.g. Brin) have `game_id = null` and are linked solely via `following_character_id` |
 | `name` | text | |
 | `title` | text? | |
 | `faction` | text? | |
@@ -500,6 +521,68 @@ NPCs out of the player's view cease to exist in the simulation until the player 
 
 - **Task:** Ledger emits `update_npc` with `current_task`. The Architect narrates progress when the player asks; no real simulation occurs.
 - **Following:** Ledger emits `update_npc` with `following_character_id = characterId`. Auto-Hydrator includes the NPC in every subsequent turn until cleared.
+
+---
+
+## Quest Engine (`services/quest-engine.ts`)
+
+The Quest Engine handles mechanical grants triggered by quest events. It runs outside the main pipeline — never blocking a player turn.
+
+### Quest templates (`quest_templates` table)
+
+Each quest is defined as a DB row:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `id` | text | Slug, e.g. `follow_the_waystone` |
+| `title` | text | Display name |
+| `description_gm` | text | Full GM backstory — injected into Architect context, never shown to player |
+| `stages` | jsonb | Array of `{id, title, description, completion_hints[]}` — used by Scribe to detect progression |
+| `start_grants` | jsonb | `{items: [{item_id, quantity, condition}], npcs: [{name, title, ...}]}` |
+| `completion_grants` | jsonb | `{skill_points, denarius, items: [...]}` |
+
+### `characters.quest_objectives` extended schema
+
+The Scribe writes — and the Quest Engine reads — an extended objective shape:
+
+```typescript
+{
+  id: string            // quest template slug
+  title: string
+  status: "active" | "completed" | "failed"
+  description: string   // player-facing, updated each Scribe run
+  current_stage?: string  // current stage id — advanced by Scribe
+  grants_applied?: string[] // ["start", "completion"] — owned by Quest Engine, Scribe never modifies
+}
+```
+
+### Grant lifecycle
+
+```
+syngem-intro.tsx  →  POST /api/gm/quest/start  →  applyQuestStartGrants()
+                       ├ fetch quest_templates.start_grants
+                       ├ insert items into character_inventory
+                       ├ insert NPC with game_id=null, following_character_id=characterId
+                       └ mark grants_applied: ["start"] in quest_objectives
+
+handler.ts (post-Scribe)  →  applyQuestCompletionGrants()
+                              ├ fetch quest_templates.completion_grants
+                              ├ insert bonus items into character_inventory
+                              ├ increment characters.unused_skill_points
+                              ├ increment characters.denarius
+                              └ mark grants_applied: ["start", "completion"]
+```
+
+Both functions are **idempotent** — they check `grants_applied` before acting. Safe to call multiple times.
+
+### The Waystone Quest (`follow_the_waystone`)
+
+The first and currently only quest. Seeded by migration `20260529200000_add_quest_engine.sql`.
+
+- **Start grants:** The Waystone item, a worn backpack, travel rations ×3, oilskin tarp, Brin NPC (companion)
+- **Stages:** `arrive_in_karkill` → `night_in_town` → `meet_the_greycoats` → `follow_the_needle` → `the_clock_chamber` → `the_battle` → `completed`
+- **Completion grants:** 3 skill points, 50 denarius (combat items TBD when combat is implemented)
+- **`the_battle` stage:** Placeholder — completion_hints defined but no combat system yet
 
 ---
 
@@ -576,7 +659,8 @@ packages/server/
 │   ├── conversation-service.ts       # saveTurn / getRecentTurns / getTurnCount
 │   ├── game-service.ts               # getGameWithMembers / getActiveEncounter
 │   ├── prompt-service.ts             # loadSystemPrompt (cached) / invalidatePromptCache
-│   └── world-service.ts              # searchWorldEntities / searchLoreInHierarchy / getNpcsForGame
+│   ├── world-service.ts              # searchWorldEntities / searchLoreInHierarchy / getNpcsForGame / getNpcsForCharacter
+│   └── quest-engine.ts               # applyQuestStartGrants / applyQuestCompletionGrants (idempotent, DB-backed)
 ├── middleware/
 │   └── auth.ts                       # requireGmKey() Bearer token check
 └── admin/

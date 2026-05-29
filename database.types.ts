@@ -987,12 +987,13 @@ export type Database = {
           disposition_to_players: number | null
           faction: string | null
           following_character_id: string | null
-          game_id: string
+          game_id: string | null
           id: string
           is_alive: boolean | null
           last_seen_tick: number | null
           name: string
           personality_profile: Json
+          small_summary: string | null
           title: string | null
         }
         Insert: {
@@ -1001,12 +1002,13 @@ export type Database = {
           disposition_to_players?: number | null
           faction?: string | null
           following_character_id?: string | null
-          game_id: string
+          game_id?: string | null
           id?: string
           is_alive?: boolean | null
           last_seen_tick?: number | null
           name: string
           personality_profile?: Json
+          small_summary?: string | null
           title?: string | null
         }
         Update: {
@@ -1015,12 +1017,13 @@ export type Database = {
           disposition_to_players?: number | null
           faction?: string | null
           following_character_id?: string | null
-          game_id?: string
+          game_id?: string | null
           id?: string
           is_alive?: boolean | null
           last_seen_tick?: number | null
           name?: string
           personality_profile?: Json
+          small_summary?: string | null
           title?: string | null
         }
         Relationships: [
@@ -1097,6 +1100,7 @@ export type Database = {
           full_name: string | null
           id: string
           is_dev: boolean | null
+          token_budget: number | null
           updated_at: string | null
           username: string | null
         }
@@ -1105,6 +1109,7 @@ export type Database = {
           full_name?: string | null
           id: string
           is_dev?: boolean | null
+          token_budget?: number | null
           updated_at?: string | null
           username?: string | null
         }
@@ -1113,8 +1118,36 @@ export type Database = {
           full_name?: string | null
           id?: string
           is_dev?: boolean | null
+          token_budget?: number | null
           updated_at?: string | null
           username?: string | null
+        }
+        Relationships: []
+      }
+      quest_templates: {
+        Row: {
+          completion_grants: Json
+          description_gm: string
+          id: string
+          stages: Json
+          start_grants: Json
+          title: string
+        }
+        Insert: {
+          completion_grants?: Json
+          description_gm: string
+          id: string
+          stages?: Json
+          start_grants?: Json
+          title: string
+        }
+        Update: {
+          completion_grants?: Json
+          description_gm?: string
+          id?: string
+          stages?: Json
+          start_grants?: Json
+          title?: string
         }
         Relationships: []
       }
@@ -1588,6 +1621,47 @@ export type Database = {
             foreignKeyName: "syngem_game_character_id_fkey"
             columns: ["character_id"]
             isOneToOne: true
+            referencedRelation: "characters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      token_usage: {
+        Row: {
+          id: string
+          user_id: string
+          character_id: string | null
+          agent: string
+          model: string
+          input_tokens: number
+          output_tokens: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          character_id?: string | null
+          agent: string
+          model: string
+          input_tokens: number
+          output_tokens: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          character_id?: string | null
+          agent?: string
+          model?: string
+          input_tokens?: number
+          output_tokens?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "token_usage_character_id_fkey"
+            columns: ["character_id"]
+            isOneToOne: false
             referencedRelation: "characters"
             referencedColumns: ["id"]
           },

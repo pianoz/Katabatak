@@ -1,5 +1,5 @@
 import supabase from './tools/db.js'
-import { updateCharacter } from '../services/character-service.js'
+import { updateCharacter, getCharacter } from '../services/character-service.js'
 import { updateNpcMutations } from '../services/world-service.js'
 import { synLog, synLogVerbose } from './logger.js'
 import type { Database, Json } from '@db-types'
@@ -72,6 +72,47 @@ async function deleteEntity(
   )
 }
 
+async function applyLongRest(characterId: string): Promise<void> {
+  const char = await getCharacter(characterId)
+  if (!char) return
+
+  const { data: skillRows } = await supabase
+    .from('character_skills')
+    .select('current_rank, skills!inner(effects)')
+    .eq('character_id', characterId)
+
+  const restMods: Record<string, { add: number; multiply: number }> = {}
+  for (const row of skillRows ?? []) {
+    const rank = (row as { current_rank: number | null }).current_rank ?? 1
+    const effects = ((row as { skills: { effects: unknown } }).skills.effects) as Array<{
+      type: string; target: string; math: string; Value: number
+      per_rank_add: number | null; per_rank_multiply: number | null
+    }>
+    if (!Array.isArray(effects)) continue
+    for (const e of effects) {
+      if (e.type !== 'rest_modifier') continue
+      if (!restMods[e.target]) restMods[e.target] = { add: 0, multiply: 1 }
+      const mod = restMods[e.target]
+      if (e.math === 'add') {
+        mod.add += e.Value + (e.per_rank_add ?? 0) * (rank - 1)
+      } else {
+        mod.multiply *= e.Value + (e.per_rank_multiply ?? 0) * (rank - 1)
+      }
+    }
+  }
+
+  const BASE_REST = 7
+  const calc = (current: number, max: number, pool: string) =>
+    Math.min(max, (current + BASE_REST + (restMods[pool]?.add ?? 0)) * (restMods[pool]?.multiply ?? 1))
+
+  await updateCharacter(characterId, {
+    current_health:  calc(char.current_health  ?? 0, char.health_max  ?? 0, 'health'),
+    current_essence: calc(char.current_essence ?? 0, char.essence_max ?? 0, 'essence'),
+    current_power:   calc(char.current_power   ?? 0, char.power_max   ?? 0, 'power'),
+    current_will:    calc(char.current_will    ?? 0, char.will_max    ?? 0, 'will'),
+  })
+}
+
 /**
  * Applies a batch of Ledger-produced world-state changes to the database.
  * Errors on individual actions are caught and logged; execution continues for remaining actions.
@@ -103,6 +144,10 @@ export async function executeStateChanges(
         case 'update_npc':
           synLog('STATE-EXECUTOR', `→ update_npc | id:${output.npc_id} fields:[${Object.keys(output.mutations).join(',')}]`)
           await updateNpcMutations(output.npc_id, output.mutations)
+          break
+        case 'long_rest':
+          synLog('STATE-EXECUTOR', '→ long_rest')
+          await applyLongRest(characterId)
           break
       }
     } catch (err) {

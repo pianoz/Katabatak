@@ -29,7 +29,6 @@ export function CharacterCreation({ userId, inviteMemberId, startingLevel }: Cha
     carrying_capacity: "32",
     denarius: "0",
     background_primary: "",
-    background_secondary: "",
     physical_description: "",
     backstory: ""
   })
@@ -112,7 +111,6 @@ export function CharacterCreation({ userId, inviteMemberId, startingLevel }: Cha
       carrying_capacity: formData.carrying_capacity ? parseInt(formData.carrying_capacity) : 0,
       denarius: formData.denarius ? parseInt(formData.denarius) : 5,
       background_primary: formData.background_primary || null,
-      background_secondary: formData.background_secondary || null,
       physical_description: formData.physical_description || null,
       backstory: formData.backstory || null,
       is_active: true,

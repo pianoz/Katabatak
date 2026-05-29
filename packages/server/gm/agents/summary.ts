@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { Json } from '@db-types'
 import supabase from '../tools/db.js'
 import { getSyngemGame, updateSyngemSummary } from '../../services/syngem-game-service.js'
 import type { ConversationTurn } from '../types.js'
@@ -7,14 +8,17 @@ import { synLog } from '../logger.js'
 import { createClaudeClient } from '../claude-client.js'
 import { recordTokenUsage } from '../record-token-usage.js'
 
-const FALLBACK_SYSTEM = `You are the Scribe, historian of the Katabatak RPG campaign. Given a conversation history between a player and the GM, you produce three outputs in a single JSON response.
+const FALLBACK_SYSTEM = `You are the Scribe, historian of the Katabatak RPG campaign. Given a conversation history between a player and the GM, you produce four outputs in a single JSON response.
 
 Respond with only a JSON object — no markdown, no explanation:
 {
   "summary": "<compressed narrative prose, past tense>",
-  "quest_objectives": [
-    {"id": "<slug>", "title": "<short title>", "status": "active|completed|failed", "description": "<one sentence>"}
-  ],
+  "quest_updates": {
+    "objectives": [
+      {"id": "<slug>", "title": "<short title>", "status": "active|completed|failed", "description": "<one sentence, player-facing>", "current_stage": "<stage_id or null>", "grants_applied": ["start"]}
+    ],
+    "completed_quest_ids": ["<slug>", ...]
+  },
   "key_entity_ids": ["<world_entity_id>", ...]
 }
 
@@ -26,31 +30,50 @@ Rules for summary:
 - Never include meta-game details (dice rolls, difficulty numbers). Describe outcomes only.
 - If a prior summary is provided, merge it with the new events into one unified record.
 
-Rules for quest_objectives:
-- Extract or update any active, completed, or failed quests visible in the conversation.
-- Use consistent IDs (snake_case slugs). Keep prior objectives unless clearly resolved.
+Rules for quest_updates.objectives:
+- Return the full updated array of quest objectives.
+- Advance current_stage to the next stage ID when the narrative clearly shows that stage has been reached.
+- Keep the same grants_applied array from the prior objectives — never modify it (the Quest Engine owns that field).
+- Update description to a fresh one-sentence player-facing summary of where the quest stands now.
+- Mark status "completed" or "failed" only when the narrative makes it unambiguous.
+
+Rules for quest_updates.completed_quest_ids:
+- List the IDs of any quests newly marked completed in this pass (not ones already completed before).
 
 Rules for key_entity_ids:
 - List the WorldEntity IDs (format: "loc_karkill_flounder_inn") of locations, NPCs, or items the player directly interacted with in this batch.
 - Only include entities that were named or described — not vague references.`
 
+export interface QuestObjectiveScribe {
+  id: string
+  title: string
+  status: string
+  description: string
+  current_stage?: string | null
+  grants_applied?: string[]
+}
+
 /** Structured output produced by the Scribe agent. */
-interface ScribeOutput {
+export interface ScribeOutput {
   summary: string
-  quest_objectives: Array<{ id: string; title: string; status: string; description: string }>
+  quest_updates: {
+    objectives: QuestObjectiveScribe[]
+    completed_quest_ids: string[]
+  }
   key_entity_ids: string[]
 }
 
 /**
  * Compresses recent conversation turns into a narrative summary, quest objectives, and key entity IDs.
  * Merges with the existing summary on the syngem_game row; silently returns on parse failure.
+ * Returns IDs of any quests newly marked completed so the handler can fire completion grants.
  */
 export async function runScribe(
   characterId: string,
   history: ConversationTurn[],
   passedClient?: Anthropic,
   userId?: string,
-): Promise<void> {
+): Promise<{ completedQuestIds: string[] }> {
   const client = passedClient ?? createClaudeClient()
   synLog('SCRIBE', `→ running | char:${characterId} turns:${history.length}`)
 
@@ -60,12 +83,25 @@ export async function runScribe(
   ])
 
   const existingSummary = syngemGame?.summary ?? null
-  synLog('SCRIBE', `  prior summary:${existingSummary ? 'yes' : 'none'} | prior objectives:${((character?.quest_objectives as unknown[]) ?? []).length}`)
-  const existingObjectives = (character?.quest_objectives as ScribeOutput['quest_objectives'] | null) ?? []
+  const existingObjectives = (character?.quest_objectives as ScribeOutput['quest_updates']['objectives'] | null) ?? []
+  synLog('SCRIBE', `  prior summary:${existingSummary ? 'yes' : 'none'} | prior objectives:${existingObjectives.length}`)
+
+  // Fetch quest template stage hints for active quests so the Scribe can advance stages accurately
+  const activeQuestIds = existingObjectives.filter((q) => q.status === 'active').map((q) => q.id)
+  let stageHints = ''
+  if (activeQuestIds.length) {
+    const { data: templates } = await supabase
+      .from('quest_templates')
+      .select('id, stages')
+      .in('id', activeQuestIds)
+    if (templates?.length) {
+      stageHints = `\nQUEST STAGE REFERENCE:\n${templates.map((t) => `Quest "${t.id}" stages: ${JSON.stringify(t.stages)}`).join('\n')}\n`
+    }
+  }
 
   const priorBlock = existingSummary
-    ? `PRIOR SUMMARY:\n${existingSummary}\n\nPRIOR OBJECTIVES:\n${JSON.stringify(existingObjectives, null, 2)}\n\nNEW TURNS TO INCORPORATE:\n`
-    : `TURNS TO SUMMARIZE:\n`
+    ? `PRIOR SUMMARY:\n${existingSummary}\n\nPRIOR OBJECTIVES:\n${JSON.stringify(existingObjectives, null, 2)}${stageHints}\nNEW TURNS TO INCORPORATE:\n`
+    : `${stageHints}TURNS TO SUMMARIZE:\n`
 
   const turns = history
     .map((t) => `[${t.role === 'player' ? 'PLAYER' : 'GM'}]: ${t.content}`)
@@ -100,20 +136,24 @@ export async function runScribe(
   } catch {
     synLog('SCRIBE', `⚠ JSON parse failed | raw:"${text.slice(0, 80)}"`)
     console.error('[Scribe] Failed to parse JSON output:', text)
-    return
+    return { completedQuestIds: [] }
   }
+
+  const updatedObjectives = parsed.quest_updates?.objectives ?? []
+  const completedQuestIds = parsed.quest_updates?.completed_quest_ids ?? []
 
   await Promise.all([
     updateSyngemSummary(characterId, parsed.summary),
     supabase
       .from('characters')
       .update({
-        quest_objectives: parsed.quest_objectives,
+        quest_objectives: updatedObjectives as unknown as Json,
         key_entity_ids: parsed.key_entity_ids,
       })
       .eq('id', characterId),
   ])
-  synLog('SCRIBE', `✓ complete | summary:${parsed.summary.length}chars objectives:${parsed.quest_objectives.length} entities:${parsed.key_entity_ids.length}`)
+  synLog('SCRIBE', `✓ complete | summary:${parsed.summary.length}chars objectives:${updatedObjectives.length} completed:${completedQuestIds.length} entities:${parsed.key_entity_ids.length}`)
+  return { completedQuestIds }
 }
 
 /** Legacy export — kept for the /gm/summarize endpoint if still needed. */

@@ -1,8 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { loadSystemPrompt } from '../../services/prompt-service.js'
+import { synLog } from '../logger.js'
 
 const client = new Anthropic()
 
-const SYSTEM = `You are the Chronicle Weaver for SYNGEM, the AI-powered light fantasy RPG.
+const FALLBACK_SYSTEM = `You are the Chronicle Weaver for SYNGEM, the AI-powered light fantasy RPG.
 The world is Kataba. It is a quiet world. Ruins of greater ages and greater people are common.
 Beneath his shattered visage, half sunk, the rest of the world goes on. Sheep graze under the overgrown marble lintel
 The shepherd built his house in the ruins of a tower. For this place is a place of sun. It is a world
@@ -12,6 +14,9 @@ Silent things drip down the eaves of a temple long-abandoned. They coalese into 
 They come to see a world they have lost -- a world they might regain.
 
 Or at least, that is what some say.
+
+The cities are thus:
+
 
 {
   "background_primary": "<primary background — 2-3 sentences of origin and circumstance>",
@@ -40,6 +45,10 @@ export interface CharacterCreatorOutput {
 export async function runCharacterCreator(
   input: CharacterCreatorInput
 ): Promise<CharacterCreatorOutput> {
+  const loadedPrompt = await loadSystemPrompt('character-builder')
+  const system = loadedPrompt ?? FALLBACK_SYSTEM
+  synLog('CHARACTER-CREATOR', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'}`)
+
   const qa = input.questions
     .map((q, i) => `Q: ${q}\nA: ${input.answers[i] ?? '(no answer)'}`)
     .join('\n\n')
@@ -48,7 +57,7 @@ export async function runCharacterCreator(
     model: 'claude-sonnet-4-6',
     max_tokens: 1200,
     temperature: 0.9,
-    system: SYSTEM,
+    system,
     messages: [{ role: 'user', content: qa }],
   })
 

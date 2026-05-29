@@ -11,30 +11,56 @@ import { Loader2 } from "lucide-react"
 // ─── Content ──────────────────────────────────────────────────────────────────
 
 const INTRO_TEXT =
-  `You were a child when you first heard the story. It was a singer of songs who came through. He was telling all the children.
+  `
+  There was a place in the woods near your house as a child.
+
+  Four stone columns of ancient design.
+
+  Names inscribed in a language long forgotten.
+
+  Half-buried rubble strewn about.
+
+  You would play there when you were younger. You would pretend to be one of those people from the stories.
+
+  "Gather round," the bard would say, eyes shining in the evening dark. "and let me tell you of the Days of Rain."
+
+  You still remember the sound of his voice, the whispers, the lute as clanging steel, swords on swords on swords. Steel singing, men reaching for men, and above it all a violet sun and the hum of something other, something gone.
+
+  Magic.
+
+  The essence of the world.
+
+  And then you would all hurry home.
+
+  But that place in the forest was where the stories became real, if only for a while. It was what drew you back You were Aladar the Brave or Maredea the Wise. You and your friends would gather there and play pretend among the squirrels and the trees -- the ruined columns and the dead-eyed statues lying just under the earth.
+  Unseeing eyes.
+
+  But those are all stories, and we left them behind with the cloak of childhood.
+
+  These are the Days of Sun, and do not think of the Days of Rain. We are a people of reason, and we live beyond the long horizon of legend.
+  There are no dragons in the east. There are no barrow-kings beneath our halls. Look at the birds they come in the spring and nest.
+  The wheat comes up gold in the summer. There, the miller's daughter can tell you. She is wheat herself. The people come up gold every year.
+  Birds roost, the snow falls, the insects sing their night song, and we all rest easy because there are no Days of Rain. There are no pale things, sneaking from the wide dark.
+  There are no shadows dripping from the eaves of long-forgotten temples, columns, left to rot in the fields where children play, coalescing into something reaching and curious.
   
-  You remember it particularly because of the way he looked. A face like someone grabbed the sides and pulled downward.
-  His eyes had a pleading quality, like an old dog. You sat with rapt attention for a whole hour. It went like nothing.
-  Then it was dark and you had to run home through the reeds.
+  There is no such thing as Essence.
+  
+  There is no such thing as magic.
 
-  The second time you were older, and there were travelers coming through. You always liked travelers.
-  They spoke of the old places, the in-between places. The nowhere places in the far wilderness. You asked them what they sought 
-  out there in the distances. They answered with a story.
-
-  They answered that these were the days of Sun, and that the days of Rain would come again. They told you that already the old things in the high places and 
-  the low places and the emptyness were stirring. But travelers always told tall tales.
-
-  But now the story comes to you again, and it says that the sun does not shine forever. It says that these things are temporary things and this too shall pass.
-  And this time you find it harder to ignore.
-
+  Or at least, that is what they say...
   `
 
 const QUESTIONS = [
   "What name were you given?",
-  "Were you raised in the city? or perhaps a town? was it the country or even a homestead?",
-  "Describe your own appearance",
+  "There are cities, towns, villages and homesteads. Which are you from?",
+  "You had a frightening experience as a child. What was it?",
+  "What have you done for work?",
+  "A bird turns, lonely in the thermals. What is he searching for and why is he alone?",
+  "What skills do you have?",
   "You've had a dream, and in this dream there was a painting, and in this painting was a man. Describe the man.",
-  "What are you running from?",
+  "What did your father do?",
+  "Humans are the thickened desire of the world, the monks say. What is yours?",
+  "What caused you to leave your previous life?"
 ]
 
 // ─── Typewriter hook ──────────────────────────────────────────────────────────

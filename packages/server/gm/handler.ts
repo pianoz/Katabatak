@@ -5,7 +5,7 @@ import { streamArchitect } from './agents/architect.js'
 import { runLedger } from './agents/ledger.js'
 import { executeStateChanges } from './state-executor.js'
 import { runScribe } from './agents/summary.js'
-import { searchWorldEntities, searchLoreInHierarchy } from '../services/world-service.js'
+import { searchWorldEntities, gatherInfoLore } from '../services/world-service.js'
 import {
   saveTurn,
   getRecentTurns,
@@ -77,18 +77,16 @@ export async function* handleGMMessage({
     return
   }
 
-  // 6. Execute world entity searches if Lore-Engine found info queries
+  // 6. Gather lore context for info actions, or run flat search for task/attack
   const locationId = (contextBlock.character.character as Record<string, unknown>)['location_place'] as string | null ?? null
   let searchResults: string | null = null
-  if (loreResult.action_type === 'info' && loreResult.search_objects?.length && locationId) {
-    const targets = loreResult.search_objects.map((s) => s.target).join(', ')
-    synLog('HANDLER', `→ lore search | targets: ${targets}`)
-    const results = await Promise.all(
-      loreResult.search_objects.map((s) => searchLoreInHierarchy(s.target, locationId)),
-    )
-    const found = results.filter((r) => r !== 'What the player asked about is unknown').length
-    synLog('HANDLER', `✓ lore search — ${found}/${results.length} found`)
-    searchResults = results.join('\n\n')
+  if (loreResult.action_type === 'info' && locationId) {
+    const keywords = (loreResult.search_objects ?? [])
+      .map((s) => (typeof s === 'string' ? s : s.target))
+      .filter((k): k is string => typeof k === 'string' && k.length > 0)
+    synLog('HANDLER', `→ lore gather | location:${locationId} keywords:[${keywords.join(', ')}]`)
+    searchResults = await gatherInfoLore(locationId, keywords)
+    synLog('HANDLER', `✓ lore gather — ${searchResults.length} chars`)
   } else if (loreResult.search_objects?.length) {
     const targets = loreResult.search_objects.map((s) => s.target).join(', ')
     synLog('HANDLER', `→ world search | targets: ${targets}`)

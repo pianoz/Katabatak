@@ -23,14 +23,9 @@ function formatEntity(e: { name: string; data: unknown }): string {
   return `${e.name}: ${desc}`
 }
 
-/**
- * Two-phase keyword search for 'info' actions.
- * Phase 1: global entities (parent_id IS NULL) → first match.
- * Phase 2: hierarchical search from player's location up to nation → up to 3 matches.
- * Returns formatted long_description blocks or a fallback string.
- */
-export async function searchLoreInHierarchy(keyword: string, locationId: string): Promise<string> {
-  // Phase 1: global entities (no parent) — run in parallel with phase 2 level 1
+/** Searches a single keyword in global entities and the location hierarchy. */
+async function searchKeyword(keyword: string, locationId: string): Promise<string | null> {
+  if (!keyword?.trim()) return null
   const [globalRes, level1Res] = await Promise.all([
     supabase
       .from('world_entities')
@@ -41,7 +36,7 @@ export async function searchLoreInHierarchy(keyword: string, locationId: string)
     supabase
       .from('world_entities')
       .select('name, data')
-      .or(`parent_id.eq.${locationId},id.eq.${locationId}`)
+      .eq('parent_id', locationId)
       .textSearch('search_vector', keyword, { type: 'websearch' }),
   ])
 
@@ -52,7 +47,6 @@ export async function searchLoreInHierarchy(keyword: string, locationId: string)
   if (level1Res.data?.length) {
     localResult = pickRandom(level1Res.data, 3).map(formatEntity).join('\n\n')
   } else {
-    // Fetch region (parent of location)
     const { data: locationRow } = await supabase
       .from('world_entities')
       .select('parent_id')
@@ -70,7 +64,6 @@ export async function searchLoreInHierarchy(keyword: string, locationId: string)
       if (level2?.length) {
         localResult = pickRandom(level2, 3).map(formatEntity).join('\n\n')
       } else {
-        // Fetch nation (parent of region)
         const { data: regionRow } = await supabase
           .from('world_entities')
           .select('parent_id')
@@ -93,8 +86,25 @@ export async function searchLoreInHierarchy(keyword: string, locationId: string)
     }
   }
 
-  if (!globalResult && !localResult) return 'What the player asked about is unknown'
-  return [globalResult, localResult].filter(Boolean).join('\n\n')
+  const combined = [globalResult, localResult].filter(Boolean)
+  return combined.length ? combined.join('\n\n') : null
+}
+
+/**
+ * Gathers lore context for 'info' actions.
+ * Always fetches the location entity directly by ID (no text search — immune to key-format issues).
+ * Optionally searches for additional human-readable keywords within the location hierarchy.
+ */
+export async function gatherInfoLore(locationId: string, keywords: string[]): Promise<string> {
+  const [locationRes, ...keywordResults] = await Promise.all([
+    supabase.from('world_entities').select('name, data').eq('id', locationId).single(),
+    ...keywords.map((kw) => searchKeyword(kw, locationId)),
+  ])
+
+  const locationResult = locationRes.data ? formatEntity(locationRes.data) : null
+  const parts = [locationResult, ...keywordResults].filter(Boolean)
+
+  return parts.length ? parts.join('\n\n') : 'What the player asked about is unknown'
 }
 
 /** Full-text search across world entities. Optionally narrow by entity type. */

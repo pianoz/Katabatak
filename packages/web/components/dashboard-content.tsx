@@ -9,6 +9,7 @@ import { LogOut, Plus, Sparkles, Swords, Users } from "lucide-react"
 import { DevToolsSection } from "@/features/devtools/components/devtools-section"
 import { createClient } from "@/lib/supabase/client"
 import { archiveGame, deleteGame } from "@/lib/services/game-service"
+import { deleteCharacter } from "@/lib/services/character-service"
 import { Switch } from "@/components/ui/switch"
 import { SettingsModal } from "@/components/settings-modal"
 import { InviteNotification, GameInvite } from "@/components/invite-notification"
@@ -503,6 +504,23 @@ function GamesList({ games, userId }: { games: Game[], userId: string }) {
 // ─── Characters List ──────────────────────────────────────────────────────────
 
 function CharactersList({ characters }: { characters: Character[] }) {
+  const router = useRouter()
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDelete = async (characterId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDeleting(true)
+    const { error } = await deleteCharacter(createClient(), characterId)
+    setDeleting(false)
+    if (error) {
+      console.error("Delete failed:", error.message)
+      return
+    }
+    setConfirmingId(null)
+    router.refresh()
+  }
+
   return (
     <section>
       <div className="flex items-center justify-between mb-6">
@@ -532,10 +550,10 @@ function CharactersList({ characters }: { characters: Character[] }) {
           </div>
         ) : (
           characters.map((character) => (
-            <Link
+            <div
               key={character.id}
-              href={`/characters/${character.id}`}
-              className="block border border-border bg-card p-4 hover:border-foreground/30 transition-colors group"
+              onClick={() => router.push(`/characters/${character.id}`)}
+              className="border border-border bg-card p-4 hover:border-foreground/30 transition-colors group cursor-pointer"
             >
               <div className="flex items-start justify-between">
                 <div>
@@ -543,8 +561,37 @@ function CharactersList({ characters }: { characters: Character[] }) {
                     {character.name}
                   </h3>
                 </div>
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                  {confirmingId === character.id ? (
+                    <>
+                      <span className="font-sans text-[0.62rem] tracking-widest uppercase text-destructive">
+                        Delete forever?
+                      </span>
+                      <button
+                        onClick={(e) => handleDelete(character.id, e)}
+                        disabled={deleting}
+                        className="font-sans text-[0.65rem] tracking-widest uppercase bg-transparent border border-destructive text-destructive px-3 py-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        {deleting ? "…" : "Delete"}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmingId(null) }}
+                        className="font-sans text-[0.65rem] tracking-widest uppercase bg-transparent border border-border text-muted-foreground px-3 py-1.5 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmingId(character.id) }}
+                      className="font-sans text-[0.65rem] tracking-widest uppercase bg-transparent border border-destructive/40 text-destructive/70 px-3 py-1.5 cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
-            </Link>
+            </div>
           ))
         )}
       </div>

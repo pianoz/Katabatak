@@ -25,7 +25,7 @@ Schema:
   "difficulty": number (0–50, only if requires_check),
   "pool": "Power" | "Essence" | "Will" (only if requires_check),
   "check_description": string (brief label, only if requires_check),
-  "search_objects": ["{"target 1": string, "target 2": string, "target 3": string...}"] All targets of the search should be listed. No other information for context is required.
+  "search_objects": [{"action": string, "target": string, "container": string}] Only for 'info' when the player is asking about something OTHER than their current location. Targets must be plain human-readable keywords (e.g. "monks", "inscription on the wall", "old lighthouse") — never entity IDs or key strings.
   "narrative_notes": string (optional hint for the Architect, e.g. "player is attempting stealth")
 }
 
@@ -33,9 +33,10 @@ Rules:
 - action_type "info": player is asking about the world, seeking information, or exploring passively.
 - action_type "task": player is attempting something physical, social, or magical that could fail.
 - action_type "attack": player is initiating direct combat against a target.
-- EXAMPLES: Player:"Tell me more about this location." This is an 'info' action_type. search_object is the player's current_location.
-  player:"what else do I see?" this is an 'info' task, and the search object is also the player's current location.
-  Player: "I try to read the inscriptions on the wall". This is an 'info' action because the player is seeking more information. this search_object is 'wall' Assume a filtered text search is taking place elsewhere. All we need is a relevant keyword of the target.
+- IMPORTANT: The player's current location is always surfaced automatically by the system — do NOT include it in search_objects. Omit search_objects entirely for "where am I", "what do I see", or "tell me about this place" queries.
+- EXAMPLES: Player:"Tell me more about this location." This is an 'info' action_type. No search_objects — the system handles location automatically.
+  player:"what else do I see?" This is 'info', no search_objects needed.
+  Player: "I try to read the inscriptions on the wall". This is an 'info' action because the player is seeking more information. search_object target is 'wall inscription'. Assume a filtered text search is taking place elsewhere. All we need is a relevant human-readable keyword.
   Player: "I try to sneak past the guard." This is a 'task' action_type, and would require will. If the guard is asleep it might be a will of 5. If the guard was awake it might be a will of 20. If the player's current will is less than the challenge, it becomes a check
   Player: "I strike the inkeeper with the pommel of my sword" this is an 'attack' action.
   Player: "Give me more about that," This could be an info or a task action depending on previous context. if the player is in a tavern with a drink, this could be a task. If the player is getting information, it could be 'info'

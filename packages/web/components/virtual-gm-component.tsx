@@ -378,7 +378,7 @@ export default function ChatGMComponent({
       {/* Message Area */}
       <div className="relative flex-1 overflow-hidden">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-linear-to-b from-zinc-950 via-zinc-950/70 to-transparent z-10" />
-        <main ref={scrollRef} className="h-full overflow-y-auto p-6 space-y-8 scroll-smooth">
+        <main ref={scrollRef} className="h-full overflow-y-auto p-6 space-y-8 scroll-smooth [scrollbar-width:thin] [scrollbar-color:#52525b_transparent] [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-600/50">
           {messages.map((msg) => (
             <div
               key={msg.id}

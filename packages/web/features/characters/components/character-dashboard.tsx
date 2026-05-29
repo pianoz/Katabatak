@@ -745,7 +745,7 @@ export function CharacterDashboard({
           <section className="mb-10">
             <div
               className="grid gap-4"
-              style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr) minmax(0,1fr)", minHeight: "620px" }}
+              style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr) minmax(0,1fr)", height: "620px" }}
             >
               {/* Left: Essence + Power */}
               <div className="flex flex-col gap-4">

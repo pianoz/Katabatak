@@ -1,5 +1,6 @@
 import supabase from './tools/db.js'
 import { updateCharacter } from '../services/character-service.js'
+import { updateNpcMutations } from '../services/world-service.js'
 import { synLog, synLogVerbose } from './logger.js'
 import type { Database, Json } from '@db-types'
 import type { LedgerOutput } from './types.js'
@@ -98,6 +99,10 @@ export async function executeStateChanges(
         case 'delete_entity':
           synLog('STATE-EXECUTOR', `→ delete_entity | id:${output.entity_id}`)
           await deleteEntity(characterId, output.entity_id, output.replacement_description)
+          break
+        case 'update_npc':
+          synLog('STATE-EXECUTOR', `→ update_npc | id:${output.npc_id} fields:[${Object.keys(output.mutations).join(',')}]`)
+          await updateNpcMutations(output.npc_id, output.mutations)
           break
       }
     } catch (err) {

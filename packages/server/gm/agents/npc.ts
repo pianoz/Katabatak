@@ -1,7 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { ToolResult } from '../types.js'
-
-const client = new Anthropic()
+import { createClaudeClient } from '../claude-client.js'
 
 const SYSTEM = `You are a dialogue engine for Katabatak, a fantasy tabletop RPG. Your only job is to voice NPCs.
 
@@ -14,7 +13,8 @@ Respond with only a JSON object — no explanation, no markdown:
  * Generates in-character NPC dialogue for the given situation.
  * @param input Accepts `Record<string, unknown>` because it arrives directly from the tool dispatcher.
  */
-export async function getNpcResponse(input: Record<string, unknown>): Promise<ToolResult> {
+export async function getNpcResponse(input: Record<string, unknown>, passedClient?: Anthropic): Promise<ToolResult> {
+  const client = passedClient ?? createClaudeClient()
   const { npc_name, personality, situation, player_input } = input as {
     npc_name: string
     personality: string

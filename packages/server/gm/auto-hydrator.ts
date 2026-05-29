@@ -1,10 +1,11 @@
 import { getFullCharacter } from '../services/character-service.js'
 import { getGameWithMembers, getActiveEncounter } from '../services/game-service.js'
 import { getSyngemGame } from '../services/syngem-game-service.js'
-import { getNpcsForGame } from '../services/world-service.js'
+import { getNpcsForGame, computeNpcRoutineLocation } from '../services/world-service.js'
+import type { NpcRow } from '../services/world-service.js'
 import supabase from './tools/db.js'
 import { synLog } from './logger.js'
-import type { ContextBlock, LocationEntity } from './types.js'
+import type { ContextBlock, LocationEntity, EnrichedNpc, NpcPersonalityProfile } from './types.js'
 
 function poolText(current: number | null, max: number | null): string {
   if (current === null || max === null || max === 0) return 'Unknown'
@@ -112,12 +113,70 @@ export function contextBlock(ctx: ContextBlock): string {
     lines.push(`Game Time: Day ${syngemGame.game_date_days}, ${syngemGame.game_time_minutes} min`)
   }
 
+  if (ctx.npcs.length) {
+    lines.push(`Nearby: ${ctx.npcs.map((n) => n.name).join(', ')}`)
+  }
+
   if (encounterData?.isInCombat) {
     const aliveCount = encounterData.creatures.filter((c) => c.is_alive).length
     lines.push(`IN COMBAT — ${aliveCount} enemies active`)
   }
 
   return lines.join('\n')
+}
+
+function dispositionLabel(disposition: number): EnrichedNpc['dispositionLabel'] {
+  if (disposition <= -50) return 'hostile'
+  if (disposition < 0) return 'wary'
+  if (disposition < 50) return 'neutral'
+  return 'friendly'
+}
+
+/**
+ * Applies lazy routine placement and filters NPCs to those visible at the player's location.
+ * Fire-and-forget DB writes update current_location_id when an NPC arrives at the player's spot.
+ */
+function enrichAndFilterNpcs(
+  npcs: NpcRow[],
+  characterId: string,
+  characterLocation: string | null,
+  gameTimeMinutes: number,
+): EnrichedNpc[] {
+  const enriched: EnrichedNpc[] = []
+
+  for (const npc of npcs) {
+    const isFollowing = npc.following_character_id === characterId
+
+    // Compute where this NPC should be right now
+    const routineLocation = computeNpcRoutineLocation(npc, gameTimeMinutes)
+    const expectedLocation = isFollowing ? characterLocation : (routineLocation ?? npc.current_location_id)
+
+    // Only show NPCs at the player's location or actively following
+    const isVisible = isFollowing || expectedLocation === characterLocation
+    if (!isVisible) continue
+
+    // If the NPC's DB location differs from expected, silently update it (fire-and-forget)
+    if (!isFollowing && routineLocation && routineLocation !== npc.current_location_id) {
+      supabase.from('npcs').update({ current_location_id: routineLocation }).eq('id', npc.id).then()
+    }
+
+    const profile = (npc.personality_profile ?? {}) as NpcPersonalityProfile
+    const disposition = npc.disposition_to_players ?? 0
+
+    enriched.push({
+      id: npc.id,
+      name: npc.name,
+      title: npc.title ?? null,
+      faction: npc.faction ?? null,
+      disposition,
+      dispositionLabel: dispositionLabel(disposition),
+      isFollowing,
+      lastEncounterSummary: profile.memory?.last_encounter_summary ?? null,
+      currentTask: profile.current_task ?? null,
+    })
+  }
+
+  return enriched
 }
 
 /**
@@ -135,7 +194,7 @@ export async function autoHydrate(
 
   const { character } = fullCharacter
 
-  const [game, encounterData, npcs, locationEntities, syngemGame] = await Promise.all([
+  const [game, encounterData, allNpcs, locationEntities, syngemGame] = await Promise.all([
     gameId ? getGameWithMembers(gameId) : Promise.resolve(null),
     gameId ? getActiveEncounter(gameId) : Promise.resolve(null),
     gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
@@ -143,8 +202,15 @@ export async function autoHydrate(
     getSyngemGame(characterId),
   ])
 
+  const npcs = enrichAndFilterNpcs(
+    allNpcs,
+    characterId,
+    character.location_place,
+    syngemGame?.game_time_minutes ?? 720,
+  )
+
   const locStr = character.location_place ?? 'unknown'
-  synLog('HYDRATOR', `✓ built | ${character.name} | ${locStr} | ${locationEntities.length} entities, ${npcs.length} NPCs${encounterData?.isInCombat ? ' | COMBAT' : ''}${syngemGame ? ` | day ${syngemGame.game_date_days}` : ''}`)
+  synLog('HYDRATOR', `✓ built | ${character.name} | ${locStr} | ${locationEntities.length} entities, ${npcs.length}/${allNpcs.length} NPCs visible${encounterData?.isInCombat ? ' | COMBAT' : ''}${syngemGame ? ` | day ${syngemGame.game_date_days}` : ''}`)
 
   const equippedWeight = fullCharacter.inventory
     .filter((i) => i.is_equipped)

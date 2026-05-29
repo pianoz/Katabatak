@@ -61,12 +61,15 @@ katabatak/
 
 | Endpoint | File | Notes |
 | -------- | ---- | ----- |
-| `POST /api/gm` | `app/api/gm/route.ts` | SSE proxy to GM server — streams Architect chunks or returns `{type:'check_required'}` |
+| `POST /api/gm` | `app/api/gm/route.ts` | SSE proxy to GM server — streams Architect chunks or returns `{type:'check_required'}`. Gate: `is_dev` OR `X-Anthropic-Key` header present. Forwards key as `X-Anthropic-Key` to GM server |
+| `POST /api/validate-key` | `app/api/validate-key/route.ts` | BYOK: validates an Anthropic API key via a minimal Haiku call. Returns `{ valid, error? }`. Key never stored |
+| `GET /api/token-usage` | `app/api/token-usage/route.ts` | BYOK: returns last 500 token usage rows for the authenticated user (RLS-scoped) |
+| `PUT /api/token-budget` | `app/api/token-budget/route.ts` | BYOK: sets or clears `profiles.token_budget` for the authenticated user. Min 1,000 or null |
 | `POST /api/gm/eval` | `app/api/gm/eval/route.ts` | Single-shot Claude eval proxy (used by prompt builder) |
 | `GET /api/gm/health` | `app/api/gm/health/route.ts` | GM server liveness check |
 | `POST /api/gm/save` | `app/api/gm/save/route.ts` | Persist game save state |
 | `POST /api/gm/summarize` | `app/api/gm/summarize/route.ts` | Legacy session history summarization |
-| `POST /api/character-creator` | `app/api/character-creator/route.ts` | Proxies Q&A payload to GM server `POST /character-creator` — generates character background/description/backstory. Auth-gated (no `is_dev` required) |
+| `POST /api/character-creator` | `app/api/character-creator/route.ts` | Proxies Q&A payload to GM server `POST /character-creator` — fits character into Waystone story scaffold, returns background/description/backstory/story_hook/initial_quest. Auth-gated (no `is_dev` required) |
 | `GET /api/dev/users` | `app/api/dev/users/route.ts` | Admin user list (dev flag required) |
 | `POST /api/dev/log-level` | `app/api/dev/log-level/route.ts` | Proxies to GM server `POST /dev/log-level`. Sets pipeline log level at runtime (dev only) |
 | `DELETE /api/dev/conversation-history` | `app/api/dev/conversation-history/route.ts` | Validates `is_dev`, proxies to GM server `DELETE /gm/conversation/:characterId` — wipes all `conversation_turns` for a character |
@@ -153,9 +156,11 @@ Game session view with combat, encounters, and GM tools.
 | `header.tsx` | Top nav bar |
 | `login-form.tsx` | Magic-link email auth |
 | `dashboard-content.tsx` | Main dashboard layout. Top-level **IRL** / **SYNGEM** tabs. IRL tab shows games + characters where `syngem_game = false`. SYNGEM tab shows a "New Game" CTA (→ `/syngem/intro`) and a "Chronicles" list of `syngem_game = true` characters. Dev mode toggle shows `DevToolsSection` and **Log Level** radio group |
-| `syngem-intro.tsx` | Client component for the SYNGEM character creation intro — typewriter text reveal, sequential Q&A (5 hardcoded questions), loading state, calls `/api/character-creator`, then creates character via `createCharacterWithItems` + `createSyngemGame` |
-| `virtual-gm-component.tsx` | AI GM chat interface. Accepts `isDev` prop — when true, shows a **Dump History** button in the header that calls `DELETE /api/dev/conversation-history` to wipe `conversation_turns` for the current character |
-| `settings-modal.tsx` | User settings dialog |
+| `syngem-intro.tsx` | Client component for the SYNGEM character creation intro — phases: `intro` (typewriter world lore) → `questions` (10 hardcoded Q&A) → `loading` → `reveal` (two-column: character identity left, typewritten story hook center, "Enter the World" CTA) → redirect to character page. Calls `/api/character-creator`, creates character via `createCharacterWithItems` (seeding `quest_objectives` from `initial_quest`) + `createSyngemGame` |
+| `virtual-gm-component.tsx` | AI GM chat interface. Accepts `isDev` prop — when true, shows a **Dump History** button. Reads API key from `useApiKey` hook and attaches it as `X-Anthropic-Key` header on every `/api/gm` fetch |
+| `settings-modal.tsx` | User settings dialog — includes `ApiKeySettings` and `TokenSpendDashboard` sections. Accepts optional `tokenBudget` prop passed from the dashboard page |
+| `api-key-settings.tsx` | BYOK: API key management section — masked display, visibility toggle, clear button, validate-then-save flow via `/api/validate-key`. Shows "browser-only" disclaimer |
+| `token-spend-dashboard.tsx` | BYOK: token spend display — total tokens used, by-agent bar chart (recharts), budget cap input that calls `/api/token-budget`. Shows red warning above 90% cap |
 | `friends-modal.tsx` | Friend management |
 | `invite-notification.tsx` | In-app game invite toast |
 | `create-item-modal.tsx` | Item creation (dev/GM) |
@@ -224,6 +229,7 @@ All services have co-located `.test.ts` files. Tests use Vitest.
 |------|---------|
 | `use-mobile.ts` | Detect mobile viewport (breakpoint: 768px) |
 | `use-toast.ts` | Toast notification hook (sonner-based) |
+| `use-api-key.ts` | BYOK: reads/writes `localStorage['katabatak_anthropic_key']`. SSR-safe. Returns `{ apiKey, hasKey, setApiKey, clearApiKey }` |
 
 ---
 
@@ -234,6 +240,8 @@ Express server on port 3001. Proxied by `POST /api/gm` on the web app.
 > Deep-dive: [`packages/server/docs/SYNGEM-architecture.md`](packages/server/docs/SYNGEM-architecture.md)
 
 **Auth:** All `/gm/*` and `/character-creator` routes require `Authorization: Bearer <GM_API_KEY>`. Admin UI at `/admin` uses session-based auth (separate credentials). Standalone deploy: see `packages/server/docker-compose.yml`.
+
+**BYOK:** The GM server accepts an optional `X-Anthropic-Key` header on `POST /gm`. When present, a per-request `Anthropic` client is constructed with that key via `gm/claude-client.ts`. When absent, the server falls back to `ANTHROPIC_API_KEY` env var. The key is never logged or stored. Token counts are written to `token_usage` after each agent call via `gm/record-token-usage.ts`. Budget enforcement runs at the top of each pipeline invocation via `gm/budget-guard.ts`. See [`packages/server/docs/BYOK.md`](packages/server/docs/BYOK.md).
 
 The server implements the **SYNGEM** pipeline — each player message passes through five deterministic and AI layers before a streamed narrative response is returned:
 
@@ -261,9 +269,12 @@ server/
 │   ├── syngem-game-service.ts     # getSyngemGame, createSyngemGame, updateSyngemSummary, advanceGameTime
 │   └── world-service.ts           # searchWorldEntities, getCampaignFacts, getNpcsForGame
 └── gm/
-    ├── handler.ts                 # Pipeline orchestrator
+    ├── handler.ts                 # Pipeline orchestrator — creates per-request client, runs budget check
     ├── logger.ts                  # synLog() dev file logger + LogLevel / setLogLevel()
-    ├── types.ts                   # GMMessageInput, ContextBlock, CheckRequired, etc.
+    ├── types.ts                   # GMMessageInput (incl. anthropicApiKey?), ContextBlock, CheckRequired, etc.
+    ├── claude-client.ts           # BYOK: createClaudeClient(apiKey?) — per-request Anthropic factory
+    ├── record-token-usage.ts      # BYOK: fire-and-forget token count writes to token_usage
+    ├── budget-guard.ts            # BYOK: checkBudget(userId) — reads cap + aggregate, returns allowed bool
     ├── auto-hydrator.ts           # Layer 1: builds ContextBlock from parallel DB reads
     ├── style-modulator.ts         # Layer 3: picks a random style file from gm/content/
     ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB
@@ -276,7 +287,7 @@ server/
     │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect)
     │   ├── ledger.ts              # Layer 5a: world-state audit (Sonnet, async, slug: ledger)
     │   ├── summary.ts             # Layer 6: Scribe summarizer (Haiku, async, slug: scribe)
-    │   ├── character-creator.ts   # One-shot: builds character profile from Q&A (Sonnet, temp 0.9, max 1200 tokens). Called by POST /character-creator
+    │   ├── character-creator.ts   # One-shot: builds character profile from Q&A using the Waystone story scaffold (Sonnet, temp 0.9, max 2000 tokens). Returns background_primary/secondary, physical_description, backstory, story_hook, initial_quest. Called by POST /character-creator
     │   └── npc.ts                 # Legacy NPC dialogue (Haiku)
     ├── services/
     │   └── claude-service.ts      # Generic eval wrapper (/eval endpoint)
@@ -302,7 +313,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 
 | Table | Purpose |
 |-------|---------|
-| `profiles` | User accounts. `username`, `avatar_url`, `is_dev` flag |
+| `profiles` | User accounts. `username`, `avatar_url`, `is_dev` flag, `token_budget` (nullable int — BYOK spend cap) |
 | `characters` | Player characters. Stats, level, `location_place` (FK to `world_entities`), notes. AI fields: `quest_objectives`, `key_entity_ids`, `ai_game`, `syngem_game`. `syngem_game = true` marks a dedicated SYNGEM AI character (created via intro flow); `ai_game = true` marks the AI pipeline active |
 | `character_inventory` | Items owned by characters. `condition`, `equipped` |
 | `character_skills` | Unlocked skills per character. `current_rank`, `unlocked_at` |
@@ -328,6 +339,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 | `prompt_versions` | Versioned agent system prompts. `slug`, `version`, `prompt` JSONB, `description` |
 | `character_snapshots` | Point-in-time character state for undo/history |
 | `roll_events` | Dice roll log per game session |
+| `token_usage` | BYOK token spend log — append-only. `user_id`, `character_id`, `agent`, `model`, `input_tokens`, `output_tokens`. RLS: users SELECT own rows; GM server inserts via service role |
 
 ### Key Enums
 
@@ -378,6 +390,8 @@ offer_type:   item | denarius | skill_point | spell
 | `20260526140000_refactor_character_locations.sql` | Four-level location hierarchy: nation › region › place › immediate (FK to `world_entities`) |
 | `20260527000000_simplify_character_location.sql` | Simplifies location to single `location_place` FK; parent chain derived at query time via `parent_id` |
 | `20260527100000_add_syngem_game_to_characters.sql` | `syngem_game boolean NOT NULL DEFAULT false` on `characters` — distinguishes dedicated SYNGEM AI characters from IRL characters |
+| `20260528000000_add_following_to_npcs.sql` | `following_character_id` FK on `npcs` — tracks which character an NPC is following |
+| `20260529000000_add_byok_token_tracking.sql` | `token_budget` column on `profiles` + new `token_usage` table with RLS (BYOK spend tracking) |
 
 ---
 
@@ -396,7 +410,7 @@ offer_type:   item | denarius | skill_point | spell
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `ANTHROPIC_API_KEY` | Yes | Claude API key |
+| `ANTHROPIC_API_KEY` | Dev/server only | Claude API key. Optional when all users supply BYOK keys via `X-Anthropic-Key` header |
 | `SUPABASE_URL` | Yes | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (bypasses RLS) |
 | `GM_API_KEY` | Yes | Shared secret validated on all `/gm/*` requests |

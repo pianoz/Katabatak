@@ -14,6 +14,8 @@ import {
 import { characterBelongsToUser } from '../services/character-service.js'
 import { advanceGameTime } from '../services/syngem-game-service.js'
 import { synLog } from './logger.js'
+import { createClaudeClient } from './claude-client.js'
+import { checkBudget } from './budget-guard.js'
 import type { GMMessageInput, CheckRequired } from './types.js'
 
 export type { GMMessageInput }
@@ -33,14 +35,24 @@ export async function* handleGMMessage({
   userId,
   gameId,
   checkResolution,
+  anthropicApiKey,
 }: GMMessageInput): AsyncGenerator<string | CheckRequired> {
-  synLog('HANDLER', `→ request | char:${characterId.slice(-8)} "${message.slice(0, 60)}${message.length > 60 ? '...' : ''}"${checkResolution ? ` [resolving:${checkResolution.choice}]` : ''}`)
+  synLog('HANDLER', `→ request | char:${characterId.slice(-8)} "${message.slice(0, 60)}${message.length > 60 ? '...' : ''}"${checkResolution ? ` [resolving:${checkResolution.choice}]` : ''}${anthropicApiKey ? ' [byok]' : ''}`)
+
+  const client = createClaudeClient(anthropicApiKey)
 
   // 1. Verify character ownership (skipped when userId absent — CLI / trusted contexts)
   if (userId) {
     const isOwner = await characterBelongsToUser(characterId, userId)
     if (!isOwner) {
       yield '[GM Error: character not found]'
+      return
+    }
+
+    // 2. Enforce token budget cap
+    const budget = await checkBudget(userId)
+    if (!budget.allowed) {
+      yield `[GM Error: token budget exceeded (${budget.currentUsage.toLocaleString()} / ${budget.budgetCap?.toLocaleString()} tokens). Update your cap in settings.]`
       return
     }
   }
@@ -62,7 +74,7 @@ export async function* handleGMMessage({
   // 4. Run Lore-Engine (skip if a check was already resolved by the player)
   let loreResult = checkResolution
     ? { action_type: 'task' as const, requires_check: false }
-    : await runLoreEngine({ lastTwoTurns, contextBlock, playerInput: message })
+    : await runLoreEngine({ lastTwoTurns, contextBlock, playerInput: message, client, userId, characterId })
 
   // 5. If check required and not yet resolved, halt and return the check prompt
   if (loreResult.requires_check && !checkResolution) {
@@ -133,6 +145,9 @@ export async function* handleGMMessage({
     lastFourTurns,
     searchResults,
     playerInput: message,
+    client,
+    userId,
+    characterId,
   })) {
     fullResponse += chunk
     yield chunk
@@ -153,7 +168,7 @@ export async function* handleGMMessage({
     synLog('HANDLER', '⚠ ledger neutered — skipping DB write')
   } else {
     synLog('HANDLER', '→ ledger + state-executor fired (async)')
-    runLedger({ narrativeText: fullResponse, characterId })
+    runLedger({ narrativeText: fullResponse, characterId, client, userId })
       .then((ledgerOutputs) => {
         if (ledgerOutputs.length) {
           return executeStateChanges(characterId, ledgerOutputs)
@@ -166,7 +181,7 @@ export async function* handleGMMessage({
   if (turnNumber % 4 === 0) {
     synLog('HANDLER', `→ scribe triggered (turn ${turnNumber})`)
     const recentEight = await getRecentTurns(characterId, 8)
-    runScribe(characterId, recentEight).catch((err) =>
+    runScribe(characterId, recentEight, client, userId).catch((err) =>
       synLog('HANDLER', `✗ [Scribe] async error: ${err instanceof Error ? err.message : String(err)}`),
     )
   }

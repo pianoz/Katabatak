@@ -989,6 +989,7 @@ export type Database = {
           current_location_id: string
           disposition_to_players: number | null
           faction: string | null
+          following_character_id: string | null
           game_id: string
           id: string
           is_alive: boolean | null
@@ -1002,6 +1003,7 @@ export type Database = {
           current_location_id?: string
           disposition_to_players?: number | null
           faction?: string | null
+          following_character_id?: string | null
           game_id: string
           id?: string
           is_alive?: boolean | null
@@ -1015,6 +1017,7 @@ export type Database = {
           current_location_id?: string
           disposition_to_players?: number | null
           faction?: string | null
+          following_character_id?: string | null
           game_id?: string
           id?: string
           is_alive?: boolean | null

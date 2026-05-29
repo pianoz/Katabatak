@@ -2,7 +2,6 @@ import type { Database } from '@db-types'
 import type { FullCharacter } from '../services/character-service.js'
 import type { GameWithMembers, EncounterWithCreatures } from '../services/game-service.js'
 import type { SyngemGameRow } from '../services/syngem-game-service.js'
-import type { NpcRow } from '../services/world-service.js'
 
 export type CharacterRow = Database['public']['Tables']['characters']['Row']
 
@@ -21,11 +20,73 @@ export interface GMMessageInput {
   userId?: string
   gameId?: string
   checkResolution?: CheckResolution
+  /** BYOK: user-supplied Anthropic API key. Used per-request only — never stored. */
+  anthropicApiKey?: string
 }
 
 export type ToolResult = Record<string, unknown> & { error?: string }
 
 // ─── Context block (Auto-Hydrator output) ────────────────────────────────────
+
+// ─── NPC profile types ────────────────────────────────────────────────────────
+
+/** Time-of-day location schedule stored in personality_profile.routine */
+export interface NpcRoutine {
+  morning?: string
+  afternoon?: string
+  evening?: string
+  night?: string
+}
+
+/** Compressed per-NPC memory updated by the Ledger on significant interactions */
+export interface NpcMemory {
+  last_encounter_summary?: string
+  known_facts?: string[]
+  last_encounter_tick?: number
+  relationship_arc?: string
+}
+
+export interface NpcCurrentTask {
+  description: string
+  target_location_id: string
+  assigned_tick: number
+}
+
+/** Structure of the npcs.personality_profile JSONB column */
+export interface NpcPersonalityProfile {
+  personality?: string
+  /** Fallback location when no routine slot matches, or when no routine is defined */
+  home_location_id?: string
+  routine?: NpcRoutine
+  memory?: NpcMemory
+  current_task?: NpcCurrentTask | null
+}
+
+/** NPC mutations the Ledger can emit — only for semantically significant events */
+export interface NpcMutations {
+  disposition_delta?: number
+  memory_append?: string
+  known_facts_append?: string[]
+  current_task?: NpcCurrentTask | null
+  current_location_id?: string
+  is_alive?: boolean
+  following_character_id?: string | null
+}
+
+/** Enriched NPC data surfaced to the Architect — computed by the Auto-Hydrator */
+export interface EnrichedNpc {
+  id: string
+  name: string
+  title: string | null
+  faction: string | null
+  disposition: number
+  dispositionLabel: 'hostile' | 'wary' | 'neutral' | 'friendly'
+  isFollowing: boolean
+  lastEncounterSummary: string | null
+  currentTask: NpcCurrentTask | null
+}
+
+// ─── World entities ───────────────────────────────────────────────────────────
 
 /** Minimal world-entity data surfaced to agents for the player's current location. */
 export interface LocationEntity {
@@ -46,7 +107,7 @@ export interface ContextBlock {
   willText: string
   locationEntities: LocationEntity[]
   encounterData: EncounterWithCreatures | null
-  npcs: NpcRow[]
+  npcs: EnrichedNpc[]
   inventoryWeight: { current: number; max: number }
   backstory: string | null
   physicalDescription: string | null
@@ -97,3 +158,4 @@ export type LedgerOutput =
   | { action: 'update_entity'; entity_id: string; mutations: Record<string, unknown> }
   | { action: 'create_entity'; entity: Record<string, unknown> }
   | { action: 'delete_entity'; entity_id: string; replacement_description: string }
+  | { action: 'update_npc'; npc_id: string; mutations: NpcMutations }

@@ -100,12 +100,15 @@ app.post('/gm', async (req, res) => {
     return
   }
 
+  // BYOK: extract per-user key from header — never logged, never stored
+  const anthropicApiKey = (req.headers['x-anthropic-key'] as string | undefined)?.trim() || undefined
+
   const start = Date.now()
   let statusCode = 200
   let errorMessage: string | undefined
 
   try {
-    const generator = handleGMMessage({ message, characterId, userId, gameId, checkResolution })
+    const generator = handleGMMessage({ message, characterId, userId, gameId, checkResolution, anthropicApiKey })
     const first = await generator.next()
 
     // If the first yield is a check_required object, return it as JSON immediately

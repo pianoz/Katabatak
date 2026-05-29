@@ -4,8 +4,8 @@ import { getSyngemGame, updateSyngemSummary } from '../../services/syngem-game-s
 import type { ConversationTurn } from '../types.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { synLog } from '../logger.js'
-
-const client = new Anthropic()
+import { createClaudeClient } from '../claude-client.js'
+import { recordTokenUsage } from '../record-token-usage.js'
 
 const FALLBACK_SYSTEM = `You are the Scribe, historian of the Katabatak RPG campaign. Given a conversation history between a player and the GM, you produce three outputs in a single JSON response.
 
@@ -45,7 +45,13 @@ interface ScribeOutput {
  * Compresses recent conversation turns into a narrative summary, quest objectives, and key entity IDs.
  * Merges with the existing summary on the syngem_game row; silently returns on parse failure.
  */
-export async function runScribe(characterId: string, history: ConversationTurn[]): Promise<void> {
+export async function runScribe(
+  characterId: string,
+  history: ConversationTurn[],
+  passedClient?: Anthropic,
+  userId?: string,
+): Promise<void> {
+  const client = passedClient ?? createClaudeClient()
   synLog('SCRIBE', `→ running | char:${characterId} turns:${history.length}`)
 
   const [syngemGame, { data: character }] = await Promise.all([
@@ -74,6 +80,17 @@ export async function runScribe(characterId: string, history: ConversationTurn[]
     system,
     messages: [{ role: 'user', content: priorBlock + turns }],
   })
+
+  if (userId) {
+    recordTokenUsage({
+      userId,
+      characterId,
+      agent: 'scribe',
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    })
+  }
 
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   let parsed: ScribeOutput
@@ -107,6 +124,7 @@ export async function summarizeHistory({
   history: ConversationTurn[]
   existingSummary: string | null
 }): Promise<string> {
+  const client = createClaudeClient()
   const priorBlock = existingSummary
     ? `PRIOR SUMMARY:\n${existingSummary}\n\nNEW TURNS TO INCORPORATE:\n`
     : `TURNS TO SUMMARIZE:\n`

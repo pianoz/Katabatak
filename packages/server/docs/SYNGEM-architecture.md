@@ -1,7 +1,7 @@
 <!-- markdownlint-disable-file -->
 # SYNGEM — Architecture Reference
 
-> Last meaningful update: 2026-05-28 — Hierarchical lore search for `info` actions; `long_description` replaces `short_description` in search results
+> Last meaningful update: 2026-05-29 — BYOK architecture: per-request Anthropic client, token tracking, budget enforcement
 
 ---
 
@@ -9,7 +9,7 @@
 
 The GM server is an Express app (port 3001) that implements the **SYNGEM** (Synthetic Game Master) pipeline — a 5-layer system that processes each player message through deterministic context building, mechanical intent parsing, streamed narrative generation, async world-state writeback, and periodic summarization.
 
-The web app never calls Claude directly — it proxies all GM traffic through `POST /api/gm` → `POST /gm` on this server. The server holds the Anthropic API key and the Supabase service role key.
+The web app never calls Claude directly — it proxies all GM traffic through `POST /api/gm` → `POST /gm` on this server. The server holds the Supabase service role key. The Anthropic API key can be either the server-side `ANTHROPIC_API_KEY` env var (dev/server flow) or a per-user BYOK key supplied via the `X-Anthropic-Key` request header (player flow). See [BYOK.md](./BYOK.md) for the full key lifecycle.
 
 Conversation turns are **persisted server-side** in the `conversation_turns` table. The client no longer maintains or sends `conversationHistory`.
 
@@ -20,19 +20,25 @@ Conversation turns are **persisted server-side** in the `conversation_turns` tab
 ```
 Player message (POST /gm)
   │
+  ├─ createClaudeClient(anthropicApiKey?)         // per-request client; BYOK key or env var fallback
+  ├─ checkBudget(userId)                          // block if token_budget exceeded
+  │
   ├─ [1] conversation-service.saveTurn()         // persist player turn to DB
   │
   ├─ [2] auto-hydrator.autoHydrate()             // build ContextBlock
   │       ├ getFullCharacter()
   │       ├ getGameWithMembers() + getActiveEncounter()
-  │       ├ getNpcsForGame()
+  │       ├ getNpcsForGame() → enrichAndFilterNpcs()
+  │       │   ├ lazy routine placement (fire-and-forget DB update)
+  │       │   └ filter to player's location + following NPCs → EnrichedNpc[]
   │       ├ world_entities + player_entity_mutations (delta resolution)
   │       └ semantic pool text tags (Full/Moderate/Low/Critical)
   │
   ├─ [3] lore-engine.runLoreEngine()             // Haiku, Temp 0.0, JSON
   │       ├ action_type: 'info' | 'task' | 'attack'
   │       ├ requires_check → HALT, return {type:'check_required'} to client
-  │       └ search_objects → execute world entity searches
+  │       ├ search_objects → execute world entity searches
+  │       └ recordTokenUsage() (fire-and-forget if userId present)
   │
   ├─ [4] style-modulator.pickStyleText()         // random style file
   │
@@ -46,20 +52,24 @@ Player message (POST /gm)
   │         6. Last 4 conversation turns (from DB)
   │         7. New player input
   │       → Chunks streamed as SSE to client
+  │       → recordTokenUsage() via stream.finalMessage().usage (after stream closes)
   │
   ├─ conversation-service.saveTurn()             // persist assistant turn to DB
   │
   ├─ [async] ledger.runLedger()                  // Sonnet, Temp 0.0, JSON
+  │             → recordTokenUsage() (fire-and-forget)
   │             → state-executor.executeStateChanges()
   │               ├ move_character
   │               ├ update_entity
+  │               ├ update_npc → updateNpcMutations()
   │               ├ create_entity
   │               └ delete_entity → player_entity_mutations
   │
   └─ [async, every 4 turns] summary.runScribe()  // Haiku, Temp 0.5
           ├ Task 1: compressed narrative → characters.scribe_summary
           ├ Task 2: quest objectives → characters.quest_objectives
-          └ Task 3: key entity IDs → characters.key_entity_ids
+          ├ Task 3: key entity IDs → characters.key_entity_ids
+          └ recordTokenUsage() (fire-and-forget)
 ```
 
 ---
@@ -93,6 +103,7 @@ The Architect then incorporates the outcome into its narrative.
 | Architect | `claude-sonnet-4-6` | 0.5 | 1024 | streamed |
 | Ledger | `claude-sonnet-4-6` | 0.0 | 500 | async, JSON |
 | Scribe | `claude-haiku-4-5-20251001` | 0.5 | 1500 | async, JSON |
+| Character Creator | `claude-sonnet-4-6` | 0.9 | 2000 | sync, JSON (pre-game, POST /character-creator) |
 | Generic eval | `claude-sonnet-4-6` | — | configurable | sync |
 
 ---
@@ -105,9 +116,12 @@ Deterministic function. Builds a `ContextBlock` from multiple parallel DB reads.
 - `getFullCharacter()` — character + inventory + skills + spells
 - `getGameWithMembers()` — game state
 - `getActiveEncounter()` — if `game.is_in_combat === true`
-- `getNpcsForGame()` — active NPCs
+- `getNpcsForGame()` — all NPCs for the game, then passed through `enrichAndFilterNpcs()`
 - `world_entities` — location entities matching character's current location hierarchy
 - `player_entity_mutations` — per-player overrides; mutations override base entity descriptions
+
+**NPC enrichment (`enrichAndFilterNpcs`):**
+For each NPC, the Auto-Hydrator computes a routine-based placement using `computeNpcRoutineLocation()` (reads `personality_profile.routine` + current `game_time_minutes` → time slot → location_id). If the NPC's computed location matches the player's location, it appears in context. If the NPC's DB `current_location_id` differs from the computed location, a fire-and-forget update is issued. NPCs with `following_character_id = characterId` appear regardless of location. The result is `EnrichedNpc[]` — NPCs stripped down to what the Architect needs: name, title, faction, disposition label, last encounter summary, current task, and following status.
 
 **Produces semantic pool tags** (on top of raw numbers):
 | Ratio | Tag |
@@ -197,11 +211,14 @@ Returns a `LedgerOutput[]` array:
 type LedgerOutput =
   | { action: 'move_character'; destination_entity_id: string }
   | { action: 'update_entity'; entity_id: string; mutations: Record<string, unknown> }
+  | { action: 'update_npc'; npc_id: string; mutations: NpcMutations }
   | { action: 'create_entity'; entity: Record<string, unknown> }
   | { action: 'delete_entity'; entity_id: string; replacement_description: string }
 ```
 
 Only records **permanent, world-altering changes** — not narrative flourishes.
+
+`update_npc` is only emitted for semantically significant NPC events: disposition shifts (player bribed/angered/charmed an NPC), revealed information, task assignments, death, or explicit departure. Routine NPC movement is handled deterministically by the Auto-Hydrator and is never a Ledger concern.
 
 ### State Executor (`gm/state-executor.ts`)
 Deterministic. Validates and executes Ledger output against the DB.
@@ -210,6 +227,7 @@ Deterministic. Validates and executes Ledger output against the DB.
 |--------|-------------|
 | `move_character` | Validates entity is a location type, calls `updateCharacter()` with new location fields |
 | `update_entity` | Merges `mutations` into existing `world_entities.data` JSON |
+| `update_npc` | Calls `updateNpcMutations()` in `world-service.ts` — merges disposition delta (clamped to [-100,100]), overwrites `personality_profile.memory.last_encounter_summary`, appends to `known_facts` (cap 8), updates task/location/alive/following |
 | `create_entity` | Upserts new row into `world_entities` |
 | `delete_entity` | Upserts into `player_entity_mutations` with `{hidden: true, short_description: ...}` |
 
@@ -223,7 +241,7 @@ Haiku. Async. Triggered server-side every 4 player turns. **Slug:** `"scribe"` �
 
 **Outputs three things in a single JSON response:**
 1. `summary` → written to `characters.scribe_summary` — exponentially compressed narrative prose. Fed back to Architect as "Story So Far."
-2. `quest_objectives` → written to `characters.quest_objectives` — structured array of active/completed/failed objectives. Fed back to Architect.
+2. `quest_objectives` → written to `characters.quest_objectives` — structured array of active/completed/failed objectives. Fed back to Architect. Note: also seeded at character creation with `initial_quest` from the Character Creator agent — the Scribe merges from that seed forward.
 3. `key_entity_ids` → written to `characters.key_entity_ids` — entity IDs the player interacted with, used by Auto-Hydrator to prioritize what to fetch.
 
 Can be triggered manually via `POST /gm/scribe` with `{ characterId }`.
@@ -260,7 +278,73 @@ The handler fetches turns directly from DB — the client sends no conversation 
 
 ---
 
+## BYOK Architecture
+
+Players supply their own Anthropic API key. The key is stored in the browser's `localStorage` only and is never written to the database.
+
+### Request flow
+
+```
+Browser localStorage
+  → X-Anthropic-Key HTTP header (HTTPS)
+    → Next.js /api/gm (in-memory, not logged)
+      → GM server index.ts (in-memory, not logged)
+        → createClaudeClient(anthropicApiKey?)
+          → one Anthropic instance per request
+            → discarded after request completes
+```
+
+If no `X-Anthropic-Key` header is present, `createClaudeClient()` falls back to `process.env.ANTHROPIC_API_KEY` — the original dev/server-side flow.
+
+### Client instantiation
+
+Previously each agent module held a **module-level singleton** (`const client = new Anthropic()`). This has been replaced with a **per-request client** created once in `handler.ts` and passed as an optional `client?` parameter to every agent function. The agent falls back to `createClaudeClient()` with no argument if no client is passed (supports isolated unit tests and CLI usage).
+
+### Token tracking
+
+After each agent call, `recordTokenUsage()` is called fire-and-forget with the `response.usage` counts. For the streaming Architect, usage is captured via `stream.finalMessage().usage` after the generator is fully consumed. The write goes to `token_usage` (user_id, character_id, agent name, model, input/output counts). **The API key is never a parameter to this function.**
+
+### Budget enforcement
+
+`checkBudget(userId)` runs at the top of the handler (after ownership check, before everything else). It:
+1. Reads `profiles.token_budget` — `null` means unlimited.
+2. Aggregates `SUM(input_tokens + output_tokens)` from `token_usage` for the user.
+3. If `currentUsage >= budgetCap`, yields a budget error message and halts the pipeline.
+
+### Audit files
+
+| File | Purpose |
+|------|---------|
+| `gm/claude-client.ts` | `createClaudeClient(apiKey?)` — the only place an `Anthropic` instance is constructed |
+| `gm/record-token-usage.ts` | `recordTokenUsage()` — writes token counts only, never the key |
+| `gm/budget-guard.ts` | `checkBudget(userId)` — reads cap + aggregate, returns `allowed` bool |
+
+See [BYOK.md](./BYOK.md) for the full security narrative and what NOT to log.
+
+---
+
 ## Database Tables (New)
+
+### `token_usage` (new — BYOK)
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | PK |
+| `user_id` | uuid | FK → auth.users (ON DELETE CASCADE) |
+| `character_id` | uuid? | FK → characters (ON DELETE SET NULL) |
+| `agent` | text | `'lore-engine'` \| `'architect'` \| `'ledger'` \| `'scribe'` \| … |
+| `model` | text | Anthropic model ID |
+| `input_tokens` | integer | |
+| `output_tokens` | integer | |
+| `created_at` | timestamptz | |
+
+RLS: authenticated users can SELECT their own rows. All inserts are performed by the GM server via the service role (bypasses RLS). No UPDATE/DELETE policies — append-only.
+
+### New column on `profiles`
+| Column | Type | Notes |
+|--------|------|-------|
+| `token_budget` | integer? | `null` = unlimited. Min 1,000 enforced at the API route level. |
+
+---
 
 ### `prompt_versions` (updated)
 | Column | Type | Notes |
@@ -351,6 +435,74 @@ The chosen level is stored in the express process's memory — restarting the se
 
 ---
 
+## NPC System
+
+NPCs live in the dedicated `npcs` table (not `world_entities`) because they require game-scoped state (`game_id`), per-NPC disposition, and structured metadata not suited to the hierarchical entity model.
+
+### Data model
+
+All NPC-specific state beyond the base columns is stored in `personality_profile: Json`:
+
+```json
+{
+  "personality": "Gruff and suspicious of outsiders.",
+  "home_location_id": "loc_karkill_barracks",
+  "routine": {
+    "morning":   "loc_karkill_mess_hall",
+    "afternoon": "loc_karkill_training_grounds",
+    "evening":   "loc_karkill_flounder_inn"
+  },
+  "memory": {
+    "last_encounter_summary": "Player asked about the stolen crown. Guard was unhelpful.",
+    "known_facts": ["Player is hunting the crown", "Player has 200 gold"],
+    "last_encounter_tick": 42,
+    "relationship_arc": "indifferent → suspicious"
+  },
+  "current_task": {
+    "description": "Patrol the docks for suspicious activity",
+    "target_location_id": "loc_karkill_docks",
+    "assigned_tick": 120
+  }
+}
+```
+
+`memory` is bounded — `last_encounter_summary` overwrites on each significant interaction; `known_facts` caps at 8 entries (oldest drop off). No verbatim history is stored.
+
+### Lazy simulation (Anti-Skyrim)
+
+NPCs are not simulated in real time. Instead, the Auto-Hydrator computes a plausible location on demand:
+
+1. `game_time_minutes` maps to a time slot: `night` (0–359), `morning` (360–719), `afternoon` (720–1079), `evening` (1080–1439).
+2. The NPC's `routine[slot]` gives the expected location. Falls back to `home_location_id`, then to `current_location_id`.
+3. If the expected location matches the player's location, the NPC appears in context. A fire-and-forget DB update keeps `current_location_id` current.
+4. NPCs whose `following_character_id = characterId` appear in every location context regardless of routine.
+
+NPCs out of the player's view cease to exist in the simulation until the player encounters them again.
+
+### NPC columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | text | snake_case slug |
+| `game_id` | uuid | FK → games |
+| `name` | text | |
+| `title` | text? | |
+| `faction` | text? | |
+| `current_location_id` | text | Updated lazily by Auto-Hydrator |
+| `following_character_id` | uuid? | FK → characters; null = not following |
+| `disposition_to_players` | int? | [-100, 100]; updated by Ledger `update_npc` |
+| `is_alive` | bool? | |
+| `last_seen_tick` | int? | Reserved for future narrative use |
+| `personality_profile` | jsonb | See structure above |
+| `attribute_modifiers` | jsonb | Stat overrides for combat |
+
+### Assigning tasks and following
+
+- **Task:** Ledger emits `update_npc` with `current_task`. The Architect narrates progress when the player asks; no real simulation occurs.
+- **Following:** Ledger emits `update_npc` with `following_character_id = characterId`. Auto-Hydrator includes the NPC in every subsequent turn until cleared.
+
+---
+
 ## Extending the Pipeline
 
 ### Adding a new style file
@@ -373,6 +525,9 @@ The server loads the highest version for that slug, cached for 60 seconds. To fo
 2. Update the Ledger's system prompt in `prompt_versions` (slug: `"ledger"`) to know about the new action.
 3. Add the handler function and a new `case` in `executeStateChanges()` in `gm/state-executor.ts`.
 
+### Extending NPC state
+New NPC fields that don't require DB schema changes go into `personality_profile` JSON (update `NpcPersonalityProfile` in `gm/types.ts`, extend `NpcMutations` if the Ledger should write them, and handle in `updateNpcMutations()` in `world-service.ts`). New typed columns (like `following_character_id`) require a migration + `database.types.ts` update.
+
 ### Testing via CLI REPL
 ```bash
 node --env-file=.env.local packages/server/chat.ts <character_id>
@@ -392,7 +547,10 @@ packages/server/
 ├── gm/
 │   ├── handler.ts                    # Pipeline orchestrator
 │   ├── logger.ts                     # synLog() + setLogLevel() — dev file logger
-│   ├── types.ts                      # All shared types
+│   ├── types.ts                      # All shared types (incl. GMMessageInput.anthropicApiKey)
+│   ├── claude-client.ts              # BYOK: createClaudeClient(apiKey?) factory
+│   ├── record-token-usage.ts         # BYOK: fire-and-forget token count writes
+│   ├── budget-guard.ts               # BYOK: checkBudget(userId) — reads cap + aggregate
 │   ├── auto-hydrator.ts              # Layer 1: ContextBlock builder
 │   ├── style-modulator.ts            # Layer 3: Style file picker
 │   ├── state-executor.ts             # Layer 5b: DB write executor

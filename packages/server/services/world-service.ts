@@ -1,5 +1,6 @@
 import supabase from '../gm/tools/db.js'
-import type { Database } from '@db-types'
+import type { Database, Json } from '@db-types'
+import type { NpcPersonalityProfile, NpcMemory, NpcMutations } from '../gm/types.js'
 
 export type WorldEntityRow = Database['public']['Tables']['world_entities']['Row']
 export type PlayerEntityMutationRow = Database['public']['Tables']['player_entity_mutations']['Row']
@@ -137,4 +138,93 @@ export async function getNpc(npcId: string): Promise<NpcRow | null> {
 export async function getNpcsForGame(gameId: string): Promise<NpcRow[]> {
   const { data } = await supabase.from('npcs').select('*').eq('game_id', gameId)
   return data ?? []
+}
+
+/** Maps game_time_minutes (0–1439) to a routine time slot. */
+export function computeNpcTimeSlot(
+  gameTimeMinutes: number,
+): 'morning' | 'afternoon' | 'evening' | 'night' {
+  if (gameTimeMinutes < 360) return 'night'
+  if (gameTimeMinutes < 720) return 'morning'
+  if (gameTimeMinutes < 1080) return 'afternoon'
+  return 'evening'
+}
+
+/**
+ * Returns the location_id where this NPC should be at the given game time.
+ * Falls back to home_location_id if no routine slot is defined.
+ * Returns null if neither routine nor home is configured.
+ */
+export function computeNpcRoutineLocation(npc: NpcRow, gameTimeMinutes: number): string | null {
+  const profile = npc.personality_profile as NpcPersonalityProfile | null
+  if (!profile) return null
+  const routine = profile.routine
+  if (routine) {
+    const slot = computeNpcTimeSlot(gameTimeMinutes)
+    return routine[slot] ?? profile.home_location_id ?? null
+  }
+  return profile.home_location_id ?? null
+}
+
+/**
+ * Applies Ledger-produced NPC mutations to the DB.
+ * Disposition is clamped to [-100, 100]. Known facts are capped at 8 (oldest drop off).
+ */
+export async function updateNpcMutations(npcId: string, mutations: NpcMutations): Promise<void> {
+  const { data: npc } = await supabase.from('npcs').select('*').eq('id', npcId).single()
+  if (!npc) return
+
+  const updates: Record<string, unknown> = {}
+
+  if (mutations.disposition_delta !== undefined) {
+    updates['disposition_to_players'] = Math.max(
+      -100,
+      Math.min(100, (npc.disposition_to_players ?? 0) + mutations.disposition_delta),
+    )
+  }
+
+  const needsProfileUpdate =
+    mutations.memory_append !== undefined ||
+    (mutations.known_facts_append?.length ?? 0) > 0 ||
+    'current_task' in mutations
+
+  if (needsProfileUpdate) {
+    const profile: NpcPersonalityProfile = {
+      ...((npc.personality_profile ?? {}) as NpcPersonalityProfile),
+    }
+
+    if (mutations.memory_append !== undefined || (mutations.known_facts_append?.length ?? 0) > 0) {
+      const memory: NpcMemory = { ...(profile.memory ?? {}) }
+      if (mutations.memory_append !== undefined) {
+        memory.last_encounter_summary = mutations.memory_append
+      }
+      if (mutations.known_facts_append?.length) {
+        memory.known_facts = [
+          ...(memory.known_facts ?? []),
+          ...mutations.known_facts_append,
+        ].slice(-8)
+      }
+      profile.memory = memory
+    }
+
+    if ('current_task' in mutations) {
+      profile.current_task = mutations.current_task
+    }
+
+    updates['personality_profile'] = profile as unknown as Json
+  }
+
+  if (mutations.current_location_id !== undefined) {
+    updates['current_location_id'] = mutations.current_location_id
+  }
+  if (mutations.is_alive !== undefined) {
+    updates['is_alive'] = mutations.is_alive
+  }
+  if ('following_character_id' in mutations) {
+    updates['following_character_id'] = mutations.following_character_id
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await supabase.from('npcs').update(updates as Database['public']['Tables']['npcs']['Update']).eq('id', npcId)
+  }
 }

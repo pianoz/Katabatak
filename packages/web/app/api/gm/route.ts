@@ -13,14 +13,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // BYOK key from browser — may be absent for dev users with server-side key
+  const byokKey = req.headers.get('x-anthropic-key')?.trim() || undefined
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('is_dev')
     .eq('id', user.id)
     .single()
 
-  if (!profile?.is_dev) {
-    return NextResponse.json({ error: 'Access restricted to approved users.' }, { status: 403 })
+  const hasAccess = profile?.is_dev || !!byokKey
+  if (!hasAccess) {
+    return NextResponse.json(
+      { error: 'Access requires an Anthropic API key. Add one in your account settings.' },
+      { status: 403 },
+    )
   }
 
   const body = await req.json() as {
@@ -34,14 +41,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
   }
 
+  const gmHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${GM_API_KEY}`,
+  }
+  if (byokKey) gmHeaders['X-Anthropic-Key'] = byokKey
+
   let serverRes: Response
   try {
     serverRes = await fetch(`${GM_SERVER}/gm`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${GM_API_KEY}`,
-      },
+      headers: gmHeaders,
       body: JSON.stringify({
         message: body.message,
         characterId: body.characterId,

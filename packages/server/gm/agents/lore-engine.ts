@@ -3,8 +3,8 @@ import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { contextBlock } from '../auto-hydrator.js'
 import { synLog, synLogVerbose } from '../logger.js'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput } from '../types.js'
-
-const client = new Anthropic()
+import { createClaudeClient } from '../claude-client.js'
+import { recordTokenUsage } from '../record-token-usage.js'
 
 const FALLBACK_SYSTEM = `You are the Lore-Engine, the mechanical gatekeeper for the Katabatak RPG. Your sole job is to parse player intent and translate it into structured game mechanics.
 
@@ -55,11 +55,18 @@ export async function runLoreEngine({
   lastTwoTurns,
   contextBlock: ctx,
   playerInput,
+  client: passedClient,
+  userId,
+  characterId,
 }: {
   lastTwoTurns: ConversationTurn[]
   contextBlock: ContextBlock
   playerInput: string
+  client?: Anthropic
+  userId?: string
+  characterId?: string
 }): Promise<LoreEngineOutput> {
+  const _client = passedClient ?? createClaudeClient()
   const loadedPrompt = await loadSystemPrompt('lore-engine')
   const system = loadedPrompt ?? FALLBACK_SYSTEM
   synLog('LORE-ENGINE', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | input:"${playerInput.slice(0, 60)}${playerInput.length > 60 ? '...' : ''}"`)
@@ -84,13 +91,13 @@ export async function runLoreEngine({
 
   synLogVerbose('LORE-ENGINE', '→ user content:', userContent)
 
-  let response: Awaited<ReturnType<typeof client.messages.create>>
+  let response: Anthropic.Message
   try {
-    response = await client.messages.create({
+    response = await _client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 300,
       temperature: 0,
-      system,
+      system: [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }],
       messages: [{ role: 'user', content: userContent }],
     })
   } catch (apiErr) {
@@ -98,7 +105,18 @@ export async function runLoreEngine({
     return { action_type: 'task', requires_check: false }
   }
 
-  const text = response.content.find((b) => b.type === 'text')?.text ?? ''
+  if (userId) {
+    recordTokenUsage({
+      userId,
+      characterId,
+      agent: 'lore-engine',
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    })
+  }
+
+  const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
   synLogVerbose('LORE-ENGINE', '← raw response:', text)
   try {
     const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()

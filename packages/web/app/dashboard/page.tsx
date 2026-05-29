@@ -35,6 +35,7 @@ export default async function DashboardPage() {
       userId={user.id}
       username={profile?.username ?? "Unknown Traveler"}
       fullName={profile?.full_name ?? "New Legend"}
+      tokenBudget={(profile as Record<string, unknown> | null)?.['token_budget'] as number | null ?? null}
       friendRequests={friendRequests}
       friends={friends}
     />

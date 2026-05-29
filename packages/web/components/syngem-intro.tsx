@@ -63,6 +63,12 @@ const QUESTIONS = [
   "What caused you to leave your previous life?"
 ]
 
+const STORY = [
+  `
+  You have been traveling for days. Originally you took up with caravan heading south because that was where you though answers might lie. You packed up and took your time. 
+  `
+]
+
 // ─── Typewriter hook ──────────────────────────────────────────────────────────
 
 function useTypewriter(text: string, speed = 18) {
@@ -95,7 +101,16 @@ interface SyngemIntroProps {
   userId: string
 }
 
-type Phase = "intro" | "questions" | "loading" | "error"
+type Phase = "intro" | "questions" | "loading" | "reveal" | "error"
+
+interface CreatorResult {
+  background_primary: string
+  background_secondary: string
+  physical_description: string
+  backstory: string
+  story_hook: string
+  initial_quest: { id: string; title: string; status: string; description: string }
+}
 
 export function SyngemIntro({ userId }: SyngemIntroProps) {
   const router = useRouter()
@@ -107,6 +122,8 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
   const [answers, setAnswers] = useState<string[]>([])
   const [inputValue, setInputValue] = useState("")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [creatorResult, setCreatorResult] = useState<CreatorResult | null>(null)
+  const [characterId, setCharacterId] = useState<string | null>(null)
 
   // What text to typewrite depends on phase and question index
   const activeText =
@@ -114,6 +131,8 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
       ? INTRO_TEXT
       : phase === "questions"
       ? QUESTIONS[questionIndex]
+      : phase === "reveal"
+      ? (creatorResult?.story_hook ?? "")
       : ""
 
   const { displayed, done: typewritingDone } = useTypewriter(
@@ -161,12 +180,7 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
         const body = await res.json().catch(() => ({})) as { error?: string }
         throw new Error(body.error ?? `Server error ${res.status}`)
       }
-      const creatorResult = await res.json() as {
-        background_primary: string
-        background_secondary: string
-        physical_description: string
-        backstory: string
-      }
+      const creatorResult = await res.json() as CreatorResult
 
       const height = 170
       const weight = 70
@@ -179,6 +193,7 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
         background_secondary: creatorResult.background_secondary,
         physical_description: creatorResult.physical_description,
         backstory: creatorResult.backstory,
+        quest_objectives: creatorResult.initial_quest ? [creatorResult.initial_quest] : [],
         level: 1,
         current_health: 10,
         health_max: 10,
@@ -199,7 +214,9 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
 
       await createSyngemGame(supabase, newChar.id, userId)
 
-      router.push(`/characters/${newChar.id}`)
+      setCreatorResult(creatorResult)
+      setCharacterId(newChar.id)
+      setPhase("reveal")
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Something went wrong. Try again.")
       setPhase("error")
@@ -213,11 +230,15 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
     }
   }
 
+  const handleRevealAdvance = () => {
+    if (characterId) router.push(`/characters/${characterId}`)
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center px-6 py-16">
-      <div className="w-full max-w-2xl">
+      <div className={`w-full ${phase === "reveal" ? "max-w-5xl" : "max-w-2xl"}`}>
         {/* Logo */}
         <p className="text-[9px] uppercase tracking-[0.5em] text-cyan-900 font-mono mb-12 text-center">
           SYNGEM — Chronicle Engine
@@ -305,6 +326,56 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
             <p className="text-xs uppercase tracking-[0.4em] text-zinc-600 font-mono">
               The Chronicle Weaver is at work…
             </p>
+          </div>
+        )}
+
+        {/* ── Reveal phase ──────────────────────────────────────────── */}
+        {phase === "reveal" && creatorResult && (
+          <div className="flex gap-12 items-start animate-in fade-in duration-700">
+            {/* Left panel — character identity */}
+            <div className="w-[30%] shrink-0 space-y-6 pt-1">
+              <div>
+                <p className="text-[9px] uppercase tracking-[0.4em] text-zinc-600 font-mono mb-1">Character</p>
+                <p className="font-serif text-zinc-100 text-2xl leading-snug">{answers[0]}</p>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-600 font-mono">Origin</p>
+                <p className="font-serif text-zinc-400 text-sm leading-relaxed">{creatorResult.background_primary}</p>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-600 font-mono">Circumstance</p>
+                <p className="font-serif text-zinc-400 text-sm leading-relaxed">{creatorResult.background_secondary}</p>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-600 font-mono">Appearance</p>
+                <p className="font-serif text-zinc-400 text-sm leading-relaxed">{creatorResult.physical_description}</p>
+              </div>
+            </div>
+
+            {/* Center panel — story hook */}
+            <div className="flex-1 space-y-8">
+              <div className="border-l-2 border-cyan-900/40 pl-6">
+                <p className="font-serif text-zinc-300 text-base leading-loose">
+                  {displayed}
+                  {!typewritingDone && (
+                    <span className="inline-block w-0.5 h-4 bg-cyan-500/60 animate-pulse ml-0.5 align-middle" />
+                  )}
+                </p>
+              </div>
+              {typewritingDone && (
+                <div className="pl-6 animate-in fade-in duration-700">
+                  <button
+                    onClick={handleRevealAdvance}
+                    className="text-xs uppercase tracking-[0.4em] text-cyan-600 hover:text-cyan-400 border border-cyan-900/40 hover:border-cyan-700/60 px-8 py-3 transition-all"
+                  >
+                    Enter the World
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

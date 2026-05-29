@@ -46,11 +46,12 @@ interface DashboardContentProps {
   userId: string
   username: string
   fullName: string
+  tokenBudget?: number | null
   friendRequests: FriendRequest[]
   friends: Friend[]
 }
 
-export function DashboardContent({ games, characters, invites, isDev, userId, username, fullName, friendRequests: initialFriendRequests, friends: initialFriends }: DashboardContentProps) {
+export function DashboardContent({ games, characters, invites, isDev, userId, username, fullName, tokenBudget = null, friendRequests: initialFriendRequests, friends: initialFriends }: DashboardContentProps) {
   const charactersForSelect: CharacterForSelect[] = characters.map((c) => ({
     id: c.id,
     name: c.name,
@@ -128,6 +129,7 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
               <SettingsModal
                 userId={userId}
                 initialProfile={{ username, fullName}}
+                tokenBudget={tokenBudget}
               />
             </div>
 

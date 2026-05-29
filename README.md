@@ -56,11 +56,13 @@ The web app proxies all GM traffic to `localhost:3001`. Set `NEXT_PUBLIC_GM_SERV
 
 ### SYNGEM AI Game Master
 
-- Full 5-layer pipeline (see below)
+- Full pipeline (see below)
 - Streamed narrative via SSE
 - Skill check interruption — pipeline halts, player spends or rolls, pipeline resumes
 - Versioned system prompts managed via in-app prompt builder
 - Async world-state persistence after every turn
+- BYOK — players can supply their own Anthropic key; validated before use
+- Per-user token budget cap enforced before pipeline runs
 
 ---
 
@@ -81,28 +83,27 @@ POST /gm
   │       if requires_check → HALT, return {type:'check_required'} to client
   │       if search_objects → execute world entity lookups
   │
-  ├─ [3] Style Modulator     deterministic — picks one of 3 prose register files at random
-  │
-  ├─ [4] Architect           Sonnet, temp 0.5, STREAMED SSE
-  │       receives: style + ContextBlock + scribe summary + quests
+  ├─ [3] Architect           Sonnet, temp 0.5, STREAMED SSE
+  │       system prompt loaded from DB (architect1 slug)
+  │       receives: ContextBlock + scribe summary + quests
   │                + lore-engine output + last 4 turns + player input
   │       pure narrative — no tools
   │
   ├─ conversation-service    persists assistant turn to DB
   │
-  ├─ [5a] Ledger             Sonnet, temp 0.0, async JSON
+  ├─ [4a] Ledger             Sonnet, temp 0.0, async JSON
   │        reads completed narrative, outputs permanent world-state changes
   │
-  ├─ [5b] State Executor     deterministic — validates + writes Ledger output to DB
-  │        move_character / update_entity / create_entity / delete_entity
+  ├─ [4b] State Executor     deterministic — validates + writes Ledger output to DB
+  │        move_character / update_entity / update_npc / create_entity / delete_entity
   │
-  └─ [6] Scribe              Haiku, async, every 4 turns
-          compressed narrative → characters.scribe_summary
+  └─ [5] Scribe              Haiku, async, every 4 turns
+          compressed narrative → syngem_game.summary
           quest objectives → characters.quest_objectives
           key entity IDs → characters.key_entity_ids
 ```
 
-Each async layer (Ledger, Scribe) is fire-and-forget. Parse errors fall back to safe defaults. A failing state-executor action never blocks others. The player's turn is unaffected.
+Each async layer (Ledger, Scribe) is fire-and-forget. Parse errors fall back to safe defaults. A failing state-executor action never blocks others. Fantasy game time advances 10 minutes per turn. The player's turn is unaffected by any of these.
 
 ---
 

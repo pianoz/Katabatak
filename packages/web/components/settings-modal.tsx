@@ -26,6 +26,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ApiKeySettings } from "@/components/api-key-settings"
+import { TokenSpendDashboard } from "@/components/token-spend-dashboard"
 
 interface SettingsModalProps {
   userId: string
@@ -33,9 +35,10 @@ interface SettingsModalProps {
     username: string
     fullName: string
   }
+  tokenBudget?: number | null
 }
 
-export function SettingsModal({ userId, initialProfile }: SettingsModalProps) {
+export function SettingsModal({ userId, initialProfile, tokenBudget = null }: SettingsModalProps) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -195,6 +198,12 @@ export function SettingsModal({ userId, initialProfile }: SettingsModalProps) {
             {passwordLoading ? "Updating..." : "Update Password"}
           </Button>
         </div>
+
+        {/* API Key (BYOK) */}
+        <ApiKeySettings />
+
+        {/* Token Spend */}
+        <TokenSpendDashboard tokenBudget={tokenBudget} />
 
         {/* Danger Zone */}
         <div className="border-t border-red-900/50 pt-6 mt-2 grid gap-4">

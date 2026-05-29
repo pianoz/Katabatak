@@ -2,8 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput, CheckResolution } from '../types.js'
 import { loadArchitectPrompt } from '../../services/prompt-service.js'
 import { synLog } from '../logger.js'
-
-const client = new Anthropic()
+import { createClaudeClient } from '../claude-client.js'
+import { recordTokenUsage } from '../record-token-usage.js'
 
 function formatGameTime(syngemGame: ContextBlock['syngemGame']): string | null {
   if (!syngemGame) return null
@@ -58,7 +58,11 @@ function serializeContextBlock(ctx: ContextBlock): string {
   if (npcs.length) {
     lines.push('', '=== NEARBY NPCs ===')
     for (const npc of npcs) {
-      lines.push(`${npc.name}`)
+      const nameTag = npc.title ? `${npc.name}, ${npc.title}` : npc.name
+      const followTag = npc.isFollowing ? ' [following you]' : ''
+      lines.push(`${nameTag} [${npc.dispositionLabel}]${followTag}`)
+      if (npc.lastEncounterSummary) lines.push(`  Prior encounter: ${npc.lastEncounterSummary}`)
+      if (npc.currentTask) lines.push(`  Current task: ${npc.currentTask.description}`)
     }
   }
 
@@ -98,6 +102,9 @@ export async function* streamArchitect({
   lastFourTurns,
   searchResults,
   playerInput,
+  client: passedClient,
+  userId,
+  characterId,
 }: {
   styleText: string
   contextBlock: ContextBlock
@@ -108,18 +115,23 @@ export async function* streamArchitect({
   lastFourTurns: ConversationTurn[]
   searchResults: string | null
   playerInput: string
+  client?: Anthropic
+  userId?: string
+  characterId?: string
 }): AsyncGenerator<string> {
+  const client = passedClient ?? createClaudeClient()
   const loadedPrompt = await loadArchitectPrompt()
   const baseSystem = loadedPrompt ?? styleText
   synLog('ARCHITECT', `→ prompt:${loadedPrompt ? 'DB' : 'fallback(style)'} | turns:${lastFourTurns.length} | streaming...`)
-  const systemParts = [baseSystem]
+  const systemBlocks: Anthropic.Messages.TextBlockParam[] = [
+    { type: 'text', text: baseSystem, cache_control: { type: 'ephemeral' } },
+  ]
   if (scribeSummary) {
-    systemParts.push(`=== STORY SO FAR ===\n${scribeSummary}`)
+    systemBlocks.push({ type: 'text', text: `=== STORY SO FAR ===\n${scribeSummary}` })
   }
   if (questObjectives) {
-    systemParts.push(`=== QUESTS & OBJECTIVES ===\n${JSON.stringify(questObjectives, null, 2)}`)
+    systemBlocks.push({ type: 'text', text: `=== QUESTS & OBJECTIVES ===\n${JSON.stringify(questObjectives, null, 2)}` })
   }
-  const system = systemParts.join('\n\n')
 
   // Build message history from last 4 turns
   const messages: Anthropic.Messages.MessageParam[] = lastFourTurns.map((t) => ({
@@ -145,7 +157,7 @@ export async function* streamArchitect({
     model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     temperature: 0.5,
-    system,
+    system: systemBlocks,
     messages,
   })
 
@@ -156,5 +168,17 @@ export async function* streamArchitect({
     ) {
       yield event.delta.text
     }
+  }
+
+  if (userId) {
+    const finalMsg = await stream.finalMessage()
+    recordTokenUsage({
+      userId,
+      characterId,
+      agent: 'architect',
+      model: 'claude-sonnet-4-6',
+      inputTokens: finalMsg.usage.input_tokens,
+      outputTokens: finalMsg.usage.output_tokens,
+    })
   }
 }

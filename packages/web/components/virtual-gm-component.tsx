@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Send, Terminal, Sparkles, User, Loader2, Dice1, Zap, Sun, Moon, X, Trash2, ShieldOff } from 'lucide-react';
 import { useCharacterStore } from '@/features/characters/hooks/use-character-store';
+import { useApiKey } from '@/hooks/use-api-key';
 
 // ─── Sky Tracker ──────────────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ export default function ChatGMComponent({
 }: ChatGMProps) {
   const isDirty = useCharacterStore((s) => s.isDirty);
   const gmBlocked = isDirty || isSyncing;
+  const { apiKey } = useApiKey();
 
   const [turnCount, setTurnCount] = useState(0);
   const [messages, setMessages] = useState<Message[]>([
@@ -197,9 +199,12 @@ export default function ChatGMComponent({
     setStreamingContent('');
 
     try {
+      const gmHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (apiKey) gmHeaders['X-Anthropic-Key'] = apiKey
+
       const res = await fetch('/api/gm', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: gmHeaders,
         body: JSON.stringify({
           message,
           characterId,

@@ -1,6 +1,6 @@
 # Katabatak
 
-A tabletop RPG companion platform — [katabatak.com](https://katabatak.com)
+A tabletop RPG companion, and AI GM — [katabatak.com](https://katabatak.com)
 
 Players create characters, join game rooms, and play through sessions managed by a human GM or the **SYNGEM** AI Game Master. The GM server runs as an independent service and handles all AI pipeline work, keeping the Anthropic and Supabase service-role keys off the client entirely.
 

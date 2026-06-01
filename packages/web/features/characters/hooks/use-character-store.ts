@@ -156,6 +156,19 @@ export interface CharacterStoreState extends LiveSheet {
   toggleEquip: (inventoryId: string) => void
 
   /**
+   * Exclusively equip one item within its type category (weapon / armor).
+   * All siblings of the same type are unequipped; clicking an already-equipped
+   * item toggles it off. Does not write to the database.
+   */
+  equipItem: (inventoryId: string) => void
+
+  /**
+   * Unequip every item of the given type. Used when switching to unarmed.
+   * Does not write to the database.
+   */
+  unequipAll: (itemType: string) => void
+
+  /**
    * Advance the committed baseline to the current live state, clearing isDirty.
    * Call this after a successful DB write confirms the live state.
    */
@@ -249,6 +262,35 @@ export const useCharacterStore = create<CharacterStoreState>((set, get) => ({
         item.inventory_id === inventoryId
           ? { ...item, is_equipped: !item.is_equipped }
           : item
+      )
+      return {
+        inventory,
+        isDirty: !state._committed || !sheetEquals({ ...liveSheet(state), inventory }, state._committed),
+      }
+    })
+  },
+
+  equipItem(inventoryId) {
+    set((state) => {
+      const target = state.inventory.find((i) => i.inventory_id === inventoryId)
+      if (!target) return state
+      const alreadyEquipped = target.is_equipped
+      const inventory = state.inventory.map((item) => {
+        if (item.type !== target.type) return item
+        if (item.inventory_id === inventoryId) return { ...item, is_equipped: !alreadyEquipped }
+        return { ...item, is_equipped: false }
+      })
+      return {
+        inventory,
+        isDirty: !state._committed || !sheetEquals({ ...liveSheet(state), inventory }, state._committed),
+      }
+    })
+  },
+
+  unequipAll(itemType) {
+    set((state) => {
+      const inventory = state.inventory.map((item) =>
+        item.type === itemType ? { ...item, is_equipped: false } : item
       )
       return {
         inventory,

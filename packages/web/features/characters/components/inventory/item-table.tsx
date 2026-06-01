@@ -24,6 +24,7 @@ export interface Item {
   name: string
   type: string
   hidden: boolean
+  is_equipped?: boolean
   is_magical?: boolean
   subtype?: string
   weight?: number
@@ -69,6 +70,7 @@ interface ItemTableProps {
   emptyMessage: string
   isGM?: boolean
   gameCharacters?: GameCharacter[]
+  onEquip?: (item: Item) => void
   onRepair?: (item: Item) => void
   onConsume?: (item: Item) => void
   onDrop?: (item: Item) => void
@@ -93,6 +95,7 @@ export function ItemTable({
   emptyMessage,
   isGM = false,
   gameCharacters = [],
+  onEquip,
   onRepair,
   onConsume,
   onDrop,
@@ -457,6 +460,19 @@ export function ItemTable({
 
                   {!isGM && (
                     <div className="flex gap-2 pt-2">
+                      {onEquip && (item.type === "weapon" || item.type === "armor") && (
+                        <button
+                          onClick={() => onEquip(item)}
+                          title={item.is_equipped ? "Unequip" : "Equip"}
+                          className={`px-3 py-2 text-xs font-bold tracking-widest border transition-all ${
+                            item.is_equipped
+                              ? "border-blue-500 text-blue-400 bg-blue-950/30"
+                              : "border-muted-foreground/30 text-muted-foreground"
+                          }`}
+                        >
+                          E
+                        </button>
+                      )}
                       {!item.consumable && (item.condition ?? 100) < 100 && (
                         <button
                           onClick={() => onRepair?.(item)}
@@ -630,6 +646,19 @@ export function ItemTable({
                     )}
                     {!isGM && (
                       <td className="p-3 text-right space-x-2 whitespace-nowrap">
+                        {onEquip && (item.type === "weapon" || item.type === "armor") && (
+                          <button
+                            onClick={() => onEquip(item)}
+                            title={item.is_equipped ? "Unequip" : "Equip"}
+                            className={`px-2 py-1 text-xs font-bold tracking-widest border transition-all ${
+                              item.is_equipped
+                                ? "border-blue-500 text-blue-400 bg-blue-950/30"
+                                : "border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/60"
+                            }`}
+                          >
+                            E
+                          </button>
+                        )}
                         {!item.consumable && (item.condition ?? 100) < 100 && (
                           <button
                             onClick={() => onRepair?.(item)}

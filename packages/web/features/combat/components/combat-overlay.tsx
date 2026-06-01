@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { CreatureDisplay } from "./creature-display"
 import { CombatLogPanel } from "./combat-log-panel"
@@ -85,6 +85,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   const [busy, setBusy] = useState(false)
   const [round, setRound] = useState(1)
   const [flashCreatureId, setFlashCreatureId] = useState<string | null>(null)
+  const initialWeaponIdRef = useRef<string | null>(null)
 
   // ── Data loaders ────────────────────────────────────────────────────────────
 
@@ -117,7 +118,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   const loadWeapons = useCallback(async () => {
     const { data } = await supabase
       .from("character_inventory")
-      .select("id, is_equipped, condition, items!inner(name, damage, strong_damage, cost, strong_cost, cost_attribute_name, subtype, short_description, type)")
+      .select("id, is_equipped, condition, items!inner(name, damage, strong_damage, cost, strong_cost, cost_attribute_name, subtype, short_description, type, hidden)")
       .eq("character_id", characterId)
     if (data) {
       type InvRow = {
@@ -134,10 +135,11 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
           subtype: string | null
           short_description: string | null
           type: string | null
+          hidden: boolean | null
         }
       }
       const w: WeaponOption[] = (data as unknown as InvRow[])
-        .filter(row => row.items.type === "weapon")
+        .filter(row => row.items.type === "weapon" && !row.items.hidden)
         .map(row => ({
           inventoryId: row.id,
           name: row.items.name,
@@ -154,10 +156,15 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
 
       const result = w.length > 0 ? w : [UNARMED_SYNTHETIC]
       setWeapons(result)
+
       // Pre-select equipped weapon, or first weapon
       if (!selectedWeaponId || !result.find(x => x.inventoryId === selectedWeaponId)) {
-        const equipped = result.find(x => x.isEquipped) ?? result[0]
-        setSelectedWeaponId(equipped?.inventoryId ?? null)
+        const preSelected = result.find(x => x.isEquipped) ?? result[0]
+        setSelectedWeaponId(preSelected?.inventoryId ?? null)
+        // Lock in the initial weapon so Attack is available without an equip action
+        if (!initialWeaponIdRef.current && preSelected) {
+          initialWeaponIdRef.current = preSelected.inventoryId
+        }
       }
     }
   }, [characterId, supabase, selectedWeaponId])
@@ -239,13 +246,14 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   // ── Actions ──────────────────────────────────────────────────────────────────
 
   async function handleAttack(attackType: "normal" | "strong") {
-    if (!selectedWeaponId || !selectedTargetId || busy) return
+    const effectiveTarget = selectedTargetId ?? aliveCreatures[0]?.id ?? null
+    if (!selectedWeaponId || !effectiveTarget || busy) return
     setBusy(true)
     try {
       const res = await fetch("/api/gm/combat/player-attack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId, characterId, weaponInventoryId: selectedWeaponId, attackType, targetCreatureId: selectedTargetId }),
+        body: JSON.stringify({ gameId, characterId, weaponInventoryId: selectedWeaponId, attackType, targetCreatureId: effectiveTarget }),
       })
       const data = await res.json() as { ok?: boolean; combatPhase?: string | null; outcome?: string }
       if (data.ok) {
@@ -373,6 +381,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
             aliveCreatures={aliveCreatures}
             selectedWeaponId={selectedWeaponId}
             selectedTargetId={selectedTargetId ?? (aliveCreatures[0]?.id ?? null)}
+            initialWeaponId={initialWeaponIdRef.current}
             onSelectWeapon={setSelectedWeaponId}
             onSelectTarget={setSelectedTargetId}
             onAttack={handleAttack}

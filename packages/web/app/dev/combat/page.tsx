@@ -6,6 +6,11 @@ import { ChevronLeft, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { CombatOverlay } from "@/features/combat/components/combat-overlay"
 
+interface Game {
+  id: string
+  name: string
+}
+
 interface Character {
   id: string
   name: string
@@ -30,12 +35,12 @@ const BTN_DANGER =
 export default function CombatTestPage() {
   const supabase = createClient()
 
+  const [games, setGames] = useState<Game[]>([])
   const [characters, setCharacters] = useState<Character[]>([])
   const [creatures, setCreatures] = useState<Creature[]>([])
 
+  const [selectedGameId, setSelectedGameId] = useState("")
   const [selectedCharId, setSelectedCharId] = useState("")
-  const [resolvedGameId, setResolvedGameId] = useState<string | null>(null)
-  const [gameError, setGameError] = useState("")
 
   const [selectedCreatures, setSelectedCreatures] = useState<Creature[]>([])
   const [creatureSearch, setCreatureSearch] = useState("")
@@ -49,36 +54,17 @@ export default function CombatTestPage() {
 
   useEffect(() => {
     async function load() {
-      const [{ data: chars }, { data: crs }] = await Promise.all([
+      const [{ data: gs }, { data: chars }, { data: crs }] = await Promise.all([
+        supabase.from("games").select("id, name").order("name"),
         supabase.from("characters").select("id, name").order("name"),
         supabase.from("creatures").select("id, name, level").order("level").order("name"),
       ])
+      setGames((gs ?? []) as Game[])
       setCharacters((chars ?? []) as Character[])
       setCreatures((crs ?? []) as Creature[])
     }
     void load()
   }, [supabase])
-
-  // Resolve game_id whenever character changes
-  useEffect(() => {
-    if (!selectedCharId) { setResolvedGameId(null); setGameError(""); return }
-    async function resolve() {
-      const { data, error } = await supabase
-        .from("game_members")
-        .select("game_id")
-        .eq("character_id", selectedCharId)
-        .limit(1)
-        .single()
-      if (error || !data?.game_id) {
-        setResolvedGameId(null)
-        setGameError("No game found for this character.")
-      } else {
-        setResolvedGameId(data.game_id)
-        setGameError("")
-      }
-    }
-    void resolve()
-  }, [selectedCharId, supabase])
 
   // Close search dropdown on outside click
   useEffect(() => {
@@ -108,7 +94,7 @@ export default function CombatTestPage() {
   }
 
   async function startCombat() {
-    if (!resolvedGameId || !selectedCharId || selectedCreatures.length === 0) return
+    if (!selectedGameId || !selectedCharId || selectedCreatures.length === 0) return
     setBusy(true)
     setStatus("Adding creatures to encounter…")
     try {
@@ -119,10 +105,10 @@ export default function CombatTestPage() {
 
       if (!templates?.length) { setStatus("Creature templates not found."); return }
 
-      await supabase.from("encounter_creatures").delete().eq("game_id", resolvedGameId)
+      await supabase.from("encounter_creatures").delete().eq("game_id", selectedGameId)
 
       const rows = templates.map(c => ({
-        game_id: resolvedGameId,
+        game_id: selectedGameId,
         creature_id: c.id,
         name: c.name,
         level: c.level,
@@ -150,7 +136,7 @@ export default function CombatTestPage() {
       const res = await fetch("/api/gm/combat/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId: resolvedGameId }),
+        body: JSON.stringify({ gameId: selectedGameId }),
       })
       const data = await res.json() as { ok?: boolean; error?: string }
       if (!data.ok) { setStatus(`Error: ${data.error ?? "unknown"}`); return }
@@ -164,13 +150,13 @@ export default function CombatTestPage() {
   }
 
   async function endCombat() {
-    if (!resolvedGameId) return
+    if (!selectedGameId) return
     setBusy(true)
     try {
       await fetch("/api/gm/combat/end", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId: resolvedGameId }),
+        body: JSON.stringify({ gameId: selectedGameId }),
       })
     } finally {
       setCombatActive(false)
@@ -183,11 +169,11 @@ export default function CombatTestPage() {
     setCombatActive(false)
   }
 
-  if (combatActive && resolvedGameId && selectedCharId) {
+  if (combatActive && selectedGameId && selectedCharId) {
     return (
       <div className="relative h-screen">
         <CombatOverlay
-          gameId={resolvedGameId}
+          gameId={selectedGameId}
           characterId={selectedCharId}
           onCombatEnd={handleCombatEnd}
         />
@@ -203,7 +189,7 @@ export default function CombatTestPage() {
 
   return (
     <div className="min-h-screen bg-background p-8 max-w-2xl mx-auto">
-      <Link href="/dev" className="flex items-center gap-1 text-muted-foreground hover:text-foreground text-xs mb-8">
+      <Link href="/dashboard" className="flex items-center gap-1 text-muted-foreground hover:text-foreground text-xs mb-8">
         <ChevronLeft className="w-3 h-3" />
         Dev Tools
       </Link>
@@ -223,6 +209,15 @@ export default function CombatTestPage() {
       )}
 
       <div className="flex flex-col gap-6">
+        {/* Game */}
+        <div>
+          <div className={LABEL}>Game</div>
+          <select value={selectedGameId} onChange={e => setSelectedGameId(e.target.value)} className={SELECT}>
+            <option value="">— select game —</option>
+            {games.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        </div>
+
         {/* Character */}
         <div>
           <div className={LABEL}>Character</div>
@@ -230,12 +225,6 @@ export default function CombatTestPage() {
             <option value="">— select character —</option>
             {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          {gameError && (
-            <p className="font-mono text-[9px] text-destructive/70 mt-1">{gameError}</p>
-          )}
-          {resolvedGameId && (
-            <p className="font-mono text-[9px] text-muted-foreground/40 mt-1">Game resolved ✓</p>
-          )}
         </div>
 
         {/* Creatures — searchable */}
@@ -289,14 +278,14 @@ export default function CombatTestPage() {
         <div className="flex gap-3 pt-2">
           <button
             onClick={startCombat}
-            disabled={busy || !selectedCharId || !resolvedGameId || selectedCreatures.length === 0}
+            disabled={busy || !selectedGameId || !selectedCharId || selectedCreatures.length === 0}
             className={BTN_PRIMARY}
           >
             {busy ? "Starting…" : "Start Combat"}
           </button>
           <button
             onClick={endCombat}
-            disabled={busy || !resolvedGameId}
+            disabled={busy || !selectedGameId}
             className={BTN_DANGER}
           >
             Force End

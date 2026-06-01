@@ -462,23 +462,27 @@ export async function resolvePlayerEquip(
   // Load the new weapon's name for the log
   const { data: invRow } = await supabase
     .from('character_inventory')
-    .select('items!inner(name, type)')
+    .select('items!inner(name, type, hidden)')
     .eq('id', inventoryId)
     .eq('character_id', characterId)
     .single()
   if (!invRow) return { error: 'Item not found in inventory' }
 
-  type NamedItem = { name: string; type: string | null }
+  type NamedItem = { name: string; type: string | null; hidden: boolean | null }
   const item = invRow.items as unknown as NamedItem
   if (item.type !== 'weapon') return { error: 'Item is not a weapon' }
+  if (item.hidden) return { error: 'Cannot equip hidden items' }
 
-  // Unequip all weapons for this character, then equip the chosen one
+  // Unequip all non-hidden weapons for this character, then equip the chosen one
   const { data: weaponRows } = await supabase
     .from('character_inventory')
-    .select('id, items!inner(type)')
+    .select('id, items!inner(type, hidden)')
     .eq('character_id', characterId)
     .eq('items.type', 'weapon' as any)
-  const weaponIds = (weaponRows ?? []).map(r => r.id)
+  type WeaponRow = { id: string; items: { type: string | null; hidden: boolean | null } }
+  const weaponIds = ((weaponRows ?? []) as unknown as WeaponRow[])
+    .filter(r => !r.items.hidden)
+    .map(r => r.id)
   if (weaponIds.length) {
     await supabase.from('character_inventory').update({ is_equipped: false }).in('id', weaponIds)
   }

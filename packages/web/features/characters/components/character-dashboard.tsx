@@ -136,6 +136,31 @@ function buildSnapshot(char: Character, items: Item[]): CharacterSnapshot {
 
 type ActionType = "Attack" | "Defend" | "Cast"
 
+// Synthetic unarmed items — shown in action card dropdowns, never in inventory tables
+const UNARMED_ATTACK_ITEM: Item = {
+  id: "__unarmed__",
+  name: "Unarmed Strike",
+  type: "weapon",
+  subtype: "melee",
+  hidden: false,
+  consumable: false,
+  damage: 2,
+  die_count: 1,
+  cost: 0,
+  short_description: "Bare hands. Better than nothing.",
+}
+
+const UNARMED_DEFEND_ITEM: Item = {
+  id: "__unarmed_def__",
+  name: "Unarmed Defence",
+  type: "armor",
+  hidden: false,
+  consumable: false,
+  defence: 0,
+  cost: 0,
+  short_description: "No armor. Your skin is your shield.",
+}
+
 interface Notification {
   text?: string
   url?: string
@@ -413,6 +438,8 @@ export function CharacterDashboard({
   const storeUpdatePool    = useCharacterStore(s => s.updatePool)
   const storeModifyStat    = useCharacterStore(s => s.modifyStat)
   const storeLoadFromSnap  = useCharacterStore(s => s.loadFromSnapshot)
+  const storeEquipItem     = useCharacterStore(s => s.equipItem)
+  const storeUnequipAll    = useCharacterStore(s => s.unequipAll)
   useCharacterSync()
 
   // Seed the store once per character load. _committed baseline is set here.
@@ -432,8 +459,8 @@ export function CharacterDashboard({
 
   // ── Derived item lists ──────────────────────────────────────────────────────
 
-  const attackItems  = items.filter((i) => i.type === "weapon")
-  const defendItems  = items.filter((i) => i.type === "armor")
+  const attackItems  = items.filter((i) => i.type === "weapon" && !i.hidden)
+  const defendItems  = items.filter((i) => i.type === "armor"  && !i.hidden)
   const castItems    = items.filter((i) => i.type === "spell")
   const weapons      = attackItems
   const armor        = defendItems
@@ -457,8 +484,20 @@ export function CharacterDashboard({
   const effectiveCarryCapacity = Math.round(
     (character.carrying_capacity ?? 0) + (skillFx.statModifiers['carry_weight']?.add ?? 0)
   )
-  const effectiveAttackItems = attackItems
-  const effectiveDefendItems = defendItems
+  const effectiveAttackItems = [...attackItems, UNARMED_ATTACK_ITEM]
+  const effectiveDefendItems = [...defendItems, UNARMED_DEFEND_ITEM]
+
+  // Sync action card selection with equipped item on initial load
+  useEffect(() => {
+    const equippedWeapon = attackItems.find(w => w.is_equipped)
+    if (equippedWeapon) setSelectedAttackId(equippedWeapon.id)
+    else if (attackItems.length === 0) setSelectedAttackId(UNARMED_ATTACK_ITEM.id)
+
+    const equippedArmor = defendItems.find(a => a.is_equipped)
+    if (equippedArmor) setSelectedDefendId(equippedArmor.id)
+    else if (defendItems.length === 0) setSelectedDefendId(UNARMED_DEFEND_ITEM.id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [character.id])
 
   // ── Skill Tree Updates───────────────────────────────────────────────────────
 
@@ -511,7 +550,10 @@ export function CharacterDashboard({
   }
 
   const handleAction = async (actionType: ActionType, itemId: string, isStrong = false) => {
+    // Resolve real item or fall back to synthetic unarmed constants
     const item = items.find((i) => i.id === itemId)
+      ?? (itemId === UNARMED_ATTACK_ITEM.id ? UNARMED_ATTACK_ITEM : null)
+      ?? (itemId === UNARMED_DEFEND_ITEM.id ? UNARMED_DEFEND_ITEM : null)
     if (!item) return
 
     const supabase = createClient()
@@ -908,7 +950,11 @@ export function CharacterDashboard({
 
             {/* ROLL button — select an action card first, then fire here */}
             {(() => {
-              const pendingItem = pendingAction ? items.find(i => i.id === pendingAction.itemId) : null
+              const pendingItem = pendingAction
+                ? (items.find(i => i.id === pendingAction.itemId)
+                  ?? (pendingAction.itemId === UNARMED_ATTACK_ITEM.id ? UNARMED_ATTACK_ITEM : null)
+                  ?? (pendingAction.itemId === UNARMED_DEFEND_ITEM.id ? UNARMED_DEFEND_ITEM : null))
+                : null
               const label = pendingAction
                 ? `Roll: ${pendingAction.isStrong ? "Strong " : ""}${pendingAction.type}${pendingItem ? ` — ${pendingItem.name}` : ""}`
                 : "Roll"
@@ -970,7 +1016,11 @@ export function CharacterDashboard({
                 label="Attack"
                 items={effectiveAttackItems}
                 selectedId={selectedAttackId}
-                onSelect={setSelectedAttackId}
+                onSelect={(id) => {
+                  setSelectedAttackId(id)
+                  if (id === UNARMED_ATTACK_ITEM.id) storeUnequipAll("weapon")
+                  else storeEquipItem(id)
+                }}
                 onAction={(isStrong) => setPendingAction({ type: "Attack", itemId: selectedAttackId, isStrong })}
                 isFlat={false}
               />
@@ -978,7 +1028,11 @@ export function CharacterDashboard({
                 label="Defend"
                 items={effectiveDefendItems}
                 selectedId={selectedDefendId}
-                onSelect={setSelectedDefendId}
+                onSelect={(id) => {
+                  setSelectedDefendId(id)
+                  if (id === UNARMED_DEFEND_ITEM.id) storeUnequipAll("armor")
+                  else storeEquipItem(id)
+                }}
                 onAction={(isStrong) => setPendingAction({ type: "Defend", itemId: selectedDefendId, isStrong })}
                 isFlat={true}
               />
@@ -1189,6 +1243,10 @@ export function CharacterDashboard({
                 items={weapons}
                 columns={["name", "damage", "weight", "condition", "short_description"]}
                 emptyMessage="No weapons equipped"
+                onEquip={(item) => {
+                  storeEquipItem(item.id)
+                  setSelectedAttackId(item.id)
+                }}
                 onRepair={handleRepair}
                 onConsume={handleConsume}
                 onDrop={handleDrop}
@@ -1206,6 +1264,10 @@ export function CharacterDashboard({
                 items={armor}
                 columns={["name", "defence", "weight", "condition", "short_description"]}
                 emptyMessage="No armor equipped"
+                onEquip={(item) => {
+                  storeEquipItem(item.id)
+                  setSelectedDefendId(item.id)
+                }}
                 onRepair={handleRepair}
                 onConsume={handleConsume}
                 onDrop={handleDrop}

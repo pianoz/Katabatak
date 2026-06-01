@@ -14,6 +14,7 @@ interface PhaseAProps {
   aliveCreatures: EncounterCreature[]
   selectedWeaponId: string | null
   selectedTargetId: string | null
+  initialWeaponId: string | null
   onSelectWeapon: (id: string) => void
   onSelectTarget: (id: string) => void
   onAttack: (type: "normal" | "strong") => void
@@ -32,6 +33,7 @@ export function PhaseAControls({
   aliveCreatures,
   selectedWeaponId,
   selectedTargetId,
+  initialWeaponId,
   onSelectWeapon,
   onSelectTarget,
   onAttack,
@@ -42,7 +44,8 @@ export function PhaseAControls({
 
   const weapon = weapons.find(w => w.inventoryId === selectedWeaponId)
   const hasStrong = weapon?.strongDamage != null
-  const isEquipped = weapon?.isEquipped ?? false
+  // Show Attack if this weapon is DB-equipped OR was the pre-selected weapon at combat start
+  const isEquipped = (weapon?.isEquipped ?? false) || weapon?.inventoryId === initialWeaponId
 
   function handleWeaponChange(inventoryId: string) {
     onSelectWeapon(inventoryId)
@@ -99,7 +102,7 @@ export function PhaseAControls({
               <div className="flex flex-col items-start gap-0.5">
                 <button
                   onClick={() => onAttack("normal")}
-                  disabled={busy || !selectedWeaponId || !selectedTargetId}
+                  disabled={busy || !selectedWeaponId || (!selectedTargetId && aliveCreatures.length === 0)}
                   className="font-mono text-[9px] uppercase tracking-widest px-4 py-2 border border-red-800/50 text-red-400 hover:enabled:bg-red-950/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   {busy ? "Resolving..." : "Attack"}
@@ -115,7 +118,7 @@ export function PhaseAControls({
                 <div className="flex flex-col items-start gap-0.5">
                   <button
                     onClick={() => onAttack("strong")}
-                    disabled={busy || !selectedWeaponId || !selectedTargetId}
+                    disabled={busy || !selectedWeaponId || (!selectedTargetId && aliveCreatures.length === 0)}
                     className="font-mono text-[9px] uppercase tracking-widest px-4 py-2 border border-amber-600/50 text-amber-400 hover:enabled:bg-amber-950/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     {busy ? "Resolving..." : "Strong Attack"}

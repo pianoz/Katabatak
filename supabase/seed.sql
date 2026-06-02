@@ -246,6 +246,42 @@ UPDATE public.creatures SET ascii_art = E'╌╌╌╌╌╌\n╌╌▒░╌╌
 UPDATE public.creatures SET ascii_art = E'  ▓▓  \n▓▓▓▓▓▓\n██████\n ████ \n▓█ █▓ \n  ‖‖  ' WHERE id = 'e1000000-0000-0000-0000-000000000005'; -- Ironback Boar
 
 -- -------------------------------------------------------------
+-- Test creatures (easy / medium / hard) for combat testing
+-- -------------------------------------------------------------
+INSERT INTO public.creatures (
+  id, name, level,
+  health_max, current_health,
+  power_max, current_power,
+  will_max, current_will,
+  essence_max, current_essence,
+  attack_damage, attack_cost, defence, strong_attack, strong_cost, defence_cost,
+  description
+) VALUES
+  ('e3000000-0000-0000-0000-000000000001',
+   'Scrapling', 1,
+   8, 8, 6, 6, 4, 4, 4, 4,
+   2, 1, 1, 4, 2, 1,
+   'A scrawny, feral thing — half-starved and all teeth. Fast but fragile. It bites before it thinks.'),
+
+  ('e3000000-0000-0000-0000-000000000002',
+   'Dreg Soldier', 3,
+   20, 20, 10, 10, 8, 8, 6, 6,
+   5, 1, 2, 8, 2, 1,
+   'A veteran of some forgotten war. Scarred, slow, and still dangerous. Knows which angle to attack from.'),
+
+  ('e3000000-0000-0000-0000-000000000003',
+   'Ironveil Reaver', 5,
+   36, 36, 16, 16, 12, 12, 10, 10,
+   7, 1, 3, 12, 3, 2,
+   'An elite warrior wrapped in layered iron plate and old anger. Every strike lands like a siege weapon. It does not tire.')
+
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE public.creatures SET ascii_art = E'  ◦◦  \n ░[x]░\n░░░░░░\n  ╵╵  \n      \n      ' WHERE id = 'e3000000-0000-0000-0000-000000000001'; -- Scrapling
+UPDATE public.creatures SET ascii_art = E'  ▓▓  \n [◉▓] \n ████ \n▓ ║ ▓ \n  ║   \n ░░░  ' WHERE id = 'e3000000-0000-0000-0000-000000000002'; -- Dreg Soldier
+UPDATE public.creatures SET ascii_art = E' ╔██╗ \n ╠▓▓╣ \n█╠██╣█\n█╠██╣█\n ╠══╣ \n ╚══╝ ' WHERE id = 'e3000000-0000-0000-0000-000000000003'; -- Ironveil Reaver
+
+-- -------------------------------------------------------------
 -- World lore
 -- -------------------------------------------------------------
 INSERT INTO public.world_lore (name, category, short_desc, long_desc) VALUES

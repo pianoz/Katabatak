@@ -92,6 +92,14 @@ export async function* handleGMMessage({
 
   // 6. Gather lore context for info actions, or run flat search for task/attack
   const locationId = (contextBlock.character.character as Record<string, unknown>)['location_place'] as string | null ?? null
+
+  // locationEntities is ordered place→region→nation
+  const locationContext = {
+    locationPlaceId: locationId,
+    placeContext: contextBlock.locationEntities[0]?.name ?? null,
+    regionContext: contextBlock.locationEntities[1]?.name ?? null,
+    nationContext: contextBlock.locationEntities[2]?.name ?? null,
+  }
   let searchResults: string | null = null
   if (loreResult.action_type === 'info' && locationId) {
     const keywords = (loreResult.search_objects ?? [])
@@ -169,10 +177,10 @@ export async function* handleGMMessage({
     synLog('HANDLER', '⚠ ledger neutered — skipping DB write')
   } else {
     synLog('HANDLER', '→ ledger + state-executor fired (async)')
-    runLedger({ narrativeText: fullResponse, characterId, client, userId })
+    runLedger({ narrativeText: fullResponse, characterId, locationContext, client, userId })
       .then((ledgerOutputs) => {
         if (ledgerOutputs.length) {
-          return executeStateChanges(characterId, ledgerOutputs)
+          return executeStateChanges(characterId, ledgerOutputs, locationContext)
         }
       })
       .catch((err) => synLog('HANDLER', `✗ [Ledger/StateExecutor] async error: ${err instanceof Error ? err.message : String(err)}`))

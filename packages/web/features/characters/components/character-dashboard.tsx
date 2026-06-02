@@ -1,7 +1,7 @@
 ﻿"use client"
 
 // ─── External imports ────────────────────────────────────────────────────────
-import { useState, useTransition, useEffect } from "react"
+import { useState, useTransition, useEffect, useMemo } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Bell, ChevronLeft, Check, Info, Minus, Package, Pencil, Plus, Shield, Sparkles, Sword, Trash2, Wrench, X } from "lucide-react"
@@ -42,6 +42,7 @@ import { ActionSkillModal, type ActionSkill } from "@/features/characters/compon
 import { PoolCounter } from "@/features/characters/components/pools/pool-counter"
 import { usePendingOffers } from "@/features/characters/hooks/use-pending-offers"
 import { CombatOverlay } from "@/features/combat/components/combat-overlay"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 
 interface Item {
   id: string
@@ -330,6 +331,8 @@ interface CharacterDashboardProps {
   actionSkills: ActionSkill[]
   /** "syngem" renders the 3-column SYNGEM-first layout; "irl" is the default. */
   variant?: "irl" | "syngem"
+  /** Show the first-time attribute pools explainer popup (true when user has exactly 1 SYNGEM character). */
+  showWelcomePopup?: boolean
 }
 
 export function CharacterDashboard({
@@ -342,6 +345,7 @@ export function CharacterDashboard({
   level,
   actionSkills,
   variant = "irl",
+  showWelcomePopup = false,
 }: CharacterDashboardProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -356,6 +360,7 @@ export function CharacterDashboard({
   const [activeTab,      setActiveTab]      = useState("actions")
   const [syngemActive,   setSyngemActive]   = useState(false)
   const [combatGameId,   setCombatGameId]   = useState<string | null>(null)
+  const [poolsPopupOpen, setPoolsPopupOpen] = useState(showWelcomePopup)
 
   useEffect(() => {
     const supabase = createClient()
@@ -440,6 +445,7 @@ export function CharacterDashboard({
   const storeLoadFromSnap  = useCharacterStore(s => s.loadFromSnapshot)
   const storeEquipItem     = useCharacterStore(s => s.equipItem)
   const storeUnequipAll    = useCharacterStore(s => s.unequipAll)
+  const storeInventory     = useCharacterStore(s => s.inventory)
   useCharacterSync()
 
   // Seed the store once per character load. _committed baseline is set here.
@@ -459,12 +465,22 @@ export function CharacterDashboard({
 
   // ── Derived item lists ──────────────────────────────────────────────────────
 
-  const attackItems  = items.filter((i) => i.type === "weapon" && !i.hidden)
-  const defendItems  = items.filter((i) => i.type === "armor"  && !i.hidden)
-  const castItems    = items.filter((i) => i.type === "spell")
+  // Merge store's live is_equipped into the static server-fetched items so that
+  // equip/unequip clicks are immediately reflected in the UI without a page reload.
+  const liveItems = useMemo(
+    () => items.map(item => {
+      const storeItem = storeInventory.find(si => si.inventory_id === item.id)
+      return storeItem != null ? { ...item, is_equipped: storeItem.is_equipped } : item
+    }),
+    [items, storeInventory]
+  )
+
+  const attackItems  = liveItems.filter((i) => i.type === "weapon" && !i.hidden)
+  const defendItems  = liveItems.filter((i) => i.type === "armor"  && !i.hidden)
+  const castItems    = liveItems.filter((i) => i.type === "spell")
   const weapons      = attackItems
   const armor        = defendItems
-  const otherItems = items.filter((i) => i.type !== "weapon" && i.type !== "armor")
+  const otherItems = liveItems.filter((i) => i.type !== "weapon" && i.type !== "armor")
 
   const [selectedAttackId, setSelectedAttackId] = usePersistedSelection(`action_attack_${character.id}`, attackItems)
   const [selectedDefendId, setSelectedDefendId] = usePersistedSelection(`action_defend_${character.id}`, defendItems)
@@ -682,6 +698,39 @@ export function CharacterDashboard({
 
   return (
     <div className="min-h-screen bg-background">
+      {/* First-time SYNGEM attribute pools explainer */}
+      <Dialog open={poolsPopupOpen} onOpenChange={setPoolsPopupOpen}>
+        <DialogContent className="max-w-lg bg-zinc-950 border border-zinc-800 p-0">
+          <DialogHeader className="px-8 pt-8 pb-0">
+            <p className="text-[9px] uppercase tracking-[0.5em] text-cyan-900 font-mono mb-3">SYNGEM — Attribute Pools</p>
+            <DialogTitle className="font-serif text-zinc-100 text-2xl leading-snug">
+              The Four Pools
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-8 py-6 border-l-2 border-cyan-900/40 mx-8 my-2">
+            <p className="font-serif text-zinc-300 text-sm leading-loose">
+              In Katabatak, you have four pools which represent your character&apos;s capacity in each attribute.{" "}
+              <span className="text-zinc-100">Power</span> represents strength and conviction.{" "}
+              <span className="text-zinc-100">Will</span> represents dexterity and performance.{" "}
+              <span className="text-zinc-100">Essence</span> represents magic and perception.
+            </p>
+            <p className="font-serif text-zinc-300 text-sm leading-loose mt-4">
+              These pools serve as the base for checks you make, though you can spend from them to increase your odds of success.
+              You also pull from these to deal damage and defend yourself during combat.
+              Spend them wisely, as you only regain 7 back on a long rest.
+            </p>
+          </div>
+          <DialogFooter className="px-8 pb-8 pt-2">
+            <button
+              onClick={() => setPoolsPopupOpen(false)}
+              className="text-xs uppercase tracking-[0.4em] text-cyan-600 hover:text-cyan-400 border border-cyan-900/40 hover:border-cyan-700/60 px-8 py-3 transition-all"
+            >
+              Understood
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
       <header className="border-b border-border">
         <div className="px-6 md:px-12 lg:px-20 py-4 flex items-center justify-between">

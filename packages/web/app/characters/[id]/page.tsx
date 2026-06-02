@@ -33,6 +33,16 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
 
   const isSyngemCharacter = character.syngem_game === true
 
+  let showWelcomePopup = false
+  if (isSyngemCharacter) {
+    const { count } = await supabase
+      .from("characters")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("syngem_game", true)
+    showWelcomePopup = count === 1
+  }
+
   return (
     <CharacterDashboard
       character={character}
@@ -44,6 +54,7 @@ export default async function CharacterPage({ params }: CharacterPageProps) {
       level={level}
       actionSkills={actionSkills}
       variant={isSyngemCharacter ? "syngem" : "irl"}
+      showWelcomePopup={showWelcomePopup}
     />
   )
 }

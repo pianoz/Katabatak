@@ -16,7 +16,6 @@ interface PhaseAProps {
   selectedTargetId: string | null
   initialWeaponId: string | null
   onSelectWeapon: (id: string) => void
-  onSelectTarget: (id: string) => void
   onAttack: (type: "normal" | "strong") => void
   onEquip: (inventoryId: string) => void
   busy: boolean
@@ -35,7 +34,6 @@ export function PhaseAControls({
   selectedTargetId,
   initialWeaponId,
   onSelectWeapon,
-  onSelectTarget,
   onAttack,
   onEquip,
   busy,
@@ -98,24 +96,24 @@ export function PhaseAControls({
         <div className="border-t border-border/30 pt-3">
           {isEquipped ? (
             /* ── Equipped — show attack buttons ── */
-            <div className="flex gap-3 flex-wrap">
-              <div className="flex flex-col items-start gap-0.5">
+            <div className="flex items-end gap-4 flex-wrap">
+              <div className="flex flex-col items-start gap-1">
                 <button
                   onClick={() => onAttack("normal")}
                   disabled={busy || !selectedWeaponId || (!selectedTargetId && aliveCreatures.length === 0)}
-                  className="font-mono text-[9px] uppercase tracking-widest px-4 py-2 border border-red-800/50 text-red-400 hover:enabled:bg-red-950/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="font-mono text-sm uppercase tracking-[0.2em] px-8 py-3 border-2 border-red-700/60 bg-red-950/20 text-red-300 hover:enabled:bg-red-900/35 hover:enabled:border-red-600/80 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 >
                   {busy ? "Resolving..." : "Attack"}
                 </button>
                 {weapon && (
-                  <span className="font-mono text-[8px] text-muted-foreground/40">
+                  <span className="font-mono text-[8px] text-muted-foreground/40 pl-0.5">
                     {weapon.damage} · {weapon.cost ?? 0}{weapon.costAttribute.charAt(0).toUpperCase()}
                   </span>
                 )}
               </div>
 
               {hasStrong && (
-                <div className="flex flex-col items-start gap-0.5">
+                <div className="flex flex-col items-start gap-0.5 mb-0.5">
                   <button
                     onClick={() => onAttack("strong")}
                     disabled={busy || !selectedWeaponId || (!selectedTargetId && aliveCreatures.length === 0)}
@@ -179,30 +177,6 @@ export function PhaseAControls({
         </div>
       </div>
 
-      {/* Target selector */}
-      {aliveCreatures.length > 1 && (
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-[8px] uppercase tracking-widest text-muted-foreground/50">Target</span>
-          <div className="flex gap-1.5 flex-wrap">
-            {aliveCreatures.map(c => (
-              <button
-                key={c.id}
-                onClick={() => onSelectTarget(c.id)}
-                disabled={busy}
-                className={[
-                  "font-mono text-[9px] uppercase tracking-widest px-3 py-1.5 border transition-colors",
-                  selectedTargetId === c.id
-                    ? "border-red-600/60 text-red-400 bg-red-950/20"
-                    : "border-border/40 text-muted-foreground hover:border-red-800/50 hover:text-red-400",
-                  "disabled:opacity-40 disabled:cursor-not-allowed",
-                ].join(" ")}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

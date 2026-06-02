@@ -116,6 +116,8 @@ export interface ContextBlock {
   powerText: string
   willText: string
   locationEntities: LocationEntity[]
+  /** Character-scoped improvised entities at the current location (from improvised_entities table). */
+  improvisedEntities: LocationEntity[]
   encounterData: EncounterWithCreatures | null
   npcs: EnrichedNpc[]
   inventoryWeight: { current: number; max: number }
@@ -163,6 +165,16 @@ export interface CheckResolution {
   succeeded?: boolean
 }
 
+// ─── Location context (passed from handler into Ledger + StateExecutor) ──────
+
+/** Canonical location breadcrumb extracted from the character's current position. */
+export interface LocationContext {
+  locationPlaceId: string | null
+  placeContext: string | null
+  regionContext: string | null
+  nationContext: string | null
+}
+
 // ─── Ledger output ────────────────────────────────────────────────────────────
 
 /** Discriminated union of world-state mutations that the Ledger can produce. */
@@ -173,3 +185,4 @@ export type LedgerOutput =
   | { action: 'delete_entity'; entity_id: string; replacement_description: string }
   | { action: 'update_npc'; npc_id: string; mutations: NpcMutations }
   | { action: 'long_rest' }
+  | { action: 'grant_item'; item_name: string; item_type: string; description?: string; quantity?: number }

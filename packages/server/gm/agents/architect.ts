@@ -17,7 +17,7 @@ function formatGameTime(syngemGame: ContextBlock['syngemGame']): string | null {
 }
 
 function serializeContextBlock(ctx: ContextBlock): string {
-  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, encounterData, npcs, inventoryWeight, syngemGame } = ctx
+  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, improvisedEntities, encounterData, npcs, inventoryWeight, syngemGame } = ctx
 
   const lines: string[] = [
     '=== CHARACTER STATE ===',
@@ -52,6 +52,13 @@ function serializeContextBlock(ctx: ContextBlock): string {
     lines.push('', '=== CURRENT LOCATION ===')
     for (const e of locationEntities) {
       if (e.short_description) lines.push(`${e.name}: ${e.short_description}`)
+    }
+  }
+
+  if (improvisedEntities.length) {
+    lines.push('', '=== SCENE OBJECTS ===')
+    for (const e of improvisedEntities) {
+      lines.push(e.short_description ? `${e.name}: ${e.short_description}` : e.name)
     }
   }
 

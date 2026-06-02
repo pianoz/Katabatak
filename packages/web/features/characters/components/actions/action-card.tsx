@@ -51,9 +51,9 @@ const POOL_SUFFIX: Record<string, string> = { power: 'P', will: 'W', health: 'H'
 
 function resolveEffectStats(item: ActionCardItem, isStrong: boolean) {
   const eff = item.effects?.[isStrong ? 1 : 0]
-  const addMod = eff?.actions.find(a => a.math === 'add' && a.type === 'stat_modifier')?.Value
+  const addMod = eff?.actions?.find(a => a.math === 'add' && a.type === 'stat_modifier')?.Value
     ?? (isStrong ? null : item.modifier)
-  const multCoeff = eff?.actions.find(a => a.math === 'multiply' && a.type === 'stat_modifier')?.Value
+  const multCoeff = eff?.actions?.find(a => a.math === 'multiply' && a.type === 'stat_modifier')?.Value
     ?? (isStrong ? null : item.coefficient)
   const cost = eff?.cost?.value ?? (isStrong ? (item.strong_cost ?? item.cost) : item.cost)
   const costLabel = eff?.cost?.pool

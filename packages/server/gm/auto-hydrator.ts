@@ -16,6 +16,33 @@ function poolText(current: number | null, max: number | null): string {
   return 'Full'
 }
 
+/** Fetches improvised entities the Architect created for this character at the given location. */
+async function resolveImprovisedEntities(
+  characterId: string,
+  locationPlaceId: string | null,
+): Promise<LocationEntity[]> {
+  if (!locationPlaceId) return []
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
+    .from('improvised_entities')
+    .select('id, name, data')
+    .eq('character_id', characterId)
+    .eq('parent_id', locationPlaceId)
+
+  if (!data?.length) return []
+
+  return (data as Array<{ id: string; name: string; data: unknown }>).map((e) => {
+    const d = e.data as Record<string, unknown>
+    return {
+      id: e.id,
+      name: e.name,
+      short_description: (d?.['short_description'] as string | undefined) ?? '',
+      long_description: (d?.['long_description'] as string | undefined) ?? '',
+    }
+  })
+}
+
 export async function resolveLocationEntities(
   characterId: string,
   locationPlaceId: string | null,
@@ -205,13 +232,14 @@ export async function autoHydrate(
     .filter((q) => q.status === 'active')
     .map((q) => q.id)
 
-  const [game, encounterData, gameNpcs, companionNpcs, locationEntities, syngemGame, questTemplates] =
+  const [game, encounterData, gameNpcs, companionNpcs, locationEntities, improvisedEntities, syngemGame, questTemplates] =
     await Promise.all([
       gameId ? getGameWithMembers(gameId) : Promise.resolve(null),
       gameId ? getActiveEncounter(gameId) : Promise.resolve(null),
       gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
       getNpcsForCharacter(characterId),
       resolveLocationEntities(characterId, character.location_place),
+      resolveImprovisedEntities(characterId, character.location_place),
       getSyngemGame(characterId),
       activeQuestIds.length
         ? supabase
@@ -254,6 +282,7 @@ export async function autoHydrate(
     powerText: poolText(character.current_power, character.power_max),
     willText: poolText(character.current_will, character.will_max),
     locationEntities,
+    improvisedEntities,
     encounterData,
     npcs,
     inventoryWeight: {

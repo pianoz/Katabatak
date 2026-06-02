@@ -1,10 +1,8 @@
 import supabase from '../gm/tools/db.js'
-import { runEval } from '../gm/services/claude-service.js'
 import { computeSkillModifiers } from './effect-processor.js'
 import { synLog } from '../gm/logger.js'
+import { resolveCreatureAction } from './creature-ai.js'
 import type { Json } from '@db-types'
-
-const HAIKU = 'claude-haiku-4-5-20251001'
 
 type AttackType = 'normal' | 'strong'
 type DefendType = 'normal' | 'strong'
@@ -43,6 +41,10 @@ export interface CombatActionResult {
   isInCombat: boolean
   combatPhase: string | null
   outcome?: 'victory' | 'defeat'
+  net?: number
+  defValue?: number
+  totalDamage?: number
+  totalBlocked?: number
 }
 
 // Extend the DB types for new columns added by migration (not yet regenerated)
@@ -89,53 +91,6 @@ function rollDiceStr(diceStr: string): number {
   return total
 }
 
-// ─── Haiku helpers ───────────────────────────────────────────────────────────
-
-async function haikuCreatureDefend(
-  name: string,
-  normalAC: number,
-  strongAC: number,
-  powerLeft: number,
-  willLeft: number,
-): Promise<{ choice: DefendType; flavor: string }> {
-  const prompt =
-    `You are ${name}. Power: ${powerLeft}, Will: ${willLeft}. ` +
-    `Player attacks. Choose: normal defend (blocks ${normalAC}) or strong defend (blocks ${strongAC}). ` +
-    `Return JSON only: {"choice":"normal"|"strong","flavor":"[≤12 evocative words]"}`
-  try {
-    const { text } = await runEval({ prompt, model: HAIKU, maxTokens: 80, temperature: 0.8 })
-    const m = text.match(/\{[\s\S]*?\}/)
-    if (m) {
-      const parsed = JSON.parse(m[0]) as { choice?: string; flavor?: string }
-      return { choice: parsed.choice === 'strong' ? 'strong' : 'normal', flavor: parsed.flavor ?? '' }
-    }
-  } catch { /* fall through */ }
-  return { choice: 'normal', flavor: '' }
-}
-
-async function haikuCreatureAttack(
-  name: string,
-  attackSides: number,
-  strongSides: number | null,
-  powerLeft: number,
-  strongCost: number,
-): Promise<{ choice: AttackType; flavor: string }> {
-  if (!strongSides || powerLeft < strongCost) return { choice: 'normal', flavor: '' }
-  const prompt =
-    `You are ${name}. Power: ${powerLeft}. ` +
-    `Attack options: normal (1d${attackSides}) or strong (1d${strongSides}, costs ${strongCost} power). ` +
-    `Return JSON only: {"choice":"normal"|"strong","flavor":"[≤12 evocative words]"}`
-  try {
-    const { text } = await runEval({ prompt, model: HAIKU, maxTokens: 80, temperature: 0.8 })
-    const m = text.match(/\{[\s\S]*?\}/)
-    if (m) {
-      const parsed = JSON.parse(m[0]) as { choice?: string; flavor?: string }
-      return { choice: parsed.choice === 'strong' ? 'strong' : 'normal', flavor: parsed.flavor ?? '' }
-    }
-  } catch { /* fall through */ }
-  return { choice: 'normal', flavor: '' }
-}
-
 // ─── Character defence helper ─────────────────────────────────────────────────
 
 async function getCharacterDefence(characterId: string): Promise<{ normal: number; strong: number }> {
@@ -153,6 +108,7 @@ async function getCharacterDefence(characterId: string): Promise<{ normal: numbe
 
   type ArmorItem = { defence: number | null; strong_defence: number | null; subtype: string | null }
   const armor = (equipped ?? []).map(row => row.items as unknown as ArmorItem)
+  // If no armor is equipped, base defence is 0 — equivalent to unarmed defence
   const baseDefence = armor.reduce((s, a) => s + (a.defence ?? 0), 0)
   const shieldBonus = armor
     .filter(a => a.subtype === 'shield')
@@ -239,7 +195,8 @@ export async function resolvePlayerAttack(
 
   if (!character) return { error: 'Character not found' }
 
-  const weapon: WeaponItem = invRow
+  // If no weapon equipped (explicit unarmed, or inventory lookup found nothing), use UNARMED
+  const weapon: WeaponItem = invRow?.items
     ? (invRow.items as unknown as WeaponItem)
     : UNARMED
 
@@ -274,15 +231,15 @@ export async function resolvePlayerAttack(
     : rollDiceStr(weapon.damage ?? '1d6')
   const attackRoll = rawRoll + mods.attackBonus
 
-  // ── Haiku: creature picks defence ───────────────────────────────────────────
+  // ── Creature picks defence ───────────────────────────────────────────────────
   const strongAC = creature.strong_defence ?? creature.defence ?? 0
-  const { choice: defChoice, flavor } = await haikuCreatureDefend(
-    creature.name,
-    creature.defence ?? 0,
-    strongAC,
-    creature.current_power ?? 0,
-    creature.current_will ?? 0,
-  )
+  const { defendChoice: defChoice } = resolveCreatureAction({
+    creatureId: creature.id,
+    currentPower: creature.current_power ?? 0,
+    currentWill: creature.current_will ?? 0,
+    strongAttackSides: creature.strong_attack ?? null,
+    strongAttackCost: creature.strong_cost ?? (creature.attack_cost ?? 1) * 2,
+  })
   const defValue = defChoice === 'strong' ? strongAC : (creature.defence ?? 0)
   const defCost = defChoice === 'strong' ? (creature.attack_cost ?? 1) * 2 : (creature.attack_cost ?? 1)
   const net = Math.max(0, attackRoll - defValue)
@@ -292,12 +249,12 @@ export async function resolvePlayerAttack(
   const creatureAlive = newCreatureHp > 0
 
   const dbUpdates: Promise<unknown>[] = [
-    supabase.from('characters').update({ [poolKey]: currentPool - cost } as any).eq('id', characterId),
+    supabase.from('characters').update({ [poolKey]: currentPool - cost } as any).eq('id', characterId) as unknown as Promise<unknown>,
     supabase.from('encounter_creatures').update({
       current_health: newCreatureHp,
       is_alive: creatureAlive,
       current_will: Math.max(0, (creature.current_will ?? 0) - defCost),
-    }).eq('id', params.targetCreatureId),
+    }).eq('id', params.targetCreatureId) as unknown as Promise<unknown>,
   ]
 
   // Degrade non-melee weapon condition (same rule as IRL dashboard)
@@ -306,9 +263,9 @@ export async function resolvePlayerAttack(
     const currentCondition = weapon.condition ?? 100
     const newCondition = Math.max(0, currentCondition - conditionLoss)
     if (newCondition <= 0) {
-      dbUpdates.push(supabase.from('character_inventory').delete().eq('id', params.weaponInventoryId))
+      dbUpdates.push(supabase.from('character_inventory').delete().eq('id', params.weaponInventoryId) as unknown as Promise<unknown>)
     } else {
-      dbUpdates.push(supabase.from('character_inventory').update({ condition: newCondition }).eq('id', params.weaponInventoryId))
+      dbUpdates.push(supabase.from('character_inventory').update({ condition: newCondition }).eq('id', params.weaponInventoryId) as unknown as Promise<unknown>)
     }
   }
 
@@ -316,7 +273,6 @@ export async function resolvePlayerAttack(
 
   // ── Build log ───────────────────────────────────────────────────────────────
   const newLines: string[] = []
-  if (flavor) newLines.push(`[${creature.name}] ${flavor}`)
   const bonusStr = mods.attackBonus !== 0 ? ` (${mods.attackBonus > 0 ? '+' : ''}${mods.attackBonus})` : ''
   newLines.push(
     `YOU → ${creature.name}: ${params.attackType === 'strong' ? 'Strong Attack' : 'Attack'}` +
@@ -343,7 +299,7 @@ export async function resolvePlayerAttack(
     combat_log: updatedLog, combat_phase: newPhase, is_in_combat: isInCombat,
   } as any).eq('id', gameId)
 
-  return { ok: true, log: newLines, isInCombat, combatPhase: newPhase, outcome }
+  return { ok: true, log: newLines, isInCombat, combatPhase: newPhase, outcome, net, defValue }
 }
 
 export async function resolvePlayerDefend(
@@ -376,22 +332,18 @@ export async function resolvePlayerDefend(
   let totalDamage = 0
 
   if (creatures.length) {
-    const attackDecisions = await Promise.all(
-      creatures.map(c =>
-        haikuCreatureAttack(
-          c.name,
-          c.attack_damage ?? 6,
-          c.strong_attack ?? null,
-          c.current_power ?? 0,
-          c.strong_cost ?? (c.attack_cost ?? 1) * 2,
-        )
-      )
-    )
+    const attackDecisions = creatures.map(c => resolveCreatureAction({
+      creatureId: c.id,
+      currentPower: c.current_power ?? 0,
+      currentWill: c.current_will ?? 0,
+      strongAttackSides: c.strong_attack ?? null,
+      strongAttackCost: c.strong_cost ?? (c.attack_cost ?? 1) * 2,
+    }))
 
     const creatureUpdates: Promise<unknown>[] = []
     for (let i = 0; i < creatures.length; i++) {
       const c = creatures[i]
-      const { choice: atkChoice, flavor } = attackDecisions[i]
+      const { attackChoice: atkChoice } = attackDecisions[i]
       const atkCost = atkChoice === 'strong'
         ? (c.strong_cost ?? (c.attack_cost ?? 1) * 2)
         : (c.attack_cost ?? 1)
@@ -408,7 +360,6 @@ export async function resolvePlayerDefend(
           .update({ current_power: Math.max(0, (c.current_power ?? 0) - atkCost) })
           .eq('id', c.id) as unknown as Promise<unknown>
       )
-      if (flavor) newLines.push(`[${c.name}] ${flavor}`)
       newLines.push(
         `${c.name} → YOU: ${atkChoice === 'strong' ? 'Strong Attack' : 'Attack'}` +
         ` | roll=${roll} def=${defValue} net=${net}`
@@ -441,7 +392,7 @@ export async function resolvePlayerDefend(
     combat_log: updatedLog, combat_phase: newPhase, is_in_combat: isInCombat,
   } as any).eq('id', gameId)
 
-  return { ok: true, log: newLines, isInCombat, combatPhase: newPhase, outcome }
+  return { ok: true, log: newLines, isInCombat, combatPhase: newPhase, outcome, totalDamage, totalBlocked: defValue }
 }
 
 export async function resolvePlayerEquip(

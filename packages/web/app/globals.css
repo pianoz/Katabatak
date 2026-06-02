@@ -63,3 +63,9 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes damage-float {
+  0%   { opacity: 1; transform: translateY(0); }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-48px); }
+}

@@ -3,7 +3,10 @@ import { updateCharacter, getCharacter } from '../services/character-service.js'
 import { updateNpcMutations } from '../services/world-service.js'
 import { synLog, synLogVerbose } from './logger.js'
 import type { Database, Json } from '@db-types'
-import type { LedgerOutput } from './types.js'
+import type { LedgerOutput, LocationContext } from './types.js'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any
 
 const VALID_LOCATION_TYPES = new Set(['nation', 'region', 'place', 'location'])
 
@@ -44,17 +47,86 @@ async function updateEntity(entityId: string, mutations: Record<string, unknown>
   await supabase.from('world_entities').update({ data: merged }).eq('id', entityId)
 }
 
-async function createEntity(entity: Record<string, unknown>): Promise<void> {
-  if (!entity['id'] || !entity['name'] || !entity['type']) {
+/**
+ * Creates a new entity. Dedup order:
+ * 1. If the ID exists in world_entities → merge any new data (don't overwrite canonical entity).
+ * 2. If the ID exists in improvised_entities for this character → merge data.
+ * 3. Otherwise → insert into improvised_entities, backfilling location context from the character's position.
+ */
+async function createEntity(
+  characterId: string,
+  entity: Record<string, unknown>,
+  locationContext?: LocationContext,
+): Promise<void> {
+  const id = entity['id'] as string | undefined
+  const name = entity['name'] as string | undefined
+  const type = entity['type'] as string | undefined
+
+  if (!id || !name || !type) {
     synLog('STATE-EXECUTOR', '⚠ create_entity: missing required fields (id, name, type)', entity)
     return
   }
-  await supabase.from('world_entities').upsert({
-    id: entity['id'] as string,
-    name: entity['name'] as string,
-    type: entity['type'] as Database['public']['Enums']['entity_type'],
-    data: ((entity['data'] ?? {}) as unknown as Json),
+
+  // 1. Check canonical world_entities
+  const { data: worldEntity } = await supabase
+    .from('world_entities')
+    .select('id, data')
+    .eq('id', id)
+    .single()
+
+  if (worldEntity) {
+    if (entity['data']) {
+      const merged = { ...(worldEntity.data as Record<string, unknown>), ...(entity['data'] as Record<string, unknown>) } as Json
+      await supabase.from('world_entities').update({ data: merged }).eq('id', id)
+      synLog('STATE-EXECUTOR', `→ create_entity: ${id} exists in world — merged data`)
+    } else {
+      synLog('STATE-EXECUTOR', `→ create_entity: ${id} already in world — no new data, skipping`)
+    }
+    return
+  }
+
+  // 2. Check improvised_entities for this character
+  const { data: improvised } = await db
+    .from('improvised_entities')
+    .select('id, data')
+    .eq('character_id', characterId)
+    .eq('id', id)
+    .single()
+
+  if (improvised) {
+    if (entity['data']) {
+      const merged = { ...(improvised.data as Record<string, unknown>), ...(entity['data'] as Record<string, unknown>) } as Json
+      await db
+        .from('improvised_entities')
+        .update({ data: merged })
+        .eq('character_id', characterId)
+        .eq('id', id)
+      synLog('STATE-EXECUTOR', `→ create_entity: ${id} exists in improvised — merged data`)
+    } else {
+      synLog('STATE-EXECUTOR', `→ create_entity: ${id} already improvised for char — skipping`)
+    }
+    return
+  }
+
+  // 3. Insert new improvised entity, backfilling location context
+  const parentId = (entity['parent_id'] as string | undefined) ?? locationContext?.locationPlaceId ?? null
+  const nationContext = (entity['nation_context'] as string | undefined) ?? locationContext?.nationContext ?? null
+  const regionContext = (entity['region_context'] as string | undefined) ?? locationContext?.regionContext ?? null
+  const placeContext = (entity['place_context'] as string | undefined) ?? locationContext?.placeContext ?? null
+
+  await db.from('improvised_entities').insert({
+    id,
+    character_id: characterId,
+    name,
+    type,
+    parent_id: parentId,
+    nation_context: nationContext,
+    region_context: regionContext,
+    place_context: placeContext,
+    data: (entity['data'] ?? {}) as Json,
   })
+
+  synLog('STATE-EXECUTOR', `✓ create_entity: inserted improvised "${name}" (${id}) parent:${parentId ?? 'none'}`)
 }
 
 async function deleteEntity(
@@ -70,6 +142,69 @@ async function deleteEntity(
     },
     { onConflict: 'player_id,entity_id' },
   )
+}
+
+/**
+ * Grants an item directly to the character's inventory.
+ * Looks up an existing item template by name (case-insensitive) or creates one if absent.
+ */
+async function grantItem(
+  characterId: string,
+  itemName: string,
+  itemType: string,
+  description?: string,
+  quantity?: number,
+): Promise<void> {
+  // 1. Find existing item template by name
+  const { data: existing } = await supabase
+    .from('items')
+    .select('id')
+    .ilike('name', itemName)
+    .limit(1)
+    .maybeSingle()
+
+  let itemId: string
+
+  if (existing) {
+    itemId = existing.id as string
+    synLog('STATE-EXECUTOR', `→ grant_item: found existing template "${itemName}" (${itemId})`)
+  } else {
+    // 2. Create a minimal item template
+    const { data: created, error } = await supabase
+      .from('items')
+      .insert({
+        name: itemName,
+        type: itemType,
+        short_description: description ?? null,
+      } as unknown as Database['public']['Tables']['items']['Insert'])
+      .select('id')
+      .single()
+
+    if (error || !created) {
+      synLog('STATE-EXECUTOR', `⚠ grant_item: failed to create item template for "${itemName}": ${error?.message ?? 'unknown'}`)
+      return
+    }
+    itemId = (created as { id: string }).id
+    synLog('STATE-EXECUTOR', `✓ grant_item: created item template "${itemName}" (${itemId})`)
+  }
+
+  // 3. Add to character inventory
+  const { error: invError } = await supabase
+    .from('character_inventory')
+    .insert({
+      character_id: characterId,
+      item_id: itemId,
+      quantity: quantity ?? 1,
+      condition: 100,
+      is_equipped: false,
+    } as unknown as Database['public']['Tables']['character_inventory']['Insert'])
+
+  if (invError) {
+    synLog('STATE-EXECUTOR', `⚠ grant_item: failed to insert inventory row for "${itemName}": ${invError.message}`)
+    return
+  }
+
+  synLog('STATE-EXECUTOR', `✓ grant_item: "${itemName}" added to inventory for char ${characterId.slice(-8)}`)
 }
 
 async function applyLongRest(characterId: string): Promise<void> {
@@ -120,6 +255,7 @@ async function applyLongRest(characterId: string): Promise<void> {
 export async function executeStateChanges(
   characterId: string,
   outputs: LedgerOutput[],
+  locationContext?: LocationContext,
 ): Promise<void> {
   for (const output of outputs) {
     try {
@@ -135,7 +271,7 @@ export async function executeStateChanges(
           break
         case 'create_entity':
           synLog('STATE-EXECUTOR', `→ create_entity | id:${output.entity['id']} name:"${output.entity['name']}"`)
-          await createEntity(output.entity)
+          await createEntity(characterId, output.entity, locationContext)
           break
         case 'delete_entity':
           synLog('STATE-EXECUTOR', `→ delete_entity | id:${output.entity_id}`)
@@ -148,6 +284,10 @@ export async function executeStateChanges(
         case 'long_rest':
           synLog('STATE-EXECUTOR', '→ long_rest')
           await applyLongRest(characterId)
+          break
+        case 'grant_item':
+          synLog('STATE-EXECUTOR', `→ grant_item | name:"${output.item_name}" type:${output.item_type}`)
+          await grantItem(characterId, output.item_name, output.item_type, output.description, output.quantity)
           break
       }
     } catch (err) {

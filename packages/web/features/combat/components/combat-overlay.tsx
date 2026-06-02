@@ -64,7 +64,7 @@ function PoolBar({ label, current, max, color }: { label: string; current: numbe
         <span className="font-mono text-[8px] text-muted-foreground/60">{current}/{max}</span>
       </div>
       <div className="h-1.5 bg-border/30 w-full">
-        <div className="h-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: color }} />
+        <div className="h-full transition-[width] duration-700 ease-out" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
     </div>
   )
@@ -85,11 +85,15 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   const [busy, setBusy] = useState(false)
   const [round, setRound] = useState(1)
   const [flashCreatureId, setFlashCreatureId] = useState<string | null>(null)
+  const [damageFlash, setDamageFlash] = useState<{ creatureId: string; amount: number; blockAmount: number; key: number } | null>(null)
+  const [playerFlash, setPlayerFlash] = useState(false)
+  const [playerDamageFlash, setPlayerDamageFlash] = useState<{ damage: number; blocked: number; key: number } | null>(null)
+  const [combatError, setCombatError] = useState<string | null>(null)
   const initialWeaponIdRef = useRef<string | null>(null)
 
   // ── Data loaders ────────────────────────────────────────────────────────────
 
-  const loadCreatures = useCallback(async () => {
+  const loadCreatures = useCallback(async (): Promise<EncounterCreature[] | null> => {
     const { data } = await supabase
       .from("encounter_creatures")
       .select("*, creatures!inner(ascii_art)")
@@ -99,20 +103,29 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
       const merged = data.map(row => ({
         ...row,
         ascii_art: (row.creatures as unknown as { ascii_art: string | null })?.ascii_art ?? null,
-      }))
-      setCreatures(merged as EncounterCreature[])
-      const firstAlive = merged.find(c => c.is_alive)
-      if (firstAlive && !selectedTargetId) setSelectedTargetId(firstAlive.id)
+      })) as EncounterCreature[]
+      setCreatures(merged)
+      const isTargetAlive = merged.some(c => c.id === selectedTargetId && c.is_alive)
+      if (!isTargetAlive) {
+        const firstAlive = merged.find(c => c.is_alive)
+        if (firstAlive) setSelectedTargetId(firstAlive.id)
+      }
+      return merged
     }
+    return null
   }, [gameId, supabase, selectedTargetId])
 
-  const loadCharacter = useCallback(async () => {
+  const loadCharacter = useCallback(async (): Promise<CharacterState | null> => {
     const { data } = await supabase
       .from("characters")
       .select("current_health, health_max, current_power, power_max, current_will, will_max, current_essence, essence_max, name")
       .eq("id", characterId)
       .single()
-    if (data) setCharacter(data as CharacterState)
+    if (data) {
+      setCharacter(data as CharacterState)
+      return data as CharacterState
+    }
+    return null
   }, [characterId, supabase])
 
   const loadWeapons = useCallback(async () => {
@@ -154,7 +167,9 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
           subtype: row.items.subtype,
         }))
 
-      const result = w.length > 0 ? w : [UNARMED_SYNTHETIC]
+      // If no weapon is equipped, pre-equip unarmed so Attack is always available
+      const hasEquipped = w.some(x => x.isEquipped)
+      const result: WeaponOption[] = hasEquipped ? w : [UNARMED_SYNTHETIC, ...w]
       setWeapons(result)
 
       // Pre-select equipped weapon, or first weapon
@@ -249,20 +264,29 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
     const effectiveTarget = selectedTargetId ?? aliveCreatures[0]?.id ?? null
     if (!selectedWeaponId || !effectiveTarget || busy) return
     setBusy(true)
+    setCombatError(null)
     try {
       const res = await fetch("/api/gm/combat/player-attack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gameId, characterId, weaponInventoryId: selectedWeaponId, attackType, targetCreatureId: effectiveTarget }),
       })
-      const data = await res.json() as { ok?: boolean; combatPhase?: string | null; outcome?: string }
+      const data = await res.json() as { ok?: boolean; combatPhase?: string | null; outcome?: string; error?: string; net?: number; defValue?: number }
       if (data.ok) {
-        setFlashCreatureId(selectedTargetId)
+        setFlashCreatureId(effectiveTarget)
         setTimeout(() => setFlashCreatureId(null), 600)
+        const net = data.net ?? 0
+        const def = data.defValue ?? 0
+        setDamageFlash(prev => ({ creatureId: effectiveTarget, amount: net, blockAmount: def, key: (prev?.key ?? 0) + 1 }))
+        setTimeout(() => setDamageFlash(null), 2000)
+        await Promise.all([loadCreatures(), loadCharacter(), loadWeapons(), loadGameState()])
         if (data.outcome === "victory") onCombatEnd?.("victory")
         else if (data.combatPhase) setCombatPhase(data.combatPhase)
-        await Promise.all([loadCreatures(), loadCharacter(), loadWeapons(), loadGameState()])
+      } else {
+        setCombatError(data.error ?? "Attack failed — check GM server")
       }
+    } catch {
+      setCombatError("GM server unreachable")
     } finally {
       setBusy(false)
     }
@@ -290,14 +314,23 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   async function handleDefend(defendType: "normal" | "strong") {
     if (busy) return
     setBusy(true)
+    setCombatError(null)
     try {
       const res = await fetch("/api/gm/combat/player-defend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gameId, characterId, defendType }),
       })
-      const data = await res.json() as { ok?: boolean; combatPhase?: string | null; outcome?: string }
+      const data = await res.json() as { ok?: boolean; combatPhase?: string | null; outcome?: string; error?: string; totalDamage?: number; totalBlocked?: number }
       if (data.ok) {
+        const dmg = data.totalDamage ?? 0
+        const blocked = data.totalBlocked ?? 0
+        if (dmg > 0) {
+          setPlayerFlash(true)
+          setTimeout(() => setPlayerFlash(false), 600)
+        }
+        setPlayerDamageFlash(prev => ({ damage: dmg, blocked, key: (prev?.key ?? 0) + 1 }))
+        setTimeout(() => setPlayerDamageFlash(null), 2000)
         if (data.outcome === "defeat") onCombatEnd?.("defeat")
         else {
           setRound(r => r + 1)
@@ -312,7 +345,11 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
             .single()
           if (alive) setSelectedTargetId(alive.id)
         }
+      } else {
+        setCombatError(data.error ?? "Defense failed — check GM server")
       }
+    } catch {
+      setCombatError("GM server unreachable")
     } finally {
       setBusy(false)
     }
@@ -351,6 +388,11 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
             creature={creature}
             isActiveAttacker={combatPhase === "player_defend" && creature.is_alive === true}
             isFlashing={flashCreatureId === creature.id}
+            isTargeted={combatPhase === "player_attack" && creature.is_alive === true && selectedTargetId === creature.id}
+            onClick={combatPhase === "player_attack" && creature.is_alive === true ? () => setSelectedTargetId(creature.id) : undefined}
+            damageAmount={damageFlash?.creatureId === creature.id ? damageFlash.amount : null}
+            blockAmount={damageFlash?.creatureId === creature.id ? damageFlash.blockAmount : null}
+            damageKey={damageFlash?.creatureId === creature.id ? damageFlash.key : undefined}
           />
         ))}
       </div>
@@ -362,7 +404,10 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
 
       {/* Player pools */}
       {character && (
-        <div className="shrink-0 flex gap-4 px-6 py-3 border-b border-border/40 bg-card/30">
+        <div className={[
+          "shrink-0 flex gap-4 px-6 py-3 border-b transition-colors duration-200 relative",
+          playerFlash ? "bg-red-900/30 border-red-500/40" : "bg-card/30 border-border/40",
+        ].join(" ")}>
           <PoolBar label="HP" current={character.current_health ?? 0} max={character.health_max ?? 1} color="#ef4444" />
           <PoolBar label="PW" current={character.current_power ?? 0} max={character.power_max ?? 1} color="#3b82f6" />
           <PoolBar label="WL" current={character.current_will ?? 0} max={character.will_max ?? 1} color="#8b5cf6" />
@@ -370,6 +415,33 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
             <PoolBar label="ES" current={character.current_essence ?? 0} max={character.essence_max ?? 1} color="#06b6d4" />
           )}
           <span className="font-serif text-sm text-foreground/70 ml-2 self-center">{character.name}</span>
+          {playerDamageFlash && (
+            <div className="absolute inset-0 flex items-center justify-center gap-2 pointer-events-none">
+              <span
+                key={`pd-${playerDamageFlash.key}`}
+                className="font-mono text-xl font-bold text-red-400"
+                style={{ animation: "damage-float 2s ease-out forwards" }}
+              >
+                {playerDamageFlash.damage === 0 ? "0" : `-${playerDamageFlash.damage}`}
+              </span>
+              {playerDamageFlash.blocked > 0 && (
+                <span
+                  key={`pb-${playerDamageFlash.key}`}
+                  className="font-mono text-sm font-bold text-cyan-400"
+                  style={{ animation: "damage-float 2s ease-out forwards" }}
+                >
+                  [{playerDamageFlash.blocked} AC]
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Error display */}
+      {combatError && (
+        <div className="shrink-0 px-6 py-2 bg-destructive/10 border-b border-destructive/30">
+          <span className="font-mono text-[9px] uppercase tracking-widest text-destructive/80">{combatError}</span>
         </div>
       )}
 
@@ -383,7 +455,6 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
             selectedTargetId={selectedTargetId ?? (aliveCreatures[0]?.id ?? null)}
             initialWeaponId={initialWeaponIdRef.current}
             onSelectWeapon={setSelectedWeaponId}
-            onSelectTarget={setSelectedTargetId}
             onAttack={handleAttack}
             onEquip={handleEquip}
             busy={busy}

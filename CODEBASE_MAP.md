@@ -54,7 +54,7 @@ katabatak/
 | `/syngem/intro` | `app/syngem/intro/page.tsx` | Atmospheric character creation intro — typewriter Q&A flow, calls `/api/character-creator`, creates SYNGEM character |
 | `/dev/prompt-builder` | `app/dev/prompt-builder/page.tsx` | Drag-and-drop prompt block editor — save/load/test agent prompts against live GM server. Auto-Hydrator block fetches context by `characterId` only (no multiplayer game picker); `syngem_game` table included in hydration output |
 | `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | Evaluate saved prompt versions against real data |
-| `/dev/combat` | `app/dev/combat/page.tsx` | Combat system test harness — pick any character + up to 5 creatures + game session, start/abort combat without SYNGEM |
+| `/dev/combat` | `app/dev/combat/page.tsx` | Combat system test harness — pick any character + up to 5 creatures (duplicates of the same type allowed) + game session, start/abort combat without SYNGEM |
 | `/about` | `app/about/page.tsx` | About page |
 | `/auth/error` | `app/auth/error/page.tsx` | Auth error |
 
@@ -73,7 +73,7 @@ katabatak/
 | `POST /api/character-creator` | `app/api/character-creator/route.ts` | Proxies Q&A payload to GM server `POST /character-creator` — fits character into Waystone story scaffold, returns background/description/backstory/story_hook/initial_quest. Auth-gated (no `is_dev` required) |
 | `POST /api/gm/quest/start` | `app/api/gm/quest/start/route.ts` | Proxies to GM server `POST /gm/quest/start` — fires quest start grants (items + companion NPCs) for a given `characterId` + `questId`. Called by `syngem-intro.tsx` after character creation |
 | `POST /api/gm/combat/start` | `app/api/gm/combat/start/route.ts` | Proxies to GM server — initializes combat for a game session (sets `is_in_combat`, `combat_phase`, turn order) |
-| `POST /api/gm/combat/player-attack` | `app/api/gm/combat/player-attack/route.ts` | Proxies Phase A resolution — player picks weapon + attack type + target; Haiku picks creature defence; damage resolved |
+| `POST /api/gm/combat/player-attack` | `app/api/gm/combat/player-attack/route.ts` | Proxies Phase A resolution — player picks weapon + attack type + target; deterministic creature AI picks defence; damage resolved |
 | `POST /api/gm/combat/player-defend` | `app/api/gm/combat/player-defend/route.ts` | Proxies Phase B resolution — all alive creatures attack; player picks one defend type applied against all |
 | `POST /api/gm/combat/end` | `app/api/gm/combat/end/route.ts` | Proxies combat teardown — resets `is_in_combat`, `combat_phase`, clears log |
 | `GET /api/dev/users` | `app/api/dev/users/route.ts` | Admin user list (dev flag required) |
@@ -97,7 +97,8 @@ Character sheet, creation, and management.
 | File | Purpose |
 |------|---------|
 | `components/character-creation.tsx` | Full multi-step character creation flow (IRL characters) |
-| `components/character-dashboard.tsx` | Character sheet hub (stats, pools, inventory). Accepts `variant` prop: `"irl"` (default — flat pool grid, SYNGEM as overlay) or `"syngem"` (3-column layout: ES+PW pools \| SYNGEM window \| WP+HP pools, tabs below). Subscribes to `game_members` realtime to detect when the linked game enters combat; mounts `<CombatOverlay>` when `is_in_combat = true` |
+| `components/character-dashboard.tsx` | Character sheet hub (stats, pools, inventory). Accepts `variant` prop: `"irl"` (default — flat pool grid, SYNGEM as overlay) or `"syngem"` (3-column layout: ES+PW pools \| SYNGEM window \| WP+HP pools, tabs below). Subscribes to `game_members` realtime to detect when the linked game enters combat; mounts `<CombatOverlay>` when `is_in_combat = true`. Action card dropdowns (Attack / Defend) include synthetic unarmed fallbacks (`__unarmed__` / `__unarmed_def__`) and call `equipItem` / `unequipAll` when the selection changes. On mount, syncs selected item to the currently equipped weapon/armor |
+| `components/inventory/item-table.tsx` | Sortable, filterable item table used in the Items tab. Optional `onEquip` prop renders an "E" button (blue = equipped, grey = not) on weapon/armor rows in both mobile and desktop views. `Item` interface includes `is_equipped?: boolean` |
 | `components/character-card.tsx` | Summary card with inventory, pools, stats |
 | `components/character-display-card.tsx` | Read-only character view |
 | `components/character-select-modal.tsx` | Pick character for a game |
@@ -108,21 +109,21 @@ Character sheet, creation, and management.
 | `components/pools/` | `pool-counter` (essence, power, will, health) |
 | `components/offers/` | `notification-overlay` — pending item/spell/reward offers |
 | `hooks/use-pending-offers.ts` | Track and refresh pending game rewards |
-| `hooks/use-character-store.ts` | Character state management (optimistic updates) |
-| `hooks/use-character-sync.ts` | Real-time character sync with DB |
+| `hooks/use-character-store.ts` | Character state management (optimistic updates). Actions: `updatePool`, `modifyStat`, `toggleEquip`, `equipItem` (exclusive per-category), `unequipAll` |
+| `hooks/use-character-sync.ts` | Real-time character sync with DB — debounced 1.5 s write covers all dirty `is_equipped` changes |
 
 #### `features/combat/`
 
 Player-facing combat overlay. Shown when `games.is_in_combat = true`. Full-screen terminal-aesthetic overlay over the character dashboard. All resolution is server-authoritative via the GM server combat routes.
 
-**Round structure:** Phase A — player attacks one target (Haiku picks creature's hidden defence, deterministic resolve). Phase B — all alive creatures attack simultaneously; player picks one defend type that applies against every incoming roll.
+**Round structure:** Phase A — player attacks one target (deterministic creature AI picks defence, damage resolved). Phase B — all alive creatures attack simultaneously; player picks one defend type that applies against every incoming roll.
 
 | File | Purpose |
 |------|---------|
-| `components/combat-overlay.tsx` | Root overlay — subscribes to `games`, `characters`, `encounter_creatures` realtime. Manages phase state, loads weapons/defence values, dispatches Phase A and B actions |
-| `components/creature-display.tsx` | One of 5 fixed-height columns — ASCII sprite (`ascii_art` from creatures table, 6-line monospace block), HP + pool bars. Amber border when it's Phase B (all enemies active) |
+| `components/combat-overlay.tsx` | Root overlay — subscribes to `games`, `characters`, `encounter_creatures` realtime. Manages phase state, loads weapons/defence values, dispatches Phase A and B actions. Includes `UNARMED_SYNTHETIC` fallback weapon (`__unarmed__`, 1d2, free) used when no real weapons are in inventory. Uses API-returned `net`/`defValue`/`totalDamage`/`totalBlocked` for damage popups (not health-diff). Shows inline error strip when GM server call fails |
+| `components/creature-display.tsx` | One of 5 fixed-height columns — ASCII sprite, HP + pool bars (700ms width transition). Red border + glow when targeted (Phase A only); clickable to retarget. Amber border when all enemies are active attackers (Phase B). Floating red damage number (`-N` or `0`) + cyan block number (`[N AC]`) overlay on hit (2s fade-up). "TARGETED" label with red text-glow below the active target card |
 | `components/combat-log-panel.tsx` | Scrolling terminal log — flavor lines (italic), mechanical lines (mono `roll=N def=N net=N`), outcome banners |
-| `components/phase-controls.tsx` | `PhaseAControls` (weapon selector, target picker when >1 enemy, Attack / Strong Attack buttons with cost labels) and `PhaseBControls` (Defend / Strong Defend buttons with AC values and Will cost) |
+| `components/phase-controls.tsx` | `PhaseAControls` (weapon selector, large prominent Attack button + smaller Strong Attack; click any enemy card to retarget — no button picker) and `PhaseBControls` (Defend / Strong Defend buttons with AC values and Will cost) |
 
 #### `features/games/`
 
@@ -289,7 +290,8 @@ server/
 │   ├── world-service.ts           # searchWorldEntities, getCampaignFacts, getNpcsForGame, getNpcsForCharacter
 │   ├── quest-engine.ts            # applyQuestStartGrants, applyQuestCompletionGrants — idempotent grant engine for the Quest system
 │   ├── effect-processor.ts        # computeSkillModifiers — sums {"type":"modifier","attribute":"attack"|"defence","value":N} effects from passive skills with rank scaling
-│   └── combat-engine.ts           # initCombat, resolvePlayerAttack, resolvePlayerDefend, endCombat — full round/phase logic. Phase A: player attacks, Haiku picks creature defence (hidden), deterministic damage resolve. Phase B: Haiku picks each creature's attack in parallel, player's single defend choice applied against all, total damage summed
+│   ├── creature-ai.ts             # Deterministic creature AI — resolveCreatureAction(pools) → { attackChoice, defendChoice }. Will > Power → strong defend + weak attack; Power ≥ Will → strong attack (if affordable) + weak defend
+│   └── combat-engine.ts           # initCombat, resolvePlayerAttack, resolvePlayerDefend, endCombat — full round/phase logic. Phase A: player attacks, creature-ai picks defence deterministically, damage resolved. Phase B: creature-ai picks each creature's attack, player's single defend choice applied against all, total damage summed
 └── gm/
     ├── handler.ts                 # Pipeline orchestrator — creates per-request client, runs budget check
     ├── logger.ts                  # synLog() dev file logger + LogLevel / setLogLevel()
@@ -299,7 +301,7 @@ server/
     ├── budget-guard.ts            # BYOK: checkBudget(userId) — reads cap + aggregate, returns allowed bool
     ├── auto-hydrator.ts           # Layer 1: builds ContextBlock from parallel DB reads
     ├── style-modulator.ts         # Layer 3: picks a random style file from gm/content/
-    ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB
+    ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB. create_entity deduplicates against world_entities then improvised_entities; grant_item writes to character_inventory
     ├── content/
     │   ├── style_1.txt            # Restrained / observational
     │   ├── style_2.txt            # Lyrical / elegiac
@@ -337,7 +339,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 |-------|---------|
 | `profiles` | User accounts. `username`, `avatar_url`, `is_dev` flag, `token_budget` (nullable int — BYOK spend cap) |
 | `characters` | Player characters. Stats, level, `location_place` (FK to `world_entities`), notes. AI fields: `quest_objectives` (JSONB array of `{id, title, status, description, current_stage?, grants_applied?}`), `key_entity_ids`, `ai_game`, `syngem_game`. `syngem_game = true` marks a dedicated SYNGEM AI character (created via intro flow); `ai_game = true` marks the AI pipeline active |
-| `character_inventory` | Items owned by characters. `condition`, `equipped` |
+| `character_inventory` | Items owned by characters. `condition`, `is_equipped` (bool — exclusive per type category via store) |
 | `character_skills` | Unlocked skills per character. `current_rank`, `unlocked_at` |
 | `character_spells` | Spells known by character |
 | `character_action_skills` | Contextual combat action skills |
@@ -357,6 +359,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 | `campaign_facts` | Session lore facts. `gm_only` flag |
 | `world_entities` | World encyclopedia. Replaced `world_lore`. `type` enum, `data` JSONB, full-text `search_vector` |
 | `player_entity_mutations` | Per-player overrides on `world_entities` (e.g. hidden doors, altered descriptions) |
+| `improvised_entities` | Character-scoped entities created by the Architect's improvisations. Composite PK `(character_id, id)` keeps hallucinations per-character without polluting the canonical world. `parent_id` anchors to a `world_entities` location. Auto-Hydrator loads these for the current location and exposes them to the Architect as `=== SCENE OBJECTS ===` |
 | `conversation_turns` | Persisted GM conversation history. `role` (`player`\|`assistant`), `turn_number` |
 | `syngem_game` | Solo AI GM session state. One row per character. `game_date_days`, `game_time_minutes`, `in_combat`, `summary`. Keyed by `character_id` (unique). Fantasy calendar: 30-day months, 12 months/year |
 | `prompt_versions` | Versioned agent system prompts. `slug`, `version`, `prompt` JSONB, `description` |
@@ -418,6 +421,7 @@ offer_type:   item | denarius | skill_point | spell
 | `20260529100000_drop_background_secondary.sql` | Drops unused `background_secondary` column from `characters` |
 | `20260529200000_add_quest_engine.sql` | Makes `npcs.game_id` nullable; creates `quest_templates` table (RLS: service_role write, authenticated read); seeds 4 items (waystone, backpack, rations, tarp); seeds the `follow_the_waystone` quest template with Brin's NPC template, 7 stages, start grants, and completion grants |
 | `20260529230000_add_combat_fields.sql` | Adds `ascii_art text` to `creatures`; adds `combat_phase text` (CHECK: player_attack\|player_defend) to `games`; adds `strong_cost integer` and `strong_defence integer` to `encounter_creatures` |
+| `20260601000000_add_improvised_entities.sql` | `improvised_entities` table — character-scoped entities from Architect improvisations. Composite PK `(character_id, id)`. `parent_id → world_entities`. Index on `(character_id, parent_id)`. Authenticated SELECT policy |
 
 ---
 
@@ -493,6 +497,7 @@ node --env-file=.env.local packages/server/chat.js    # Interactive GM REPL
 ## In Progress / Planned
 
 - **Combat system Phase 2:** status effects / conditions, consumable items in combat, flee mechanic, XP/loot grants on victory, ally turns (infrastructure present — `ally_` prefix in turn order)
+- **Equip system (done):** "E" button on weapon/armor rows (IRL + SYNGEM dashboards), exclusive per-category equip via `equipItem` / `unequipAll` in store, debounced DB sync. Unarmed synthetic items auto-selected when no real weapon/armor is equipped; action card dropdown selection drives equip state.
 - Body-part armor loadout system
 - Scavenge module (timed item discovery)
 - Crafting mechanic

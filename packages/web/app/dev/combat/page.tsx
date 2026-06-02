@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import Link from "next/link"
 import { ChevronLeft, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
@@ -42,7 +42,8 @@ export default function CombatTestPage() {
   const [selectedGameId, setSelectedGameId] = useState("")
   const [selectedCharId, setSelectedCharId] = useState("")
 
-  const [selectedCreatures, setSelectedCreatures] = useState<Creature[]>([])
+  const [selectedCreatures, setSelectedCreatures] = useState<{ key: number; creature: Creature }[]>([])
+  const nextKeyRef = useRef(0)
   const [creatureSearch, setCreatureSearch] = useState("")
   const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
@@ -78,19 +79,18 @@ export default function CombatTestPage() {
   }, [])
 
   const filteredCreatures = creatures.filter(c => {
-    if (selectedCreatures.find(s => s.id === c.id)) return false
     if (!creatureSearch.trim()) return true
     return c.name.toLowerCase().includes(creatureSearch.toLowerCase())
   })
 
-  function addCreature(c: Creature) {
+  const addCreature = useCallback((c: Creature) => {
     if (selectedCreatures.length >= 5) return
-    setSelectedCreatures(prev => [...prev, c])
+    setSelectedCreatures(prev => [...prev, { key: nextKeyRef.current++, creature: c }])
     setCreatureSearch("")
-  }
+  }, [selectedCreatures.length])
 
-  function removeCreature(id: string) {
-    setSelectedCreatures(prev => prev.filter(c => c.id !== id))
+  function removeCreature(key: number) {
+    setSelectedCreatures(prev => prev.filter(e => e.key !== key))
   }
 
   async function startCombat() {
@@ -98,36 +98,42 @@ export default function CombatTestPage() {
     setBusy(true)
     setStatus("Adding creatures to encounter…")
     try {
+      const uniqueIds = [...new Set(selectedCreatures.map(e => e.creature.id))]
       const { data: templates } = await supabase
         .from("creatures")
         .select("*")
-        .in("id", selectedCreatures.map(c => c.id))
+        .in("id", uniqueIds)
 
       if (!templates?.length) { setStatus("Creature templates not found."); return }
 
+      const templateMap = new Map(templates.map(t => [t.id, t]))
+
       await supabase.from("encounter_creatures").delete().eq("game_id", selectedGameId)
 
-      const rows = templates.map(c => ({
-        game_id: selectedGameId,
-        creature_id: c.id,
-        name: c.name,
-        level: c.level,
-        attack_damage: c.attack_damage,
-        attack_cost: c.attack_cost,
-        defence: c.defence,
-        strong_attack: c.strong_attack,
-        strong_cost: c.strong_cost,
-        strong_defence: c.strong_defence,
-        health_max: c.health_max,
-        current_health: c.health_max ?? 0,
-        power_max: c.power_max,
-        current_power: c.power_max ?? 0,
-        will_max: c.will_max,
-        current_will: c.will_max ?? 0,
-        essence_max: c.essence_max,
-        current_essence: c.essence_max ?? 0,
-        is_alive: true,
-      }))
+      const rows = selectedCreatures.map(({ creature }) => {
+        const c = templateMap.get(creature.id)!
+        return {
+          game_id: selectedGameId,
+          creature_id: c.id,
+          name: c.name,
+          level: c.level,
+          attack_damage: c.attack_damage,
+          attack_cost: c.attack_cost,
+          defence: c.defence,
+          strong_attack: c.strong_attack,
+          strong_cost: c.strong_cost,
+          strong_defence: c.strong_defence,
+          health_max: c.health_max,
+          current_health: c.health_max ?? 0,
+          power_max: c.power_max,
+          current_power: c.power_max ?? 0,
+          will_max: c.will_max,
+          current_will: c.will_max ?? 0,
+          essence_max: c.essence_max,
+          current_essence: c.essence_max ?? 0,
+          is_alive: true,
+        }
+      })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: insertError } = await supabase.from("encounter_creatures").insert(rows as any)
       if (insertError) { setStatus(`Insert error: ${insertError.message}`); return }
@@ -234,10 +240,10 @@ export default function CombatTestPage() {
           {/* Selected creature chips */}
           {selectedCreatures.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2">
-              {selectedCreatures.map(c => (
-                <span key={c.id} className="flex items-center gap-1 border border-border/60 bg-card px-2 py-1 font-mono text-[9px] text-foreground/80">
+              {selectedCreatures.map(({ key, creature: c }) => (
+                <span key={key} className="flex items-center gap-1 border border-border/60 bg-card px-2 py-1 font-mono text-[9px] text-foreground/80">
                   {c.name}{c.level != null && <span className="text-muted-foreground/50 ml-1">L{c.level}</span>}
-                  <button onClick={() => removeCreature(c.id)} className="ml-1 text-muted-foreground/50 hover:text-foreground">
+                  <button onClick={() => removeCreature(key)} className="ml-1 text-muted-foreground/50 hover:text-foreground">
                     <X className="w-2.5 h-2.5" />
                   </button>
                 </span>

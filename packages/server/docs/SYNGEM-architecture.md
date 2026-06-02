@@ -1,7 +1,7 @@
 <!-- markdownlint-disable-file -->
 # SYNGEM — Architecture Reference
 
-> Last meaningful update: 2026-05-29 — Quest Engine: quest_templates table, Scribe-driven stage progression, idempotent grants, Brin companion NPC, auto-hydrator companion fetch, GM quest notes in Architect context
+> Last meaningful update: 2026-06-01 — Deterministic creature AI: `creature-ai.ts` replaces Haiku-driven creature decision-making. `resolveCreatureAction(pools)` returns `{ attackChoice, defendChoice }` based on will-vs-power comparison — no LLM calls in the combat loop. Combat UX: click-to-retarget enemy cards, floating red damage number + cyan block `[N AC]` overlay on hits (visible even on 0-damage attacks), player pool strip shows floating damage + AC popup on incoming attacks, inline error strip when GM server is unreachable. Dev harness supports multiple instances of the same creature type. Test creatures added to seed.
 
 ---
 
@@ -34,6 +34,7 @@ Player message (POST /gm)
   │       │   └ filter to player's location + following NPCs → EnrichedNpc[]
   │       ├ quest_templates.description_gm for active quests → activeQuestNotes[]
   │       ├ world_entities + player_entity_mutations (delta resolution)
+  │       ├ improvised_entities for current location (character-scoped scene objects)
   │       └ semantic pool text tags (Full/Moderate/Low/Critical)
   │
   ├─ [3] lore-engine.runLoreEngine()             // Haiku, Temp 0.0, JSON
@@ -47,7 +48,7 @@ Player message (POST /gm)
   ├─ [5] architect.streamArchitect()             // Sonnet, Temp 0.5, STREAMED
   │       Context assembled in order:
   │         1. Style-modulator text (cached ephemeral)
-  │         2. ContextBlock (character state + location entities + combat)
+  │         2. ContextBlock (character state + location entities + improvised scene objects + combat)
   │         3. Scribe summary (syngem_game.summary)
   │         4. Quest objectives (characters.quest_objectives)
   │         5. Active quest GM notes (quest_templates.description_gm) — GM only, never revealed
@@ -65,8 +66,9 @@ Player message (POST /gm)
   │               ├ move_character
   │               ├ update_entity
   │               ├ update_npc → updateNpcMutations()
-  │               ├ create_entity
-  │               └ delete_entity → player_entity_mutations
+  │               ├ create_entity → dedup check: world_entities → improvised_entities → insert
+  │               ├ delete_entity → player_entity_mutations
+  │               └ grant_item → items (upsert template) + character_inventory
   │
   └─ [async, every 4 turns] summary.runScribe()  // Haiku, Temp 0.5
           ├ Fetches quest_templates.stages for active quests (stage hints)
@@ -132,6 +134,7 @@ Deterministic function. Builds a `ContextBlock` from multiple parallel DB reads.
 - `quest_templates` — `description_gm` for each active quest → `activeQuestNotes[]`
 - `world_entities` — location entities matching character's current location hierarchy
 - `player_entity_mutations` — per-player overrides; mutations override base entity descriptions
+- `improvised_entities` — character-scoped scene objects at the current location (`parent_id = location_place`). Surfaced to the Architect as `=== SCENE OBJECTS ===`. See [Improvised Entities](#improvised-entities-improvised_entities-table).
 
 **NPC enrichment (`enrichAndFilterNpcs`):**
 For each NPC, the Auto-Hydrator computes a routine-based placement using `computeNpcRoutineLocation()` (reads `personality_profile.routine` + current `game_time_minutes` → time slot → location_id). If the NPC's computed location matches the player's location, it appears in context. If the NPC's DB `current_location_id` differs from the computed location, a fire-and-forget update is issued. NPCs with `following_character_id = characterId` appear regardless of location (including companion NPCs with `game_id = null`). The result is `EnrichedNpc[]` — NPCs stripped down to what the Architect needs: name, title, faction, disposition label, last encounter summary, current task, and following status.
@@ -202,6 +205,8 @@ Sonnet. Streamed. **No tools.** Pure narrative generation.
 
 **GM quest notes:** If `contextBlock.activeQuestNotes` is non-empty, the auto-hydrator has fetched `quest_templates.description_gm` for each active quest. These are injected as a system block labeled `=== ACTIVE QUEST CONTEXT (GM ONLY — do not reveal to player) ===`. This gives the Architect the full narrative scope of a quest (what the waystone actually points to, antagonist motivations, hidden truths) without those facts appearing in player-visible quest text.
 
+**Scene objects:** If `contextBlock.improvisedEntities` is non-empty, a `=== SCENE OBJECTS ===` section is added to the character state block listing objects and NPCs that the Architect previously introduced for this character at the current location. This ensures continuity — an object improvised in a prior session will still be referenced as present on subsequent visits.
+
 Returns an `AsyncGenerator<string>` of text chunks. The `handler.ts` yields each chunk to the Express route, which forwards them as SSE events:
 
 ```
@@ -229,9 +234,14 @@ type LedgerOutput =
   | { action: 'update_npc'; npc_id: string; mutations: NpcMutations }
   | { action: 'create_entity'; entity: Record<string, unknown> }
   | { action: 'delete_entity'; entity_id: string; replacement_description: string }
+  | { action: 'grant_item'; item_name: string; item_type: string; description?: string; quantity?: number }
 ```
 
 Only records **permanent, world-altering changes** — not narrative flourishes.
+
+**`create_entity` vs `grant_item`:** The Ledger is instructed to distinguish between objects that exist in the world environment (`create_entity`) and items that enter the player's possession (`grant_item`). An improvised chest in a corner → `create_entity`. An NPC handing the player a dagger → `grant_item`.
+
+The Ledger receives the character's current `locationContext` (place, region, nation names) in the user message so it can write more precise entity IDs and descriptions.
 
 `update_npc` is only emitted for semantically significant NPC events: disposition shifts (player bribed/angered/charmed an NPC), revealed information, task assignments, death, or explicit departure. Routine NPC movement is handled deterministically by the Auto-Hydrator and is never a Ledger concern.
 
@@ -243,8 +253,9 @@ Deterministic. Validates and executes Ledger output against the DB.
 | `move_character` | Validates entity is a location type, calls `updateCharacter()` with new location fields |
 | `update_entity` | Merges `mutations` into existing `world_entities.data` JSON |
 | `update_npc` | Calls `updateNpcMutations()` in `world-service.ts` — merges disposition delta (clamped to [-100,100]), overwrites `personality_profile.memory.last_encounter_summary`, appends to `known_facts` (cap 8), updates task/location/alive/following |
-| `create_entity` | Upserts new row into `world_entities` |
+| `create_entity` | Three-step dedup: (1) if ID exists in `world_entities` → merge new data only; (2) if ID exists in `improvised_entities` for this character → merge data; (3) otherwise → insert into `improvised_entities` with location context backfilled from character's current position |
 | `delete_entity` | Upserts into `player_entity_mutations` with `{hidden: true, short_description: ...}` |
+| `grant_item` | Finds or creates an `items` template row by name (case-insensitive); inserts into `character_inventory` with `quantity`, `condition: 100`, `is_equipped: false` |
 
 Errors are logged and swallowed — a Ledger failure never crashes a player turn.
 
@@ -364,6 +375,41 @@ RLS: authenticated users can SELECT their own rows. All inserts are performed by
 | Column | Type | Notes |
 |--------|------|-------|
 | `token_budget` | integer? | `null` = unlimited. Min 1,000 enforced at the API route level. |
+
+---
+
+---
+
+## Improvised Entities (`improvised_entities` table)
+
+Architect hallucinations that introduce new objects, NPCs, or environmental features are embraced as world-building — but they must not pollute the shared `world_entities` table with per-character noise. The `improvised_entities` table stores character-scoped creations.
+
+### Design
+
+- **Composite PK `(character_id, id)`** — the same entity slug (e.g. `item_obsidian_vial`) can exist independently for different characters without collision.
+- **`parent_id → world_entities.id`** — improvised entities are always anchored to a canonical location. The State Executor backfills `parent_id` from the character's `location_place` when the Ledger doesn't include it.
+- **`world_entities` stays canonical** — only seeded / admin-created content lives there. `create_entity` checks it first; if the ID already exists there it merges data instead of creating a duplicate.
+- **Read path** — the Auto-Hydrator queries `improvised_entities` filtered to the current location and character, surfacing them as `ContextBlock.improvisedEntities`.
+- **Write path** — `state-executor.createEntity()` only writes to `improvised_entities`. If the Architect references an object that was previously created, the existing row is updated (merge semantics).
+
+### Schema
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | varchar(64) | Part of composite PK; snake_case slug |
+| `character_id` | uuid | Part of composite PK; FK → `characters.id` ON DELETE CASCADE |
+| `name` | varchar(255) | |
+| `type` | entity_type | Reuses `world_entities` enum: `nation\|region\|place\|location\|npc\|item` |
+| `parent_id` | varchar(64)? | FK → `world_entities.id` ON DELETE SET NULL; anchors to canonical location |
+| `nation_context` | varchar(255)? | Denormalized from character's location |
+| `region_context` | varchar(255)? | Denormalized from character's location |
+| `place_context` | varchar(255)? | Denormalized from character's location |
+| `data` | jsonb | Descriptions, flags, etc. |
+| `created_at` | timestamptz | |
+
+Migration: `20260601000000_add_improvised_entities.sql`
+
+RLS: authenticated users SELECT (all rows; filtered by character_id in application code). GM server writes via service role (bypasses RLS).
 
 ---
 
@@ -660,7 +706,10 @@ packages/server/
 │   ├── game-service.ts               # getGameWithMembers / getActiveEncounter
 │   ├── prompt-service.ts             # loadSystemPrompt (cached) / invalidatePromptCache
 │   ├── world-service.ts              # searchWorldEntities / searchLoreInHierarchy / getNpcsForGame / getNpcsForCharacter
-│   └── quest-engine.ts               # applyQuestStartGrants / applyQuestCompletionGrants (idempotent, DB-backed)
+│   ├── quest-engine.ts               # applyQuestStartGrants / applyQuestCompletionGrants (idempotent, DB-backed)
+│   ├── effect-processor.ts           # computeSkillModifiers — sums modifier effects from passive skills
+│   ├── creature-ai.ts                # Deterministic creature AI — resolveCreatureAction(pools) → { attackChoice, defendChoice }. Will > Power → strong defend + weak attack; Power ≥ Will → strong attack (if affordable) + weak defend. No LLM calls.
+│   └── combat-engine.ts              # initCombat / resolvePlayerAttack / resolvePlayerDefend / resolvePlayerEquip / endCombat. CombatActionResult includes net, defValue, totalDamage, totalBlocked for UI feedback
 ├── middleware/
 │   └── auth.ts                       # requireGmKey() Bearer token check
 └── admin/

@@ -21,7 +21,7 @@ import { X, Plus, Trash2, RotateCcw, Info } from "lucide-react"
 
 const TRAITS: EffectTrait[] = ["none", "pure_narrative", "partial_narrative", "passive", "skeng", "one_time"]
 const TRIGGERS: EffectTrigger[] = ["activated", "passive", "reactive"]
-const ROLL_CONTEXTS: EffectRollContext[] = ["any", "attack", "defense", "skill_check"]
+const ROLL_CONTEXTS: EffectRollContext[] = ["any", "attack", "defense", "pool_check"]
 const POOLS: ResourcePool[] = ["essence", "power", "will", "health"]
 const ACTION_TYPES: ActionType[] = [
   "stat_modifier",
@@ -37,37 +37,32 @@ const ACTION_TYPES: ActionType[] = [
 ]
 const MATH_OPS: MathOp[] = ["add", "multiply"]
 const STAT_TARGETS = [
-  "sorcery",
-  "perception",
-  "attunement",
-  "might",
-  "fortitude",
-  "intimidation",
-  "agility",
-  "acumen",
-  "eloquence",
+  "essence",
+  "power",
+  "will",
+  "health",
   "carry_weight",
 ]
 const REST_TARGETS = ["essence", "power", "will", "health"]
-const CRITICAL_TARGETS = ["attack", "defense", "skill_check"]
+const CRITICAL_TARGETS = ["attack", "defense", "pool_check"]
 const DISCOUNT_TARGETS = ["spell", "attack", "defense"]
 
 const ACTION_TYPE_HINTS: Record<ActionType, string> = {
-  stat_modifier:      "Adds or multiplies a character stat. Target = stat name (e.g. might, sorcery). Math = add stacks linearly, multiply stacks multiplicatively.",
+  stat_modifier:      "Adds or multiplies a character pool stat. Target = pool name (e.g. essence, power, will, health) or carry_weight. Math = add stacks linearly, multiply stacks multiplicatively.",
   weight_negation:    "Sets the effective carry weight of a specific item subtype to 0. Enter the subtype string (e.g. 'sword', 'bow').",
   grant_spell:        "Grants the character access to a specific spell. Used with the 'one_time' trait.",
   grant_item:         "Grants the character a specific item. Used with the 'one_time' trait.",
   grant_active_skill: "Grants the character a specific active skill. Used with the 'one_time' trait.",
   rest_modifier:      "Adds bonus pool recovery on rest. Target = pool (health/will/power/essence). Val = how much extra is restored.",
   pool_recharge:      "In-combat pool recovery — e.g. vampiric drain. Target = pool to refill. Val = amount regained per trigger.",
-  critical:           "Enables critical hits for a roll context. Target = attack / defense / skill_check. Val = the die's max face (6 for d6, 10 for d10, 20 for d20). No extra modifier is applied — a crit just confirms the roll.",
-  near_critical:      "Rolls that are exactly 1 below the die maximum are automatically promoted to the maximum. Target = attack / defense / skill_check. Val = the die's max face (must match the weapon's die size). Only applies to attack rolls with dice.",
+  critical:           "Enables critical hits for a roll context. Target = attack / defense / pool_check. Val = the die's max face (6 for d6, 10 for d10, 20 for d20). No extra modifier is applied — a crit just confirms the roll.",
+  near_critical:      "Rolls that are exactly 1 below the die maximum are automatically promoted to the maximum. Target = attack / defense / pool_check. Val = the die's max face (must match the weapon's die size). Only applies to attack rolls with dice.",
   discount:           "Reduces cost or weight for a category. Target = spell / attack / defense. Subtype = specific kind (e.g. 'fire', 'sword') or 'all'. Val = integer amount to reduce. Silently ignored if the character has no matching properties.",
 }
 
 const TRAIT_HINT = "Determines how the engine processes this effect.\n• skeng: always-on stat/pool bonus\n• one_time: grants spells, items, or active skills\n• passive: reminder text only — no stat change\n• partial_narrative: GM/player approval required before applying\n• pure_narrative / none: informational only"
 const TRIGGER_HINT = "When this effect fires.\n• activated: player explicitly triggers it (costs pool)\n• passive: always active in the background\n• reactive: fires automatically in response to a game event"
-const ROLL_CONTEXT_HINT = "Which action phase surfaces this reminder to the player.\n• any: always shown\n• attack: shown only when the player clicks Attack\n• defense: shown only when the player clicks Defend\n• skill_check: reserved for future skill-check flows\n\nOnly relevant for partial_narrative effects."
+const ROLL_CONTEXT_HINT = "Which action phase surfaces this reminder to the player.\n• any: always shown\n• attack: shown only when the player clicks Attack\n• defense: shown only when the player clicks Defend\n• pool_check: shown when the player rolls a pool check\n\nOnly relevant for partial_narrative effects."
 const COST_HINT = "Pool and amount spent each time this effect is activated. Only applies to 'activated' triggers."
 const PROMPT_HINT = "Question shown to the player or GM before applying conditional modifiers. Used with the 'partial_narrative' trait."
 const REMINDER_HINT = "Always-visible description on the character sheet. Describes what the effect does in plain terms."

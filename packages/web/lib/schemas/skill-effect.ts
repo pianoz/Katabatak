@@ -15,7 +15,7 @@ const EffectSchema = z.object({
   effect_id: z.string(),
   trait: z.enum(["none", "pure_narrative", "partial_narrative", "passive", "skeng", "one_time"]),
   trigger: z.enum(["activated", "passive", "reactive"]),
-  roll_context: z.enum(["attack", "defense", "skill_check", "any"]).optional(),
+  roll_context: z.enum(["attack", "defense", "pool_check", "any"]).optional(),
   cost: z.object({
     pool: z.enum(["essence", "power", "will", "health"]),
     value: z.number(),

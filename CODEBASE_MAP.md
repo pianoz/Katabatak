@@ -105,7 +105,7 @@ Character sheet, creation, and management.
 | `components/attribute-increase-popup.tsx` | Level-up attribute dialog |
 | `components/inventory/` | `add-item-modal`, `edit-item-modal`, `inspect-item-modal`, `item-table`, `give-to-ally-modal` |
 | `components/spells/` | `add-spell-modal`, `spell-section` |
-| `components/actions/` | `action-card`, `action-skill-modal`, `skill-check-panel` |
+| `components/actions/` | `action-card`, `action-skill-modal`, `pool-check-panel` |
 | `components/pools/` | `pool-counter` (essence, power, will, health) |
 | `components/offers/` | `notification-overlay` — pending item/spell/reward offers |
 | `hooks/use-pending-offers.ts` | Track and refresh pending game rewards |

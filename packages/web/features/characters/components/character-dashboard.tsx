@@ -37,7 +37,7 @@ import { SpellTable, type SpellE } from "@/features/characters/components/spells
 import VirtualGMComponent from "@/components/virtual-gm-component"
 import { Character } from "@/components/types/types"
 import { evaluateEffects, type Effect } from "@/lib/effect-engine"
-import { SkillCheckPanel } from "@/features/characters/components/actions/skill-check-panel"
+import { PoolCheckPanel } from "@/features/characters/components/actions/pool-check-panel"
 import { ActionSkillModal, type ActionSkill } from "@/features/characters/components/actions/action-skill-modal"
 import { PoolCounter } from "@/features/characters/components/pools/pool-counter"
 import { usePendingOffers } from "@/features/characters/hooks/use-pending-offers"
@@ -918,16 +918,11 @@ export function CharacterDashboard({
           /* ── IRL variant: skill checks + flat pool grid ─────────────── */
           <>
             <section className="mb-10">
-              <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-4">Skill Checks</h2>
-              <SkillCheckPanel character={character} onCharacterUpdate={patch => setCharacter(prev => ({ ...prev, ...patch }))} />
-            </section>
-
-            <section className="mb-10">
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Pools</h2>
                 <InfoTooltip text="Your four resource pools — Essence, Power, Will, and Health — each start at 10. They are spent on actions and combat, and their current level has passive effects on your character." />
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-full">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-full mb-6">
                 <PoolCounter
                   label={`Essence (${character.essence_max})`}
                   value={character.current_essence ?? 0}
@@ -961,6 +956,7 @@ export function CharacterDashboard({
                   disabled={!isOwner}
                 />
               </div>
+              <PoolCheckPanel character={character} />
             </section>
 
             {/* AI GM burndown timers — only visible when ai_game is enabled */}

@@ -34,7 +34,7 @@ export interface EffectDisplay {
   reminder_text: string;
 }
 
-export type EffectRollContext = 'attack' | 'defense' | 'skill_check' | 'any';
+export type EffectRollContext = 'attack' | 'defense' | 'pool_check' | 'any';
 
 export interface Effect {
   effect_id: string;

@@ -26,7 +26,7 @@ Use `'[]'` for items with no mechanical effect beyond their base stats (damage, 
   "effect_id": "unique-slug",       // snake_case; unique within the item's effects array
   "trait": "skeng",                 // see Trait Types below
   "trigger": "passive",             // activated | passive | reactive
-  "roll_context": "attack",         // attack | defense | skill_check | any  (optional)
+  "roll_context": "attack",         // attack | defense | pool_check | any  (optional)
   "cost": null,                     // EffectCost or null — see below
   "display": null,                  // EffectDisplay or null — see below
   "actions": []                     // array of EffectAction — see below
@@ -131,7 +131,7 @@ Adds to or multiplies a character stat.
 }
 ```
 
-Valid `target` values: `"health"`, `"power"`, `"will"`, `"essence"`, `"attack"`, `"defence"`, `"speed"`, `"carry_weight"`, `"damage"` — and any sub-ability the frontend recognizes.
+Valid `target` values: `"health"`, `"power"`, `"will"`, `"essence"`, `"attack"`, `"defence"`, `"speed"`, `"carry_weight"`, `"damage"`.
 
 ### `weight_negation`
 
@@ -238,7 +238,7 @@ Enables a critical hit check on a given roll context.
 ```jsonc
 {
   "type": "critical",
-  "target": "attack",   // roll_context: attack | defense | skill_check | any
+  "target": "attack",   // roll_context: attack | defense | pool_check | any
   "math": "add",
   "Value": 10,          // die_size (roll must equal this to trigger)
   "per_rank_add": null,

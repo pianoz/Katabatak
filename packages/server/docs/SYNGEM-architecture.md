@@ -89,7 +89,7 @@ Player message (POST /gm)
 
 ## Check Interruption Flow
 
-When the Lore-Engine determines an action requires a skill check, execution halts **before the Architect runs**. The server returns JSON instead of SSE:
+When the Lore-Engine determines an action requires a pool check, execution halts **before the Architect runs**. The server returns JSON instead of SSE:
 
 ```json
 { "type": "check_required", "difficulty": 20, "pool": "Power", "check_description": "Forcing the iron gate" }

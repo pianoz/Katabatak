@@ -36,7 +36,7 @@ type EffectTrait =
 
 type EffectTrigger = 'activated' | 'passive' | 'reactive'
 
-type EffectRollContext = 'attack' | 'defense' | 'skill_check' | 'any'
+type EffectRollContext = 'attack' | 'defense' | 'pool_check' | 'any'
 
 type ActionType =
   | 'stat_modifier'       // modify ability or stat value
@@ -112,7 +112,7 @@ What the engine does with an effect depends entirely on its `trait`. This is the
 
 Modifies a character ability or derived stat.
 
-- **target:** `might` | `sorcery` | `perception` | `agility` | `acumen` | `attunement` | `eloquence` | `fortitude` | `intimidation` | `carry_weight`
+- **target:** `essence` | `power` | `will` | `health` | `carry_weight`
 - **math:** `add` → stacks additively. `multiply` → stacks multiplicatively.
 - **scaling formula:**
   - add: `Value + per_rank_add * (rank - 1)`
@@ -158,7 +158,7 @@ In-combat pool recovery triggered by an action (e.g. vampiric drain — deal dam
 
 Marks a roll context as crit-capable at a given die size. A roll is a critical if it equals `Value` (e.g. `Value=6` on a d6, `Value=10` on a d10). No extra modifier is applied — the standard result stands.
 
-- **target:** `attack` | `defense` | `skill_check`
+- **target:** `attack` | `defense` | `pool_check`
 - **Value:** the die's maximum face (die size)
 - **math / per_rank:** unused — die size is fixed
 - **output key:** `criticalChecks[]` — one entry per (target, die_size) pair
@@ -168,7 +168,7 @@ Marks a roll context as crit-capable at a given die size. A roll is a critical i
 
 Promotes a die roll that is exactly 1 below the maximum to the maximum, making it a critical. The promotion happens at roll time, before the modifier and coefficient are applied — all subsequent math runs on the promoted value unchanged.
 
-- **target:** `attack` | `defense` | `skill_check`
+- **target:** `attack` | `defense` | `pool_check`
 - **Value:** the die's maximum face (must match the weapon/item die size — e.g. `6` for a d6, `10` for a d10)
 - **math / per_rank:** unused — the promotion threshold is always exactly 1 below max
 - **output key:** `nearCriticalChecks[]` — one entry per (target, die_size) pair
@@ -215,8 +215,8 @@ setActivePrompts(
 |---|---|
 | `'attack'` | Player fires an Attack roll |
 | `'defense'` | Player fires a Defend roll |
-| `'skill_check'` | **Reserved** — SkillCheckPanel does not currently call back to surface prompts; this context is defined but inactive |
-| `'any'` | Every Attack or Defend roll |
+| `'pool_check'` | Player fires a Pool Check roll (d20 + pool_max/2 + sacrifice) |
+| `'any'` | Every Attack, Defend, or Pool Check roll |
 
 ### The `passive` trait is NOT the roll-triggered path
 
@@ -225,8 +225,9 @@ The `passive` trait's `reminder_text` goes into `skillFx.passives[]` — a separ
 **Rule:** If you want a reminder that only appears when a player makes a specific roll, use **`partial_narrative`** with the desired `roll_context`, not `passive`.
 
 ```text
-partial_narrative + roll_context: 'attack'   → shows only on Attack rolls
-partial_narrative + roll_context: 'any'      → shows on all Attack/Defend rolls
+partial_narrative + roll_context: 'attack'     → shows only on Attack rolls
+partial_narrative + roll_context: 'pool_check' → shows only on Pool Check rolls
+partial_narrative + roll_context: 'any'        → shows on all Attack/Defend/Pool Check rolls
 passive                                       → collected in passives[], not shown at roll time
 ```
 

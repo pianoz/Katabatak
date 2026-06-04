@@ -58,7 +58,7 @@ interface CombatOverlayProps {
 function PoolBar({ label, current, max, color }: { label: string; current: number; max: number; color: string }) {
   const pct = max > 0 ? Math.max(0, Math.min(100, (current / max) * 100)) : 0
   return (
-    <div className="flex flex-col gap-0.5 min-w-[60px]">
+    <div className="flex flex-col gap-0.5 w-full">
       <div className="flex justify-between">
         <span className="font-mono text-[8px] uppercase tracking-widest text-muted-foreground/60">{label}</span>
         <span className="font-mono text-[8px] text-muted-foreground/60">{current}/{max}</span>
@@ -82,6 +82,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   const [strongDef, setStrongDef] = useState(0)
   const [selectedWeaponId, setSelectedWeaponId] = useState<string | null>(null)
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
+  useEffect(() => { selectedWeaponIdRef.current = selectedWeaponId }, [selectedWeaponId])
   const [busy, setBusy] = useState(false)
   const [round, setRound] = useState(1)
   const [flashCreatureId, setFlashCreatureId] = useState<string | null>(null)
@@ -89,7 +90,9 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   const [playerFlash, setPlayerFlash] = useState(false)
   const [playerDamageFlash, setPlayerDamageFlash] = useState<{ damage: number; blocked: number; key: number } | null>(null)
   const [combatError, setCombatError] = useState<string | null>(null)
+  const [isDead, setIsDead] = useState(false)
   const initialWeaponIdRef = useRef<string | null>(null)
+  const selectedWeaponIdRef = useRef<string | null>(null)
 
   // ── Data loaders ────────────────────────────────────────────────────────────
 
@@ -123,6 +126,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
       .single()
     if (data) {
       setCharacter(data as CharacterState)
+      if ((data.current_health ?? 1) <= 0) setIsDead(true)
       return data as CharacterState
     }
     return null
@@ -173,16 +177,19 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
       setWeapons(result)
 
       // Pre-select equipped weapon, or first weapon
-      if (!selectedWeaponId || !result.find(x => x.inventoryId === selectedWeaponId)) {
+      const curId = selectedWeaponIdRef.current
+      if (!curId || !result.find(x => x.inventoryId === curId)) {
         const preSelected = result.find(x => x.isEquipped) ?? result[0]
-        setSelectedWeaponId(preSelected?.inventoryId ?? null)
-        // Lock in the initial weapon so Attack is available without an equip action
-        if (!initialWeaponIdRef.current && preSelected) {
-          initialWeaponIdRef.current = preSelected.inventoryId
+        if (preSelected) {
+          setSelectedWeaponId(preSelected.inventoryId)
+          // Lock in the initial weapon so Attack is available without an equip action
+          if (!initialWeaponIdRef.current) {
+            initialWeaponIdRef.current = preSelected.inventoryId
+          }
         }
       }
     }
-  }, [characterId, supabase, selectedWeaponId])
+  }, [characterId, supabase])
 
   const loadDefence = useCallback(async () => {
     const { data } = await supabase
@@ -258,6 +265,12 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
     }
   }, [gameId, characterId, supabase, loadCharacter, loadCreatures, onCombatEnd])
 
+  useEffect(() => {
+    if (!isDead) return
+    const t = setTimeout(() => onCombatEnd?.("defeat"), 2500)
+    return () => clearTimeout(t)
+  }, [isDead, onCombatEnd])
+
   // ── Actions ──────────────────────────────────────────────────────────────────
 
   async function handleAttack(attackType: "normal" | "strong") {
@@ -295,17 +308,22 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   async function handleEquip(inventoryId: string) {
     if (busy) return
     setBusy(true)
+    setCombatError(null)
     try {
       const res = await fetch("/api/gm/combat/player-equip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gameId, characterId, inventoryId }),
       })
-      const data = await res.json() as { ok?: boolean; combatPhase?: string | null }
+      const data = await res.json() as { ok?: boolean; combatPhase?: string | null; error?: string }
       if (data.ok) {
         if (data.combatPhase) setCombatPhase(data.combatPhase)
         await Promise.all([loadWeapons(), loadGameState()])
+      } else {
+        setCombatError(data.error ?? "Equip failed — check GM server")
       }
+    } catch {
+      setCombatError("GM server unreachable")
     } finally {
       setBusy(false)
     }
@@ -331,7 +349,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
         }
         setPlayerDamageFlash(prev => ({ damage: dmg, blocked, key: (prev?.key ?? 0) + 1 }))
         setTimeout(() => setPlayerDamageFlash(null), 2000)
-        if (data.outcome === "defeat") onCombatEnd?.("defeat")
+        if (data.outcome === "defeat") setIsDead(true)
         else {
           setRound(r => r + 1)
           if (data.combatPhase) setCombatPhase(data.combatPhase)
@@ -364,6 +382,18 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
 
   return (
     <div className="fixed inset-0 z-50 bg-background/97 flex flex-col animate-in fade-in duration-300">
+      {/* Death overlay */}
+      {isDead && (
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black/90 animate-in fade-in duration-700">
+          <span
+            className="font-serif text-6xl uppercase tracking-[0.3em] text-red-600"
+            style={{ textShadow: "0 0 40px rgba(220,38,38,0.9), 0 0 80px rgba(220,38,38,0.5)" }}
+          >
+            You Die
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-6 py-3 border-b border-border/50">
         <div className="flex items-center gap-4">
@@ -381,7 +411,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
       </div>
 
       {/* Enemy row — centered */}
-      <div className="shrink-0 flex justify-center border-b border-border/40">
+      <div className="flex-1 min-h-0 flex justify-center items-center flex-wrap border-b border-border/40 py-4 overflow-auto">
         {creatures.map((creature) => (
           <CreatureDisplay
             key={creature.id}
@@ -398,23 +428,25 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
       </div>
 
       {/* Combat log */}
-      <div className="flex-1 overflow-hidden border-b border-border/40">
+      <div className="shrink-0 h-32 overflow-hidden border-b border-border/40">
         <CombatLogPanel entries={combatLog} />
       </div>
 
       {/* Player pools */}
       {character && (
         <div className={[
-          "shrink-0 flex gap-4 px-6 py-3 border-b transition-colors duration-200 relative",
+          "shrink-0 px-6 py-3 border-b transition-colors duration-200 relative",
           playerFlash ? "bg-red-900/30 border-red-500/40" : "bg-card/30 border-border/40",
         ].join(" ")}>
-          <PoolBar label="HP" current={character.current_health ?? 0} max={character.health_max ?? 1} color="#ef4444" />
-          <PoolBar label="PW" current={character.current_power ?? 0} max={character.power_max ?? 1} color="#3b82f6" />
-          <PoolBar label="WL" current={character.current_will ?? 0} max={character.will_max ?? 1} color="#8b5cf6" />
-          {(character.essence_max ?? 0) > 0 && (
-            <PoolBar label="ES" current={character.current_essence ?? 0} max={character.essence_max ?? 1} color="#06b6d4" />
-          )}
-          <span className="font-serif text-sm text-foreground/70 ml-2 self-center">{character.name}</span>
+          <span className="font-serif text-sm text-foreground/70 mb-2 block">{character.name}</span>
+          <div className="flex flex-col gap-1.5 w-full">
+            <PoolBar label="HP" current={character.current_health ?? 0} max={character.health_max ?? 1} color="#ef4444" />
+            <PoolBar label="PW" current={character.current_power ?? 0} max={character.power_max ?? 1} color="#3b82f6" />
+            <PoolBar label="WL" current={character.current_will ?? 0} max={character.will_max ?? 1} color="#8b5cf6" />
+            {(character.essence_max ?? 0) > 0 && (
+              <PoolBar label="ES" current={character.current_essence ?? 0} max={character.essence_max ?? 1} color="#06b6d4" />
+            )}
+          </div>
           {playerDamageFlash && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 pointer-events-none">
               <span

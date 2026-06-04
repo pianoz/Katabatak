@@ -58,7 +58,7 @@ export function CreatureDisplay({
   const clickable = !defeated && onClick != null
 
   return (
-    <div className="w-1/5 min-w-30 max-w-50 flex flex-col items-center">
+    <div className="w-1/4 min-w-44 max-w-72 flex flex-col items-center">
       <div
         onClick={clickable ? onClick : undefined}
         className={[
@@ -76,24 +76,24 @@ export function CreatureDisplay({
         ].join(" ")}
         style={isTargeted && !defeated ? { boxShadow: "0 0 10px 2px rgba(220, 38, 38, 0.25)" } : undefined}
       >
-        {/* ASCII art — fixed height, 6 lines */}
-        <div
-          className={[
-            "font-mono text-[10px] whitespace-pre leading-[1.3] h-19.5 overflow-hidden select-none",
-            defeated ? "text-muted-foreground/30" : "text-foreground/80",
-          ].join(" ")}
-        >
-          {art}
-        </div>
-
-        {/* Name */}
-        <div className="flex items-baseline gap-1.5">
-          <span className="font-serif text-xs text-foreground truncate">{creature.name}</span>
-          {creature.level != null && (
-            <span className="font-mono text-[8px] uppercase tracking-widest text-muted-foreground/50 shrink-0">
-              L{creature.level}
-            </span>
-          )}
+        {/* ASCII art + name side by side */}
+        <div className="flex gap-2 items-start">
+          <div
+            className={[
+              "font-mono text-[10px] whitespace-pre leading-[1.3] overflow-hidden select-none shrink-0",
+              defeated ? "text-muted-foreground/30" : "text-foreground/80",
+            ].join(" ")}
+          >
+            {art}
+          </div>
+          <div className="flex flex-col gap-1 min-w-0">
+            <span className={["font-serif text-sm leading-tight", defeated ? "text-foreground/30" : "text-foreground"].join(" ")}>{creature.name}</span>
+            {creature.level != null && (
+              <span className="font-mono text-[8px] uppercase tracking-widest text-muted-foreground/50">
+                L{creature.level}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Stat bars */}

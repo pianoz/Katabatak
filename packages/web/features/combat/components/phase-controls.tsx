@@ -52,7 +52,7 @@ export function PhaseAControls({
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <div className="font-mono text-[9px] uppercase tracking-[0.25em] text-muted-foreground/60">
+      <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-red-400 font-semibold">
         Phase I — Your Attack
       </div>
 
@@ -87,7 +87,7 @@ export function PhaseAControls({
 
         {/* Short description */}
         {weapon?.shortDescription && (
-          <p className="text-[10px] leading-tight text-muted-foreground italic line-clamp-2">
+          <p className="text-[11px] leading-tight text-muted-foreground italic line-clamp-2">
             {weapon.shortDescription}
           </p>
         )}

@@ -8,7 +8,7 @@
 
 Katabatak is a tabletop RPG web application with a brutalist dark fantasy aesthetic (Darkest Dungeon / MÖRK BORG). It consists of:
 
-- **`packages/web`** — Next.js 16 + React 19 frontend (App Router)
+- **`packages/web`** — Next.js 15 + React 19 frontend (App Router)
 - **`packages/server`** — Node.js AI Game Master backend (Claude + tool use)
 - **`supabase/`** — PostgreSQL migrations, RLS policies, seed data
 

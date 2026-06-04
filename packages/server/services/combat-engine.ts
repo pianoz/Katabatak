@@ -429,10 +429,9 @@ export async function resolvePlayerEquip(
     .from('character_inventory')
     .select('id, items!inner(type, hidden)')
     .eq('character_id', characterId)
-    .eq('items.type', 'weapon' as any)
   type WeaponRow = { id: string; items: { type: string | null; hidden: boolean | null } }
-  const weaponIds = ((weaponRows ?? []) as unknown as WeaponRow[])
-    .filter(r => !r.items.hidden)
+  const weaponIds = (Array.isArray(weaponRows) ? (weaponRows as unknown as WeaponRow[]) : [])
+    .filter(r => r.items.type === 'weapon' && !r.items.hidden)
     .map(r => r.id)
   if (weaponIds.length) {
     await supabase.from('character_inventory').update({ is_equipped: false }).in('id', weaponIds)

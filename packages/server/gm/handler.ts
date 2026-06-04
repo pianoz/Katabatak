@@ -37,8 +37,10 @@ export async function* handleGMMessage({
   gameId,
   checkResolution,
   anthropicApiKey,
+  requestId,
+  _timingOut,
 }: GMMessageInput): AsyncGenerator<string | CheckRequired> {
-  synLog('HANDLER', `→ request | char:${characterId.slice(-8)} "${message.slice(0, 60)}${message.length > 60 ? '...' : ''}"${checkResolution ? ` [resolving:${checkResolution.choice}]` : ''}${anthropicApiKey ? ' [byok]' : ''}`)
+  synLog('HANDLER', `→ request | char:${characterId.slice(-8)} "${message.slice(0, 60)}${message.length > 60 ? '...' : ''}"${checkResolution ? ` [resolving:${checkResolution.choice}]` : ''}${anthropicApiKey ? ' [byok]' : ''}`, undefined, requestId)
 
   const client = createClaudeClient(anthropicApiKey)
 
@@ -60,10 +62,12 @@ export async function* handleGMMessage({
 
   // 3. Persist the player turn
   const { turnNumber } = await saveTurn(characterId, gameId, 'player', message)
-  synLog('HANDLER', `✓ turn saved — #${turnNumber}`)
+  synLog('HANDLER', `✓ turn saved — #${turnNumber}`, undefined, requestId)
 
   // 4. Build context block
-  const contextBlock = await autoHydrate(characterId, gameId)
+  const t0 = Date.now()
+  const contextBlock = await autoHydrate(characterId, gameId, requestId)
+  const hydratorMs = Date.now() - t0
   if (!contextBlock) {
     yield '[GM Error: character not found]'
     return
@@ -73,9 +77,11 @@ export async function* handleGMMessage({
   const lastTwoTurns = await getRecentTurns(characterId, 2)
 
   // 4. Run Lore-Engine (skip if a check was already resolved by the player)
+  const t1 = Date.now()
   let loreResult = checkResolution
     ? { action_type: 'task' as const, requires_check: false }
-    : await runLoreEngine({ lastTwoTurns, contextBlock, playerInput: message, client, userId, characterId })
+    : await runLoreEngine({ lastTwoTurns, contextBlock, playerInput: message, client, userId, characterId, requestId })
+  const loreMs = Date.now() - t1
 
   // 5. If check required and not yet resolved, halt and return the check prompt
   if (loreResult.requires_check && !checkResolution) {
@@ -85,7 +91,7 @@ export async function* handleGMMessage({
       pool: loreResult.pool ?? 'Power',
       check_description: loreResult.check_description ?? 'Attempting a difficult task',
     }
-    synLog('HANDLER', `⚑ check required — pool:${checkRequired.pool} diff:${checkRequired.difficulty} — halting pipeline`)
+    synLog('HANDLER', `⚑ check required — pool:${checkRequired.pool} diff:${checkRequired.difficulty} — halting pipeline`, undefined, requestId)
     yield checkRequired
     return
   }
@@ -105,12 +111,12 @@ export async function* handleGMMessage({
     const keywords = (loreResult.search_objects ?? [])
       .map((s) => (typeof s === 'string' ? s : s.target))
       .filter((k): k is string => typeof k === 'string' && k.length > 0)
-    synLog('HANDLER', `→ lore gather | location:${locationId} keywords:[${keywords.join(', ')}]`)
+    synLog('HANDLER', `→ lore gather | location:${locationId} keywords:[${keywords.join(', ')}]`, undefined, requestId)
     searchResults = await gatherInfoLore(locationId, keywords)
-    synLog('HANDLER', `✓ lore gather — ${searchResults.length} chars`)
+    synLog('HANDLER', `✓ lore gather — ${searchResults.length} chars`, undefined, requestId)
   } else if (loreResult.search_objects?.length) {
     const targets = loreResult.search_objects.map((s) => s.target).join(', ')
-    synLog('HANDLER', `→ world search | targets: ${targets}`)
+    synLog('HANDLER', `→ world search | targets: ${targets}`, undefined, requestId)
     const results = await Promise.all(
       loreResult.search_objects.map(async (s) => {
         const entities = await searchWorldEntities(s.target)
@@ -126,7 +132,7 @@ export async function* handleGMMessage({
       }),
     )
     const filtered = results.filter(Boolean)
-    synLog('HANDLER', `✓ world search — ${filtered.length}/${loreResult.search_objects.length} results`)
+    synLog('HANDLER', `✓ world search — ${filtered.length}/${loreResult.search_objects.length} results`, undefined, requestId)
     if (filtered.length) searchResults = filtered.join('\n\n')
   }
 
@@ -142,7 +148,8 @@ export async function* handleGMMessage({
   const lastFourTurns = await getRecentTurns(characterId, 4)
 
   // 10. Stream Architect response
-  synLog('HANDLER', '→ architect streaming...')
+  synLog('HANDLER', '→ architect streaming...', undefined, requestId)
+  const t2 = Date.now()
   let fullResponse = ''
   for await (const chunk of streamArchitect({
     styleText,
@@ -157,53 +164,56 @@ export async function* handleGMMessage({
     client,
     userId,
     characterId,
+    requestId,
   })) {
     fullResponse += chunk
     yield chunk
   }
-  synLog('HANDLER', `✓ architect complete — ${fullResponse.length} chars`)
+  const architectMs = Date.now() - t2
+  synLog('HANDLER', `✓ architect complete — ${fullResponse.length} chars`, undefined, requestId)
+  if (_timingOut) Object.assign(_timingOut, { hydratorMs, loreMs, architectMs })
 
   // 11. Persist assistant turn
   await saveTurn(characterId, gameId, 'assistant', fullResponse)
-  synLog('HANDLER', '✓ assistant turn saved')
+  synLog('HANDLER', '✓ assistant turn saved', undefined, requestId)
 
   // 12. Advance fantasy game time by 10 minutes (async, non-blocking)
   advanceGameTime(characterId).catch((err) =>
-    synLog('HANDLER', `✗ [GameTime] async error: ${err instanceof Error ? err.message : String(err)}`),
+    synLog('HANDLER', `✗ [GameTime] async error: ${err instanceof Error ? err.message : String(err)}`, undefined, requestId),
   )
 
   // 13. Fire Ledger + State Executor asynchronously
   if (ledgerNeutered) {
-    synLog('HANDLER', '⚠ ledger neutered — skipping DB write')
+    synLog('HANDLER', '⚠ ledger neutered — skipping DB write', undefined, requestId)
   } else {
-    synLog('HANDLER', '→ ledger + state-executor fired (async)')
-    runLedger({ narrativeText: fullResponse, characterId, locationContext, client, userId })
+    synLog('HANDLER', '→ ledger + state-executor fired (async)', undefined, requestId)
+    runLedger({ narrativeText: fullResponse, characterId, locationContext, client, userId, requestId })
       .then((ledgerOutputs) => {
         if (ledgerOutputs.length) {
-          return executeStateChanges(characterId, ledgerOutputs, locationContext)
+          return executeStateChanges(characterId, ledgerOutputs, locationContext, requestId)
         }
       })
-      .catch((err) => synLog('HANDLER', `✗ [Ledger/StateExecutor] async error: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => synLog('HANDLER', `✗ [Ledger/StateExecutor] async error: ${err instanceof Error ? err.message : String(err)}`, undefined, requestId))
   }
 
   // 14. Fire Scribe every 4 turns (server-side, async)
   if (turnNumber % 4 === 0) {
-    synLog('HANDLER', `→ scribe triggered (turn ${turnNumber})`)
+    synLog('HANDLER', `→ scribe triggered (turn ${turnNumber})`, undefined, requestId)
     const recentEight = await getRecentTurns(characterId, 8)
-    runScribe(characterId, recentEight, client, userId)
+    runScribe(characterId, recentEight, client, userId, requestId)
       .then(({ completedQuestIds }) => {
         if (completedQuestIds.length) {
-          synLog('HANDLER', `→ quest completion grants firing for: ${completedQuestIds.join(', ')}`)
+          synLog('HANDLER', `→ quest completion grants firing for: ${completedQuestIds.join(', ')}`, undefined, requestId)
           return Promise.all(
             completedQuestIds.map((questId) =>
               applyQuestCompletionGrants(characterId, questId).catch((err) =>
-                synLog('HANDLER', `✗ [QuestEngine] grant error for ${questId}: ${err instanceof Error ? err.message : String(err)}`),
+                synLog('HANDLER', `✗ [QuestEngine] grant error for ${questId}: ${err instanceof Error ? err.message : String(err)}`, undefined, requestId),
               ),
             ),
           )
         }
       })
-      .catch((err) => synLog('HANDLER', `✗ [Scribe] async error: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => synLog('HANDLER', `✗ [Scribe] async error: ${err instanceof Error ? err.message : String(err)}`, undefined, requestId))
   }
 }
 

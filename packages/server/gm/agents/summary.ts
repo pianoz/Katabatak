@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { z } from 'zod'
 import type { Json } from '@db-types'
 import supabase from '../tools/db.js'
 import { getSyngemGame, updateSyngemSummary } from '../../services/syngem-game-service.js'
@@ -63,6 +64,24 @@ export interface ScribeOutput {
   key_entity_ids: string[]
 }
 
+const QuestObjectiveScribeSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.string(),
+  description: z.string(),
+  current_stage: z.string().nullable().optional(),
+  grants_applied: z.array(z.string()).optional(),
+})
+
+const ScribeOutputSchema = z.object({
+  summary: z.string(),
+  quest_updates: z.object({
+    objectives: z.array(QuestObjectiveScribeSchema),
+    completed_quest_ids: z.array(z.string()),
+  }),
+  key_entity_ids: z.array(z.string()),
+})
+
 /**
  * Compresses recent conversation turns into a narrative summary, quest objectives, and key entity IDs.
  * Merges with the existing summary on the syngem_game row; silently returns on parse failure.
@@ -73,9 +92,10 @@ export async function runScribe(
   history: ConversationTurn[],
   passedClient?: Anthropic,
   userId?: string,
+  requestId?: string,
 ): Promise<{ completedQuestIds: string[] }> {
   const client = passedClient ?? createClaudeClient()
-  synLog('SCRIBE', `→ running | char:${characterId} turns:${history.length}`)
+  synLog('SCRIBE', `→ running | char:${characterId} turns:${history.length}`, undefined, requestId)
 
   const [syngemGame, { data: character }] = await Promise.all([
     getSyngemGame(characterId),
@@ -84,7 +104,7 @@ export async function runScribe(
 
   const existingSummary = syngemGame?.summary ?? null
   const existingObjectives = (character?.quest_objectives as ScribeOutput['quest_updates']['objectives'] | null) ?? []
-  synLog('SCRIBE', `  prior summary:${existingSummary ? 'yes' : 'none'} | prior objectives:${existingObjectives.length}`)
+  synLog('SCRIBE', `  prior summary:${existingSummary ? 'yes' : 'none'} | prior objectives:${existingObjectives.length}`, undefined, requestId)
 
   // Fetch quest template stage hints for active quests so the Scribe can advance stages accurately
   const activeQuestIds = existingObjectives.filter((q) => q.status === 'active').map((q) => q.id)
@@ -130,12 +150,16 @@ export async function runScribe(
 
   const text = response.content.find((b) => b.type === 'text')?.text ?? ''
   let parsed: ScribeOutput
+  const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
   try {
-    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-    parsed = JSON.parse(cleaned) as ScribeOutput
+    const result = ScribeOutputSchema.safeParse(JSON.parse(cleaned))
+    if (!result.success) {
+      synLog('SCRIBE', `⚠ schema validation failed | raw:"${text.slice(0, 80)}"`, result.error.issues, requestId)
+      return { completedQuestIds: [] }
+    }
+    parsed = result.data
   } catch {
-    synLog('SCRIBE', `⚠ JSON parse failed | raw:"${text.slice(0, 80)}"`)
-    console.error('[Scribe] Failed to parse JSON output:', text)
+    synLog('SCRIBE', `⚠ JSON parse failed | raw:"${text.slice(0, 80)}"`, undefined, requestId)
     return { completedQuestIds: [] }
   }
 
@@ -152,7 +176,7 @@ export async function runScribe(
       })
       .eq('id', characterId),
   ])
-  synLog('SCRIBE', `✓ complete | summary:${parsed.summary.length}chars objectives:${updatedObjectives.length} completed:${completedQuestIds.length} entities:${parsed.key_entity_ids.length}`)
+  synLog('SCRIBE', `✓ complete | summary:${parsed.summary.length}chars objectives:${updatedObjectives.length} completed:${completedQuestIds.length} entities:${parsed.key_entity_ids.length}`, undefined, requestId)
   return { completedQuestIds }
 }
 

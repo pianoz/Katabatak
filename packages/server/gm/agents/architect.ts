@@ -131,6 +131,7 @@ export async function* streamArchitect({
   client: passedClient,
   userId,
   characterId,
+  requestId,
 }: {
   styleText: string
   contextBlock: ContextBlock
@@ -144,11 +145,12 @@ export async function* streamArchitect({
   client?: Anthropic
   userId?: string
   characterId?: string
+  requestId?: string
 }): AsyncGenerator<string> {
   const client = passedClient ?? createClaudeClient()
   const loadedPrompt = await loadArchitectPrompt()
   const baseSystem = loadedPrompt ?? styleText
-  synLog('ARCHITECT', `→ prompt:${loadedPrompt ? 'DB' : 'fallback(style)'} | turns:${lastFourTurns.length} | streaming...`)
+  synLog('ARCHITECT', `→ prompt:${loadedPrompt ? 'DB' : 'fallback(style)'} | turns:${lastFourTurns.length} | streaming...`, undefined, requestId)
   const systemBlocks: Anthropic.Messages.TextBlockParam[] = [
     { type: 'text', text: baseSystem, cache_control: { type: 'ephemeral' } },
   ]

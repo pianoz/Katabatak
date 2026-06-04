@@ -3,6 +3,7 @@ import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { contextBlock } from '../auto-hydrator.js'
 import { synLog, synLogVerbose } from '../logger.js'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput } from '../types.js'
+import { LoreEngineOutputSchema } from '../types.js'
 import { createClaudeClient } from '../claude-client.js'
 import { recordTokenUsage } from '../record-token-usage.js'
 
@@ -58,6 +59,7 @@ export async function runLoreEngine({
   client: passedClient,
   userId,
   characterId,
+  requestId,
 }: {
   lastTwoTurns: ConversationTurn[]
   contextBlock: ContextBlock
@@ -65,12 +67,13 @@ export async function runLoreEngine({
   client?: Anthropic
   userId?: string
   characterId?: string
+  requestId?: string
 }): Promise<LoreEngineOutput> {
   const _client = passedClient ?? createClaudeClient()
   const loadedPrompt = await loadSystemPrompt('lore-engine')
   const system = loadedPrompt ?? FALLBACK_SYSTEM
-  synLog('LORE-ENGINE', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | input:"${playerInput.slice(0, 60)}${playerInput.length > 60 ? '...' : ''}"`)
-  synLogVerbose('LORE-ENGINE', '→ system prompt:', system)
+  synLog('LORE-ENGINE', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | input:"${playerInput.slice(0, 60)}${playerInput.length > 60 ? '...' : ''}"`, undefined, requestId)
+  synLogVerbose('LORE-ENGINE', '→ system prompt:', system, requestId)
 
   const historyBlock = lastTwoTurns.length
     ? lastTwoTurns
@@ -89,7 +92,7 @@ export async function runLoreEngine({
     playerInput,
   ].join('\n')
 
-  synLogVerbose('LORE-ENGINE', '→ user content:', userContent)
+  synLogVerbose('LORE-ENGINE', '→ user content:', userContent, requestId)
 
   let response: Anthropic.Message
   try {
@@ -101,7 +104,7 @@ export async function runLoreEngine({
       messages: [{ role: 'user', content: userContent }],
     })
   } catch (apiErr) {
-    synLog('LORE-ENGINE', `✗ API error: ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`)
+    synLog('LORE-ENGINE', `✗ API error: ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`, undefined, requestId)
     return { action_type: 'task', requires_check: false }
   }
 
@@ -117,14 +120,21 @@ export async function runLoreEngine({
   }
 
   const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
-  synLogVerbose('LORE-ENGINE', '← raw response:', text)
+  synLogVerbose('LORE-ENGINE', '← raw response:', text, requestId)
+  const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
+  let rawParsed: unknown
   try {
-    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-    const result = JSON.parse(cleaned) as LoreEngineOutput
-    synLog('LORE-ENGINE', `✓ action:${result.action_type} requires_check:${result.requires_check}${result.search_objects?.length ? ` searches:${result.search_objects.length}` : ''}${result.narrative_notes ? ` notes:"${result.narrative_notes.slice(0, 50)}"` : ''}`, result)
-    return result
+    rawParsed = JSON.parse(cleaned)
   } catch {
-    synLog('LORE-ENGINE', '⚠ JSON parse failed — using fallback. Full raw response:', text)
+    synLog('LORE-ENGINE', '⚠ JSON parse failed — using fallback. Full raw response:', text, requestId)
     return { action_type: 'task', requires_check: false }
   }
+  const validation = LoreEngineOutputSchema.safeParse(rawParsed)
+  if (!validation.success) {
+    synLog('LORE-ENGINE', '⚠ schema validation failed — using fallback', validation.error.issues, requestId)
+    return { action_type: 'task', requires_check: false }
+  }
+  const result: LoreEngineOutput = validation.data
+  synLog('LORE-ENGINE', `✓ action:${result.action_type} requires_check:${result.requires_check}${result.search_objects?.length ? ` searches:${result.search_objects.length}` : ''}${result.narrative_notes ? ` notes:"${result.narrative_notes.slice(0, 50)}"` : ''}`, result, requestId)
+  return result
 }

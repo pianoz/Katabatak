@@ -82,7 +82,9 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   const [strongDef, setStrongDef] = useState(0)
   const [selectedWeaponId, setSelectedWeaponId] = useState<string | null>(null)
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
+  const selectedTargetRef = useRef<string | null>(null)
   useEffect(() => { selectedWeaponIdRef.current = selectedWeaponId }, [selectedWeaponId])
+  useEffect(() => { selectedTargetRef.current = selectedTargetId }, [selectedTargetId])
   const [busy, setBusy] = useState(false)
   const [round, setRound] = useState(1)
   const [flashCreatureId, setFlashCreatureId] = useState<string | null>(null)
@@ -93,6 +95,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
   const [isDead, setIsDead] = useState(false)
   const initialWeaponIdRef = useRef<string | null>(null)
   const selectedWeaponIdRef = useRef<string | null>(null)
+  const timeoutIds = useRef<ReturnType<typeof setTimeout>[]>([])
 
   // ── Data loaders ────────────────────────────────────────────────────────────
 
@@ -108,7 +111,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
         ascii_art: (row.creatures as unknown as { ascii_art: string | null })?.ascii_art ?? null,
       })) as EncounterCreature[]
       setCreatures(merged)
-      const isTargetAlive = merged.some(c => c.id === selectedTargetId && c.is_alive)
+      const isTargetAlive = merged.some(c => c.id === selectedTargetRef.current && c.is_alive)
       if (!isTargetAlive) {
         const firstAlive = merged.find(c => c.is_alive)
         if (firstAlive) setSelectedTargetId(firstAlive.id)
@@ -116,7 +119,7 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
       return merged
     }
     return null
-  }, [gameId, supabase, selectedTargetId])
+  }, [gameId, supabase])
 
   const loadCharacter = useCallback(async (): Promise<CharacterState | null> => {
     const { data } = await supabase
@@ -271,6 +274,15 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
     return () => clearTimeout(t)
   }, [isDead, onCombatEnd])
 
+  useEffect(() => {
+    return () => { timeoutIds.current.forEach(clearTimeout) }
+  }, [])
+
+  const safeTimeout = (fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms)
+    timeoutIds.current.push(id)
+  }
+
   // ── Actions ──────────────────────────────────────────────────────────────────
 
   async function handleAttack(attackType: "normal" | "strong") {
@@ -287,11 +299,11 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
       const data = await res.json() as { ok?: boolean; combatPhase?: string | null; outcome?: string; error?: string; net?: number; defValue?: number }
       if (data.ok) {
         setFlashCreatureId(effectiveTarget)
-        setTimeout(() => setFlashCreatureId(null), 600)
+        safeTimeout(() => setFlashCreatureId(null), 600)
         const net = data.net ?? 0
         const def = data.defValue ?? 0
         setDamageFlash(prev => ({ creatureId: effectiveTarget, amount: net, blockAmount: def, key: (prev?.key ?? 0) + 1 }))
-        setTimeout(() => setDamageFlash(null), 2000)
+        safeTimeout(() => setDamageFlash(null), 2000)
         await Promise.all([loadCreatures(), loadCharacter(), loadWeapons(), loadGameState()])
         if (data.outcome === "victory") onCombatEnd?.("victory")
         else if (data.combatPhase) setCombatPhase(data.combatPhase)
@@ -345,10 +357,10 @@ export function CombatOverlay({ gameId, characterId, onCombatEnd }: CombatOverla
         const blocked = data.totalBlocked ?? 0
         if (dmg > 0) {
           setPlayerFlash(true)
-          setTimeout(() => setPlayerFlash(false), 600)
+          safeTimeout(() => setPlayerFlash(false), 600)
         }
         setPlayerDamageFlash(prev => ({ damage: dmg, blocked, key: (prev?.key ?? 0) + 1 }))
-        setTimeout(() => setPlayerDamageFlash(null), 2000)
+        safeTimeout(() => setPlayerDamageFlash(null), 2000)
         if (data.outcome === "defeat") setIsDead(true)
         else {
           setRound(r => r + 1)

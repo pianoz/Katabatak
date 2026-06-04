@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { LedgerOutput, LocationContext } from '../types.js'
+import { LedgerOutputSchema } from '../types.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { synLog, synLogVerbose } from '../logger.js'
 import { createClaudeClient } from '../claude-client.js'
@@ -77,12 +78,14 @@ export async function runLedger({
   locationContext,
   client: passedClient,
   userId,
+  requestId,
 }: {
   narrativeText: string
   characterId: string
   locationContext?: LocationContext
   client?: Anthropic
   userId?: string
+  requestId?: string
 }): Promise<LedgerOutput[]> {
   const client = passedClient ?? createClaudeClient()
   const loadedPrompt = await loadSystemPrompt('ledger')
@@ -102,9 +105,9 @@ export async function runLedger({
     .filter((l, i) => i !== 1 || l !== '')
     .join('\n')
 
-  synLog('LEDGER', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | narrative:${narrativeText.length}chars${locationContext?.locationPlaceId ? ` | loc:${locationContext.locationPlaceId}` : ''}`)
-  synLogVerbose('LEDGER', '→ system prompt:', system)
-  synLogVerbose('LEDGER', '→ user content:', userContent)
+  synLog('LEDGER', `→ prompt:${loadedPrompt ? 'DB' : 'fallback'} | narrative:${narrativeText.length}chars${locationContext?.locationPlaceId ? ` | loc:${locationContext.locationPlaceId}` : ''}`, undefined, requestId)
+  synLogVerbose('LEDGER', '→ system prompt:', system, requestId)
+  synLogVerbose('LEDGER', '→ user content:', userContent, requestId)
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
@@ -126,19 +129,25 @@ export async function runLedger({
   }
 
   const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
-  synLogVerbose('LEDGER', '← raw response:', text)
+  synLogVerbose('LEDGER', '← raw response:', text, requestId)
+  const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
+  let rawParsed: unknown
   try {
-    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-    const parsed = JSON.parse(cleaned)
-    if (!Array.isArray(parsed)) {
-      synLog('LEDGER', '⚠ result not an array — returning []')
-      return []
-    }
-    const outputs = parsed as LedgerOutput[]
-    synLog('LEDGER', `✓ ${outputs.length} action(s)${outputs.length ? ': ' + outputs.map((o) => o.action).join(', ') : ''}`, outputs.length ? outputs : undefined)
-    return outputs
+    rawParsed = JSON.parse(cleaned)
   } catch {
-    synLog('LEDGER', '⚠ JSON parse failed — full raw response:', text)
+    synLog('LEDGER', '⚠ JSON parse failed — full raw response:', text, requestId)
     return []
   }
+  if (!Array.isArray(rawParsed)) {
+    synLog('LEDGER', '⚠ result not an array — returning []', undefined, requestId)
+    return []
+  }
+  const result = LedgerOutputSchema.array().safeParse(rawParsed)
+  if (!result.success) {
+    synLog('LEDGER', '⚠ schema validation failed — returning []', result.error.issues, requestId)
+    return []
+  }
+  const outputs: LedgerOutput[] = result.data
+  synLog('LEDGER', `✓ ${outputs.length} action(s)${outputs.length ? ': ' + outputs.map((o) => o.action).join(', ') : ''}`, outputs.length ? outputs : undefined, requestId)
+  return outputs
 }

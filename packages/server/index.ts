@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
@@ -13,10 +14,16 @@ import { runEval } from './gm/services/claude-service.js'
 import { autoHydrate } from './gm/auto-hydrator.js'
 import { requireGmKey } from './middleware/auth.js'
 import { adminRouter, sessionMiddleware } from './admin/routes.js'
-import { logRequest } from './admin/request-logger.js'
+import { logRequest, type StageTiming } from './admin/request-logger.js'
 import { setLogLevel, synLog } from './gm/logger.js'
 import type { LogLevel } from './gm/logger.js'
 import type { CheckResolution, ContextBlock } from './gm/types.js'
+
+declare global {
+  namespace Express {
+    interface Request { requestId: string }
+  }
+}
 
 console.log('====================================================')
 console.log('⚔️  KATABATAK GAME SERVER INITIALIZATION ACTIVE  ⚔️')
@@ -35,6 +42,9 @@ app.use(cors({ origin: WEB_APP_ORIGIN, credentials: true }))
 // Body parsers
 app.use(express.json())
 app.use(express.urlencoded({ extended: false })) // for admin form POSTs
+
+// Assign a correlation ID to every request for cross-layer tracing
+app.use((req, _res, next) => { req.requestId = randomUUID(); next() })
 
 // Session middleware (needed by admin router; must be before /admin mount)
 app.use(sessionMiddleware)
@@ -123,9 +133,11 @@ app.post('/gm', async (req, res) => {
   const start = Date.now()
   let statusCode = 200
   let errorMessage: string | undefined
+  const timingOut: { hydratorMs?: number; loreMs?: number; architectMs?: number } = {}
+  const requestId = req.requestId
 
   try {
-    const generator = handleGMMessage({ message, characterId, userId, gameId, checkResolution, anthropicApiKey })
+    const generator = handleGMMessage({ message, characterId, userId, gameId, checkResolution, anthropicApiKey, requestId, _timingOut: timingOut })
     const first = await generator.next()
 
     // If the first yield is a check_required object, return it as JSON immediately
@@ -139,6 +151,9 @@ app.post('/gm', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
 
+    let clientGone = false
+    req.on('close', () => { clientGone = true })
+
     const sendChunk = (chunk: string) => {
       res.write(`data: ${JSON.stringify({ chunk })}\n\n`)
     }
@@ -149,13 +164,16 @@ app.post('/gm', async (req, res) => {
     }
 
     for await (const value of generator) {
+      if (clientGone) break
       if (typeof value === 'string') {
         sendChunk(value)
       }
     }
 
-    res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
-    res.end()
+    if (!clientGone) {
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
+      res.end()
+    }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     const stack = err instanceof Error ? (err.stack ?? errMsg) : errMsg
@@ -178,6 +196,8 @@ app.post('/gm', async (req, res) => {
       durationMs: Date.now() - start,
       statusCode,
       errorMessage,
+      stageTiming: timingOut.hydratorMs !== undefined ? timingOut as StageTiming : undefined,
+      requestId,
     })
   }
 })
@@ -502,4 +522,3 @@ app.listen(PORT, '0.0.0.0', () => {
   process.exit(1)
 })
 
-setInterval(() => {}, 1000)

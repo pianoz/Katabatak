@@ -2,6 +2,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { addTraceEntry } from '../admin/request-logger.js'
 
 const IS_DEV = process.env.NODE_ENV !== 'production'
 
@@ -53,15 +54,22 @@ function writeEntry(tag: string, msg: string, detail?: unknown): void {
  * Writes a timestamped log entry to the daily log file.
  * Pass `detail` for a second indented block with serialized data (e.g. full JSON output).
  * Filtered by the current LogLevel — see setLogLevel().
+ * Pass `requestId` to also store the entry in the in-memory trace for the admin dashboard.
  */
-export function synLog(tag: string, msg: string, detail?: unknown): void {
+export function synLog(tag: string, msg: string, detail?: unknown, requestId?: string): void {
   if (!IS_DEV) return
   if (!shouldLog(msg, detail !== undefined)) return
   writeEntry(tag, msg, detail)
+  if (requestId) {
+    addTraceEntry(requestId, { ts: new Date().toISOString(), tag, msg, detail })
+  }
 }
 
 /** Writes only when logLevel is 'verbose'. Use for large payloads (full prompts, raw responses). */
-export function synLogVerbose(tag: string, msg: string, detail?: unknown): void {
+export function synLogVerbose(tag: string, msg: string, detail?: unknown, requestId?: string): void {
   if (!IS_DEV || logLevel !== 'verbose') return
   writeEntry(tag, msg, detail)
+  if (requestId) {
+    addTraceEntry(requestId, { ts: new Date().toISOString(), tag, msg, detail })
+  }
 }

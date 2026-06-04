@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import session from 'express-session'
-import { getRecentRequests, getStats } from './request-logger.js'
+import { getRecentRequests, getStats, getTrace } from './request-logger.js'
 
 // Augment express-session types
 declare module 'express-session' {
@@ -91,13 +91,24 @@ function dashboardPage(uptimeSec: number): string {
       const statusCell = r.errorMessage
         ? `<details><summary class="${statusClass} err-summary">${r.statusCode}</summary><pre class="err-detail">${errEscaped}</pre></details>`
         : `<span class="${statusClass}">${r.statusCode}</span>`
-      return `<tr>
+      const stageCell = r.stageTiming
+        ? `H:${r.stageTiming.hydratorMs}ms L:${r.stageTiming.loreMs}ms A:${r.stageTiming.architectMs}ms`
+        : '—'
+      const ridShort = r.requestId ? r.requestId.slice(0, 8) : '—'
+      const traceCell = r.requestId
+        ? `<span class="rid" data-rid="${r.requestId}" title="${r.requestId}">${ridShort}</span>`
+        : '<span style="color:#3f3f46">—</span>'
+      const ep = r.endpoint ?? ''
+      const char = r.characterId ?? ''
+      return `<tr data-ep="${ep}" data-char="${char}" data-status="${r.statusCode >= 400 ? 'error' : 'ok'}">
       <td>${r.timestamp.replace('T', ' ').slice(0, 19)}</td>
-      <td>${r.endpoint}</td>
-      <td>${r.characterId ?? '—'}</td>
+      <td>${ep}</td>
+      <td>${char || '—'}</td>
       <td>${r.toolCallCount}</td>
       <td>${r.durationMs}ms</td>
+      <td>${stageCell}</td>
       <td>${statusCell}</td>
+      <td>${traceCell}</td>
     </tr>`
     })
     .join('')
@@ -139,6 +150,29 @@ function dashboardPage(uptimeSec: number): string {
   .err-summary::after { content: ' ▸'; font-size: 0.6em; opacity: 0.6; }
   details[open] .err-summary::after { content: ' ▾'; }
   .err-detail { margin-top: 0.5rem; padding: 0.75rem; background: #0f0606; border: 1px solid #3f1010; color: #fca5a5; font-size: 0.65rem; white-space: pre-wrap; word-break: break-all; max-width: 600px; max-height: 200px; overflow-y: auto; }
+  /* Correlation ID */
+  .rid { color: #22d3ee; cursor: pointer; font-size: 0.7rem; letter-spacing: 0.05em; border-bottom: 1px dashed #22d3ee44; }
+  .rid:hover { color: #fff; border-color: #fff; }
+  /* Filter bar */
+  .filter-bar { display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .filter-bar input, .filter-bar select { background: #000; border: 1px solid #3f3f46; color: #e4e4e7; padding: 0.4rem 0.6rem; font-family: inherit; font-size: 0.65rem; outline: none; min-width: 140px; }
+  .filter-bar input:focus, .filter-bar select:focus { border-color: #22d3ee; }
+  .filter-bar label { font-size: 0.55rem; letter-spacing: 0.2em; text-transform: uppercase; color: #71717a; display: flex; flex-direction: column; gap: 0.3rem; }
+  /* Trace drawer */
+  #trace-drawer { position: fixed; top: 0; right: -700px; width: 680px; height: 100vh; background: #0d0d0d; border-left: 1px solid #27272a; overflow-y: auto; padding: 1.5rem; transition: right 0.2s ease; z-index: 100; }
+  #trace-drawer.open { right: 0; }
+  #trace-close { position: absolute; top: 1rem; right: 1rem; background: none; border: 1px solid #3f3f46; color: #71717a; font-family: inherit; font-size: 0.6rem; letter-spacing: 0.2em; text-transform: uppercase; padding: 0.3rem 0.6rem; cursor: pointer; }
+  #trace-close:hover { border-color: #22d3ee; color: #22d3ee; }
+  #trace-rid { font-size: 0.55rem; letter-spacing: 0.2em; text-transform: uppercase; color: #71717a; margin-bottom: 1rem; }
+  #trace-rid span { color: #22d3ee; }
+  .trace-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+  .trace-table th { font-size: 0.5rem; letter-spacing: 0.2em; text-transform: uppercase; color: #3f3f46; padding: 0.4rem; border-bottom: 1px solid #18181b; text-align: left; }
+  .trace-table td { padding: 0.4rem; border-bottom: 1px solid #111; vertical-align: top; white-space: pre-wrap; word-break: break-all; }
+  .trace-table td:first-child { color: #52525b; white-space: nowrap; min-width: 80px; }
+  .trace-table td:nth-child(2) { color: #22d3ee; white-space: nowrap; min-width: 110px; }
+  .trace-table td:nth-child(3) { color: #d4d4d4; }
+  .trace-empty { color: #3f3f46; font-size: 0.7rem; padding: 1rem 0; }
+  .trace-detail { margin-top: 0.3rem; padding: 0.4rem; background: #111; border: 1px solid #1c1c1c; color: #a1a1aa; font-size: 0.6rem; max-height: 120px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -189,30 +223,53 @@ function dashboardPage(uptimeSec: number): string {
     <span id="last-refreshed"></span>
   </div>
   <h2>Recent Requests (last 50)</h2>
+  <div class="filter-bar">
+    <label>Endpoint <input id="f-ep" type="text" placeholder="e.g. /gm"></label>
+    <label>Character ID <input id="f-char" type="text" placeholder="UUID fragment"></label>
+    <label>Status <select id="f-status"><option value="">All</option><option value="ok">OK</option><option value="error">Error</option></select></label>
+  </div>
   <table>
     <thead><tr>
-      <th>Time</th><th>Endpoint</th><th>Character</th><th>Tool Calls</th><th>Duration</th><th>Status</th>
+      <th>Time</th><th>Endpoint</th><th>Character</th><th>Tool Calls</th><th>Duration</th><th>Stages</th><th>Status</th><th>Trace ID</th>
     </tr></thead>
-    <tbody id="req-tbody">${rows || '<tr><td colspan="6" style="color:#3f3f46;padding:1rem">No requests yet</td></tr>'}</tbody>
+    <tbody id="req-tbody">${rows || '<tr><td colspan="8" style="color:#3f3f46;padding:1rem">No requests yet</td></tr>'}</tbody>
   </table>
 </section>
 
+<!-- Trace drawer -->
+<div id="trace-drawer">
+  <button id="trace-close">✕ Close</button>
+  <div id="trace-rid">Trace ID: <span id="trace-rid-val">—</span></div>
+  <div id="trace-content"><p class="trace-empty">Select a trace ID to view pipeline logs.</p></div>
+</div>
+
 <script>
 function esc(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 function buildRow(r) {
   const cls = r.statusCode >= 400 ? 'err' : 'ok';
   const statusCell = r.errorMessage
     ? '<details><summary class="' + cls + ' err-summary">' + r.statusCode + '</summary><pre class="err-detail">' + esc(r.errorMessage) + '</pre></details>'
     : '<span class="' + cls + '">' + r.statusCode + '</span>';
-  return '<tr>'
+  const stageCell = r.stageTiming
+    ? 'H:' + r.stageTiming.hydratorMs + 'ms L:' + r.stageTiming.loreMs + 'ms A:' + r.stageTiming.architectMs + 'ms'
+    : '—';
+  const ridShort = r.requestId ? r.requestId.slice(0, 8) : '—';
+  const traceCell = r.requestId
+    ? '<span class="rid" data-rid="' + r.requestId + '" title="' + r.requestId + '">' + ridShort + '</span>'
+    : '<span style="color:#3f3f46">—</span>';
+  const ep = r.endpoint || '';
+  const char = r.characterId || '';
+  return '<tr data-ep="' + ep + '" data-char="' + char + '" data-status="' + (r.statusCode >= 400 ? 'error' : 'ok') + '">'
     + '<td>' + r.timestamp.replace('T',' ').slice(0,19) + '</td>'
-    + '<td>' + r.endpoint + '</td>'
-    + '<td>' + (r.characterId || '—') + '</td>'
+    + '<td>' + ep + '</td>'
+    + '<td>' + (char || '—') + '</td>'
     + '<td>' + r.toolCallCount + '</td>'
     + '<td>' + r.durationMs + 'ms</td>'
+    + '<td>' + stageCell + '</td>'
     + '<td>' + statusCell + '</td>'
+    + '<td>' + traceCell + '</td>'
     + '</tr>';
 }
 async function refresh() {
@@ -226,10 +283,74 @@ async function refresh() {
     const tbody = document.getElementById('req-tbody');
     tbody.innerHTML = d.requests.length
       ? d.requests.map(buildRow).join('')
-      : '<tr><td colspan="6" style="color:#3f3f46;padding:1rem">No requests yet</td></tr>';
+      : '<tr><td colspan="8" style="color:#3f3f46;padding:1rem">No requests yet</td></tr>';
+    attachRidListeners();
+    applyFilters();
     document.getElementById('last-refreshed').textContent = new Date().toLocaleTimeString();
   } catch (_) {}
 }
+
+// ── Filter logic ──────────────────────────────────────────────────────────────
+function applyFilters() {
+  const ep = document.getElementById('f-ep').value.toLowerCase();
+  const char = document.getElementById('f-char').value.toLowerCase();
+  const status = document.getElementById('f-status').value;
+  document.querySelectorAll('#req-tbody tr[data-ep]').forEach(function(row) {
+    const matchEp = !ep || row.dataset.ep.toLowerCase().includes(ep);
+    const matchChar = !char || row.dataset.char.toLowerCase().includes(char);
+    const matchStatus = !status || row.dataset.status === status;
+    row.style.display = (matchEp && matchChar && matchStatus) ? '' : 'none';
+  });
+}
+['f-ep','f-char','f-status'].forEach(function(id) {
+  document.getElementById(id).addEventListener('input', applyFilters);
+});
+
+// ── Trace drawer ──────────────────────────────────────────────────────────────
+var drawer = document.getElementById('trace-drawer');
+document.getElementById('trace-close').addEventListener('click', function() {
+  drawer.classList.remove('open');
+});
+
+function attachRidListeners() {
+  document.querySelectorAll('.rid[data-rid]').forEach(function(el) {
+    el.addEventListener('click', function() { openTrace(el.dataset.rid); });
+  });
+}
+
+async function openTrace(requestId) {
+  document.getElementById('trace-rid-val').textContent = requestId;
+  document.getElementById('trace-content').innerHTML = '<p class="trace-empty">Loading...</p>';
+  drawer.classList.add('open');
+  try {
+    const res = await fetch('/admin/api/trace/' + requestId);
+    if (!res.ok) throw new Error('fetch failed');
+    const d = await res.json();
+    if (!d.entries.length) {
+      document.getElementById('trace-content').innerHTML = '<p class="trace-empty">No trace entries recorded for this request.</p>';
+      return;
+    }
+    var html = '<table class="trace-table"><thead><tr><th>Time</th><th>Tag</th><th>Message</th></tr></thead><tbody>';
+    d.entries.forEach(function(e) {
+      var detailHtml = '';
+      if (e.detail !== undefined && e.detail !== null) {
+        var detailStr = typeof e.detail === 'string' ? e.detail : JSON.stringify(e.detail, null, 2);
+        detailHtml = '<div class="trace-detail">' + esc(detailStr) + '</div>';
+      }
+      html += '<tr>'
+        + '<td>' + e.ts.slice(11,23) + '</td>'
+        + '<td>' + esc(e.tag) + '</td>'
+        + '<td>' + esc(e.msg) + detailHtml + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('trace-content').innerHTML = html;
+  } catch (_) {
+    document.getElementById('trace-content').innerHTML = '<p class="trace-empty">Failed to load trace.</p>';
+  }
+}
+
+attachRidListeners();
 setInterval(refresh, 5000);
 refresh();
 </script>
@@ -273,6 +394,11 @@ adminRouter.get('/api/data', requireAdminSession, (_req, res) => {
     lastRequestAt,
     requests: getRecentRequests().slice(0, 50),
   })
+})
+
+adminRouter.get('/api/trace/:requestId', requireAdminSession, (req, res) => {
+  const requestId = req.params['requestId'] as string
+  res.json({ entries: getTrace(requestId) })
 })
 
 adminRouter.post('/logout', (req, res) => {

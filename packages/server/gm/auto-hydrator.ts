@@ -215,8 +215,9 @@ function enrichAndFilterNpcs(
 export async function autoHydrate(
   characterId: string,
   gameId?: string,
+  requestId?: string,
 ): Promise<ContextBlock | null> {
-  synLog('HYDRATOR', `→ fetching context | char:${characterId}${gameId ? ` game:${gameId}` : ''}`)
+  synLog('HYDRATOR', `→ fetching context | char:${characterId}${gameId ? ` game:${gameId}` : ''}`, undefined, requestId)
 
   const fullCharacter = await getFullCharacter(characterId)
   if (!fullCharacter) return null
@@ -267,7 +268,7 @@ export async function autoHydrate(
   )
 
   const locStr = character.location_place ?? 'unknown'
-  synLog('HYDRATOR', `✓ built | ${character.name} | ${locStr} | ${locationEntities.length} entities, ${npcs.length}/${allNpcs.length} NPCs visible${encounterData?.isInCombat ? ' | COMBAT' : ''}${syngemGame ? ` | day ${syngemGame.game_date_days}` : ''}`)
+  synLog('HYDRATOR', `✓ built | ${character.name} | ${locStr} | ${locationEntities.length} entities, ${npcs.length}/${allNpcs.length} NPCs visible${encounterData?.isInCombat ? ' | COMBAT' : ''}${syngemGame ? ` | day ${syngemGame.game_date_days}` : ''}`, undefined, requestId)
 
   const equippedWeight = fullCharacter.inventory
     .filter((i) => i.is_equipped)

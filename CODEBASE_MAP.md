@@ -12,7 +12,7 @@ Katabatak is a tabletop RPG web application with a brutalist dark fantasy aesthe
 - **`packages/server`** — Node.js AI Game Master backend (Claude + tool use)
 - **`supabase/`** — PostgreSQL migrations, RLS policies, seed data
 
-Tech stack: TypeScript strict, Tailwind v4, shadcn/ui, Supabase (auth + DB), Vitest, pnpm workspaces.
+Tech stack: TypeScript strict, Tailwind v4, shadcn/ui, Supabase (auth + DB), Vitest, Zod (runtime schema validation — web forms + server AI output), pnpm workspaces.
 
 ---
 
@@ -120,7 +120,7 @@ Player-facing combat overlay. Shown when `games.is_in_combat = true`. Full-scree
 
 | File | Purpose |
 |------|---------|
-| `components/combat-overlay.tsx` | Root overlay — subscribes to `games`, `characters`, `encounter_creatures` realtime. Manages phase state, loads weapons/defence values, dispatches Phase A and B actions. Includes `UNARMED_SYNTHETIC` fallback weapon (`__unarmed__`, 1d2, free) used when no real weapons are in inventory. Uses API-returned `net`/`defValue`/`totalDamage`/`totalBlocked` for damage popups (not health-diff). Shows inline error strip when GM server call fails |
+| `components/combat-overlay.tsx` | Root overlay — subscribes to `games`, `characters`, `encounter_creatures` realtime. Manages phase state, loads weapons/defence values, dispatches Phase A and B actions. Includes `UNARMED_SYNTHETIC` fallback weapon (`__unarmed__`, 1d2, free) used when no real weapons are in inventory. Uses API-returned `net`/`defValue`/`totalDamage`/`totalBlocked` for damage popups (not health-diff). Shows inline error strip when GM server call fails. `loadCreatures` reads `selectedTargetRef` (a `useRef` kept in sync with `selectedTargetId`) instead of the state value directly — prevents the subscription `useEffect` from tearing down and recreating all 3 Supabase channels on every target click. Animation `setTimeout` calls go through a `safeTimeout` helper that accumulates IDs in a `useRef` and clears them on unmount |
 | `components/creature-display.tsx` | One of 5 fixed-height columns — ASCII sprite, HP + pool bars (700ms width transition). Red border + glow when targeted (Phase A only); clickable to retarget. Amber border when all enemies are active attackers (Phase B). Floating red damage number (`-N` or `0`) + cyan block number (`[N AC]`) overlay on hit (2s fade-up). "TARGETED" label with red text-glow below the active target card |
 | `components/combat-log-panel.tsx` | Scrolling terminal log — flavor lines (italic), mechanical lines (mono `roll=N def=N net=N`), outcome banners |
 | `components/phase-controls.tsx` | `PhaseAControls` (weapon selector, large prominent Attack button + smaller Strong Attack; click any enemy card to retarget — no button picker) and `PhaseBControls` (Defend / Strong Defend buttons with AC values and Will cost) |
@@ -273,14 +273,14 @@ Player message → Auto-Hydrator → Lore-Engine → Style-Modulator
 
 ```
 server/
-├── index.ts                       # Express entry — CORS, rate limiting, route wiring
+├── index.ts                       # Express entry — CORS, rate limiting, route wiring. Assigns a UUID `req.requestId` to every request via middleware; threads it into handleGMMessage and logRequest for cross-layer tracing. SSE stream for POST /gm sets a clientGone flag via req.on('close') and breaks the generator loop early on client disconnect — stops Claude API burn for departed users
 ├── chat.ts                        # Interactive REPL: tsx chat.ts <character_id>
 ├── Dockerfile / docker-compose.yml
 ├── middleware/
 │   └── auth.ts                    # requireGmKey — Bearer token validation
 ├── admin/
-│   ├── routes.ts                  # Admin UI: login, dashboard, logout, /health
-│   └── request-logger.ts          # In-memory ring buffer of last 100 GM requests
+│   ├── routes.ts                  # Admin UI: login, dashboard (H/L/A per-stage timing column + Trace ID column), logout, /health. Filter bar (endpoint/character/status) for client-side row filtering. Slide-in trace drawer: clicking a Trace ID calls GET /admin/api/trace/:requestId and renders all pipeline log lines for that request
+│   └── request-logger.ts          # In-memory ring buffer of last 100 GM requests. RequestLogEntry includes optional requestId. TraceEntry store (Map<requestId, TraceEntry[]>) accumulates synLog lines per request; entries are evicted with their parent ring-buffer row. Exports: addTraceEntry, getTrace
 ├── services/
 │   ├── character-service.ts       # getCharacter, getFullCharacter, updateCharacter
 │   ├── conversation-service.ts    # saveTurn, getRecentTurns, getTurnCount, clearConversationHistory
@@ -293,24 +293,24 @@ server/
 │   ├── creature-ai.ts             # Deterministic creature AI — resolveCreatureAction(pools) → { attackChoice, defendChoice }. Will > Power → strong defend + weak attack; Power ≥ Will → strong attack (if affordable) + weak defend
 │   └── combat-engine.ts           # initCombat, resolvePlayerAttack, resolvePlayerDefend, endCombat — full round/phase logic. Phase A: player attacks, creature-ai picks defence deterministically, damage resolved. Phase B: creature-ai picks each creature's attack, player's single defend choice applied against all, total damage summed
 └── gm/
-    ├── handler.ts                 # Pipeline orchestrator — creates per-request client, runs budget check
-    ├── logger.ts                  # synLog() dev file logger + LogLevel / setLogLevel()
-    ├── types.ts                   # GMMessageInput (incl. anthropicApiKey?), ContextBlock, CheckRequired, etc.
+    ├── handler.ts                 # Pipeline orchestrator — per-stage wall-clock timing (hydrator/lore/architect) populated into _timingOut ref after architect stream closes. Threads requestId (from GMMessageInput) into all synLog calls and every stage invocation
+    ├── logger.ts                  # synLog(tag, msg, detail?, requestId?) dev file logger. When requestId is provided, also pushes the entry to addTraceEntry() for admin dashboard tracing. synLogVerbose follows the same signature. + LogLevel / setLogLevel()
+    ├── types.ts                   # GMMessageInput (incl. anthropicApiKey?, requestId?, _timingOut? output ref), ContextBlock, CheckRequired, etc. Exports LedgerOutputSchema (discriminated union, 7 actions) and LoreEngineOutputSchema — Zod runtime schemas used by Ledger and Lore-Engine agents to validate LLM JSON before it reaches the DB
     ├── claude-client.ts           # BYOK: createClaudeClient(apiKey?) — per-request Anthropic factory
     ├── record-token-usage.ts      # BYOK: fire-and-forget token count writes to token_usage
     ├── budget-guard.ts            # BYOK: checkBudget(userId) — reads cap + aggregate, returns allowed bool
-    ├── auto-hydrator.ts           # Layer 1: builds ContextBlock from parallel DB reads
+    ├── auto-hydrator.ts           # Layer 1: builds ContextBlock from parallel DB reads. Accepts optional requestId for trace logging
     ├── style-modulator.ts         # Layer 3: picks a random style file from gm/content/
-    ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB. create_entity deduplicates against world_entities then improvised_entities; grant_item writes to character_inventory
+    ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB. create_entity deduplicates against world_entities then improvised_entities; grant_item writes to character_inventory. All internal helpers accept requestId for trace logging
     ├── content/
     │   ├── style_1.txt            # Restrained / observational
     │   ├── style_2.txt            # Lyrical / elegiac
     │   └── style_3.txt            # Terse / consequential
     ├── agents/
-    │   ├── lore-engine.ts         # Layer 2: intent + mechanics (Haiku, slug: lore-engine)
-    │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect)
-    │   ├── ledger.ts              # Layer 5a: world-state audit (Sonnet, async, slug: ledger)
-    │   ├── summary.ts             # Layer 6: Scribe summarizer (Haiku, async, slug: scribe)
+    │   ├── lore-engine.ts         # Layer 2: intent + mechanics (Haiku, slug: lore-engine). Validates LLM JSON against LoreEngineOutputSchema (safeParse); logs Zod issues on failure and returns no-check task fallback. Accepts requestId for trace logging
+    │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect). Accepts requestId for trace logging
+    │   ├── ledger.ts              # Layer 5a: world-state audit (Sonnet, async, slug: ledger). Validates parsed array against LedgerOutputSchema (safeParse); logs Zod issues on failure and returns [] — prevents malformed actions from reaching state-executor. Accepts requestId for trace logging
+    │   ├── summary.ts             # Layer 6: Scribe summarizer (Haiku, async, slug: scribe). Defines ScribeOutputSchema locally; validates LLM JSON (safeParse) and logs Zod issues on failure before returning empty fallback. Accepts requestId for trace logging
     │   ├── character-creator.ts   # One-shot: builds character profile from Q&A using the Waystone story scaffold (Sonnet, temp 0.9, max 2000 tokens). Returns background_primary/secondary, physical_description, backstory, story_hook, initial_quest. Called by POST /character-creator
     │   └── npc.ts                 # Legacy NPC dialogue (Haiku)
     ├── services/
@@ -489,7 +489,7 @@ node --env-file=.env.local packages/server/chat.js    # Interactive GM REPL
 - **Service layer** — all DB access via `lib/services/*`, never raw in components
 - **Feature modules** — `features/<domain>/components/` + `features/<domain>/hooks/`
 - **Tests** — service-level Vitest tests, no component tests currently
-- **Forms** — React Hook Form + Zod validation
+- **Forms** — React Hook Form + Zod validation (web); Zod `safeParse` for all LLM JSON output (server)
 - **Comments** — only when the why is non-obvious
 
 ---

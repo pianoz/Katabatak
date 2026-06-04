@@ -10,7 +10,7 @@ const db = supabase as any
 
 const VALID_LOCATION_TYPES = new Set(['nation', 'region', 'place', 'location'])
 
-async function moveCharacter(characterId: string, destinationEntityId: string): Promise<void> {
+async function moveCharacter(characterId: string, destinationEntityId: string, requestId?: string): Promise<void> {
   const { data: entity } = await supabase
     .from('world_entities')
     .select('id, name, type, place_context')
@@ -18,7 +18,7 @@ async function moveCharacter(characterId: string, destinationEntityId: string): 
     .single()
 
   if (!entity || !VALID_LOCATION_TYPES.has(entity.type)) {
-    synLog('STATE-EXECUTOR', `⚠ move_character: entity ${destinationEntityId} is not a valid location type`)
+    synLog('STATE-EXECUTOR', `⚠ move_character: entity ${destinationEntityId} is not a valid location type`, undefined, requestId)
     return
   }
 
@@ -31,7 +31,7 @@ async function moveCharacter(characterId: string, destinationEntityId: string): 
   await updateCharacter(characterId, { location_place: locationPlace })
 }
 
-async function updateEntity(entityId: string, mutations: Record<string, unknown>): Promise<void> {
+async function updateEntity(entityId: string, mutations: Record<string, unknown>, requestId?: string): Promise<void> {
   const { data: existing } = await supabase
     .from('world_entities')
     .select('data')
@@ -39,7 +39,7 @@ async function updateEntity(entityId: string, mutations: Record<string, unknown>
     .single()
 
   if (!existing) {
-    synLog('STATE-EXECUTOR', `⚠ update_entity: entity ${entityId} not found`)
+    synLog('STATE-EXECUTOR', `⚠ update_entity: entity ${entityId} not found`, undefined, requestId)
     return
   }
 
@@ -57,13 +57,14 @@ async function createEntity(
   characterId: string,
   entity: Record<string, unknown>,
   locationContext?: LocationContext,
+  requestId?: string,
 ): Promise<void> {
   const id = entity['id'] as string | undefined
   const name = entity['name'] as string | undefined
   const type = entity['type'] as string | undefined
 
   if (!id || !name || !type) {
-    synLog('STATE-EXECUTOR', '⚠ create_entity: missing required fields (id, name, type)', entity)
+    synLog('STATE-EXECUTOR', '⚠ create_entity: missing required fields (id, name, type)', entity, requestId)
     return
   }
 
@@ -78,9 +79,9 @@ async function createEntity(
     if (entity['data']) {
       const merged = { ...(worldEntity.data as Record<string, unknown>), ...(entity['data'] as Record<string, unknown>) } as Json
       await supabase.from('world_entities').update({ data: merged }).eq('id', id)
-      synLog('STATE-EXECUTOR', `→ create_entity: ${id} exists in world — merged data`)
+      synLog('STATE-EXECUTOR', `→ create_entity: ${id} exists in world — merged data`, undefined, requestId)
     } else {
-      synLog('STATE-EXECUTOR', `→ create_entity: ${id} already in world — no new data, skipping`)
+      synLog('STATE-EXECUTOR', `→ create_entity: ${id} already in world — no new data, skipping`, undefined, requestId)
     }
     return
   }
@@ -101,9 +102,9 @@ async function createEntity(
         .update({ data: merged })
         .eq('character_id', characterId)
         .eq('id', id)
-      synLog('STATE-EXECUTOR', `→ create_entity: ${id} exists in improvised — merged data`)
+      synLog('STATE-EXECUTOR', `→ create_entity: ${id} exists in improvised — merged data`, undefined, requestId)
     } else {
-      synLog('STATE-EXECUTOR', `→ create_entity: ${id} already improvised for char — skipping`)
+      synLog('STATE-EXECUTOR', `→ create_entity: ${id} already improvised for char — skipping`, undefined, requestId)
     }
     return
   }
@@ -126,7 +127,7 @@ async function createEntity(
     data: (entity['data'] ?? {}) as Json,
   })
 
-  synLog('STATE-EXECUTOR', `✓ create_entity: inserted improvised "${name}" (${id}) parent:${parentId ?? 'none'}`)
+  synLog('STATE-EXECUTOR', `✓ create_entity: inserted improvised "${name}" (${id}) parent:${parentId ?? 'none'}`, undefined, requestId)
 }
 
 async function deleteEntity(
@@ -154,6 +155,7 @@ async function grantItem(
   itemType: string,
   description?: string,
   quantity?: number,
+  requestId?: string,
 ): Promise<void> {
   // 1. Find existing item template by name
   const { data: existing } = await supabase
@@ -167,7 +169,7 @@ async function grantItem(
 
   if (existing) {
     itemId = existing.id as string
-    synLog('STATE-EXECUTOR', `→ grant_item: found existing template "${itemName}" (${itemId})`)
+    synLog('STATE-EXECUTOR', `→ grant_item: found existing template "${itemName}" (${itemId})`, undefined, requestId)
   } else {
     // 2. Create a minimal item template
     const { data: created, error } = await supabase
@@ -181,11 +183,11 @@ async function grantItem(
       .single()
 
     if (error || !created) {
-      synLog('STATE-EXECUTOR', `⚠ grant_item: failed to create item template for "${itemName}": ${error?.message ?? 'unknown'}`)
+      synLog('STATE-EXECUTOR', `⚠ grant_item: failed to create item template for "${itemName}": ${error?.message ?? 'unknown'}`, undefined, requestId)
       return
     }
     itemId = (created as { id: string }).id
-    synLog('STATE-EXECUTOR', `✓ grant_item: created item template "${itemName}" (${itemId})`)
+    synLog('STATE-EXECUTOR', `✓ grant_item: created item template "${itemName}" (${itemId})`, undefined, requestId)
   }
 
   // 3. Add to character inventory
@@ -200,11 +202,11 @@ async function grantItem(
     } as unknown as Database['public']['Tables']['character_inventory']['Insert'])
 
   if (invError) {
-    synLog('STATE-EXECUTOR', `⚠ grant_item: failed to insert inventory row for "${itemName}": ${invError.message}`)
+    synLog('STATE-EXECUTOR', `⚠ grant_item: failed to insert inventory row for "${itemName}": ${invError.message}`, undefined, requestId)
     return
   }
 
-  synLog('STATE-EXECUTOR', `✓ grant_item: "${itemName}" added to inventory for char ${characterId.slice(-8)}`)
+  synLog('STATE-EXECUTOR', `✓ grant_item: "${itemName}" added to inventory for char ${characterId.slice(-8)}`, undefined, requestId)
 }
 
 async function applyLongRest(characterId: string): Promise<void> {
@@ -256,42 +258,43 @@ export async function executeStateChanges(
   characterId: string,
   outputs: LedgerOutput[],
   locationContext?: LocationContext,
+  requestId?: string,
 ): Promise<void> {
   for (const output of outputs) {
     try {
-      synLogVerbose('STATE-EXECUTOR', '→ action:', output)
+      synLogVerbose('STATE-EXECUTOR', '→ action:', output, requestId)
       switch (output.action) {
         case 'move_character':
-          synLog('STATE-EXECUTOR', `→ move_character | dest:${output.destination_entity_id}`)
-          await moveCharacter(characterId, output.destination_entity_id)
+          synLog('STATE-EXECUTOR', `→ move_character | dest:${output.destination_entity_id}`, undefined, requestId)
+          await moveCharacter(characterId, output.destination_entity_id, requestId)
           break
         case 'update_entity':
-          synLog('STATE-EXECUTOR', `→ update_entity | id:${output.entity_id} fields:[${Object.keys(output.mutations).join(',')}]`)
-          await updateEntity(output.entity_id, output.mutations)
+          synLog('STATE-EXECUTOR', `→ update_entity | id:${output.entity_id} fields:[${Object.keys(output.mutations).join(',')}]`, undefined, requestId)
+          await updateEntity(output.entity_id, output.mutations, requestId)
           break
         case 'create_entity':
-          synLog('STATE-EXECUTOR', `→ create_entity | id:${output.entity['id']} name:"${output.entity['name']}"`)
-          await createEntity(characterId, output.entity, locationContext)
+          synLog('STATE-EXECUTOR', `→ create_entity | id:${output.entity['id']} name:"${output.entity['name']}"`, undefined, requestId)
+          await createEntity(characterId, output.entity, locationContext, requestId)
           break
         case 'delete_entity':
-          synLog('STATE-EXECUTOR', `→ delete_entity | id:${output.entity_id}`)
+          synLog('STATE-EXECUTOR', `→ delete_entity | id:${output.entity_id}`, undefined, requestId)
           await deleteEntity(characterId, output.entity_id, output.replacement_description)
           break
         case 'update_npc':
-          synLog('STATE-EXECUTOR', `→ update_npc | id:${output.npc_id} fields:[${Object.keys(output.mutations).join(',')}]`)
+          synLog('STATE-EXECUTOR', `→ update_npc | id:${output.npc_id} fields:[${Object.keys(output.mutations).join(',')}]`, undefined, requestId)
           await updateNpcMutations(output.npc_id, output.mutations)
           break
         case 'long_rest':
-          synLog('STATE-EXECUTOR', '→ long_rest')
+          synLog('STATE-EXECUTOR', '→ long_rest', undefined, requestId)
           await applyLongRest(characterId)
           break
         case 'grant_item':
-          synLog('STATE-EXECUTOR', `→ grant_item | name:"${output.item_name}" type:${output.item_type}`)
-          await grantItem(characterId, output.item_name, output.item_type, output.description, output.quantity)
+          synLog('STATE-EXECUTOR', `→ grant_item | name:"${output.item_name}" type:${output.item_type}`, undefined, requestId)
+          await grantItem(characterId, output.item_name, output.item_type, output.description, output.quantity, requestId)
           break
       }
     } catch (err) {
-      synLog('STATE-EXECUTOR', `✗ failed to execute ${output.action}: ${err instanceof Error ? err.message : String(err)}`)
+      synLog('STATE-EXECUTOR', `✗ failed to execute ${output.action}: ${err instanceof Error ? err.message : String(err)}`, undefined, requestId)
     }
   }
 }

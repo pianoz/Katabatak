@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { Database } from '@db-types'
 import type { FullCharacter } from '../services/character-service.js'
 import type { GameWithMembers, EncounterWithCreatures } from '../services/game-service.js'
@@ -22,6 +23,10 @@ export interface GMMessageInput {
   checkResolution?: CheckResolution
   /** BYOK: user-supplied Anthropic API key. Used per-request only — never stored. */
   anthropicApiKey?: string
+  /** Correlation ID generated at the Express layer — threads through all pipeline stages for admin trace. */
+  requestId?: string
+  /** Output ref: populated by the handler with per-stage wall-clock timings after the architect stream closes. */
+  _timingOut?: { hydratorMs?: number; loreMs?: number; architectMs?: number }
 }
 
 export type ToolResult = Record<string, unknown> & { error?: string }
@@ -186,3 +191,46 @@ export type LedgerOutput =
   | { action: 'update_npc'; npc_id: string; mutations: NpcMutations }
   | { action: 'long_rest' }
   | { action: 'grant_item'; item_name: string; item_type: string; description?: string; quantity?: number }
+
+// ─── Runtime schemas ──────────────────────────────────────────────────────────
+
+const NpcMutationsSchema = z.object({
+  disposition_delta: z.number().optional(),
+  memory_append: z.string().optional(),
+  known_facts_append: z.array(z.string()).optional(),
+  current_task: z
+    .object({ description: z.string(), target_location_id: z.string(), assigned_tick: z.number() })
+    .nullable()
+    .optional(),
+  current_location_id: z.string().optional(),
+  is_alive: z.boolean().optional(),
+  following_character_id: z.string().nullable().optional(),
+})
+
+export const LedgerOutputSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('move_character'), destination_entity_id: z.string() }),
+  z.object({ action: z.literal('update_entity'), entity_id: z.string(), mutations: z.record(z.unknown()) }),
+  z.object({ action: z.literal('create_entity'), entity: z.record(z.unknown()) }),
+  z.object({ action: z.literal('delete_entity'), entity_id: z.string(), replacement_description: z.string() }),
+  z.object({ action: z.literal('update_npc'), npc_id: z.string(), mutations: NpcMutationsSchema }),
+  z.object({ action: z.literal('long_rest') }),
+  z.object({
+    action: z.literal('grant_item'),
+    item_name: z.string(),
+    item_type: z.string(),
+    description: z.string().optional(),
+    quantity: z.number().optional(),
+  }),
+])
+
+const SearchObjectSchema = z.object({ action: z.string(), target: z.string(), container: z.string() })
+
+export const LoreEngineOutputSchema = z.object({
+  action_type: z.enum(['info', 'task', 'attack']),
+  requires_check: z.boolean(),
+  difficulty: z.number().optional(),
+  pool: z.enum(['Power', 'Essence', 'Will']).optional(),
+  check_description: z.string().optional(),
+  search_objects: z.array(SearchObjectSchema).optional(),
+  narrative_notes: z.string().optional(),
+})

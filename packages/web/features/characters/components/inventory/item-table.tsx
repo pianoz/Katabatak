@@ -2,7 +2,13 @@
 
 import { useState, useMemo } from "react"
 import { getConditionStyle } from "@/lib/utils"
-import { Trash2 } from "lucide-react"
+import { MoreHorizontal, Trash2 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu"
 
 const COLUMN_LABELS: Record<string, string> = {
   damage:            "Damage",
@@ -473,28 +479,37 @@ export function ItemTable({
                           E
                         </button>
                       )}
-                      {!item.consumable && (item.condition ?? 100) < 100 && (
-                        <button
-                          onClick={() => onRepair?.(item)}
-                          className="flex-1 py-2 text-xs bg-blue-900/30 text-blue-400 border border-blue-800 active:bg-blue-800 transition-all"
-                        >
-                          Repair
-                        </button>
-                      )}
-                      {item.consumable && (
-                        <button
-                          onClick={() => window.confirm(`Use ${item.name}? This will destroy it.`) && onConsume?.(item)}
-                          className="flex-1 py-2 text-xs bg-green-900/30 text-green-400 border border-green-800 active:bg-green-800 transition-all"
-                        >
-                          Use
-                        </button>
-                      )}
-                      <button
-                        onClick={() => window.confirm(`Drop ${item.name}?`) && onDrop?.(item)}
-                        className="flex-1 py-2 text-xs bg-red-900/30 text-red-400 border border-red-800 active:bg-red-800 transition-all"
-                      >
-                        Drop
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="flex items-center justify-center px-3 py-2 text-xs border border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/60 transition-all">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="bg-card border-border">
+                          {!item.consumable && (item.condition ?? 100) < 100 && (
+                            <DropdownMenuItem
+                              onClick={() => onRepair?.(item)}
+                              className="text-blue-400 focus:text-blue-300 text-xs uppercase tracking-widest cursor-pointer"
+                            >
+                              Repair
+                            </DropdownMenuItem>
+                          )}
+                          {item.consumable && (
+                            <DropdownMenuItem
+                              onClick={() => window.confirm(`Use ${item.name}? This will destroy it.`) && onConsume?.(item)}
+                              className="text-green-400 focus:text-green-300 text-xs uppercase tracking-widest cursor-pointer"
+                            >
+                              Use
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            onClick={() => window.confirm(`Drop ${item.name}?`) && onDrop?.(item)}
+                            className="text-red-400 focus:text-red-300 text-xs uppercase tracking-widest cursor-pointer"
+                          >
+                            Drop
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   )}
                   {isGM && onGrantToCharacter && (

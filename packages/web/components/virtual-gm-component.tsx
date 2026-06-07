@@ -427,7 +427,7 @@ export default function ChatGMComponent({
       {/* Message Area */}
       <div className="relative flex-1 overflow-hidden">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-linear-to-b from-zinc-950 via-zinc-950/70 to-transparent z-10" />
-        <main ref={scrollRef} className="h-full overflow-y-auto p-6 space-y-8 scroll-smooth [scrollbar-width:thin] [scrollbar-color:#52525b_transparent] [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-600/50">
+        <main ref={scrollRef} className="h-full overflow-y-auto p-3 md:p-6 space-y-8 scroll-smooth [scrollbar-width:thin] [scrollbar-color:#52525b_transparent] [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-600/50">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -442,10 +442,10 @@ export default function ChatGMComponent({
                 </span>
               </div>
               <div className={`
-                max-w-[85%] px-4 py-3 rounded-lg text-sm leading-relaxed
+                px-4 py-3 text-sm leading-relaxed
                 ${msg.role === 'player'
-                  ? 'bg-zinc-800 border border-zinc-700 text-zinc-100'
-                  : 'bg-transparent border-l-2 border-cyan-900/50 text-zinc-300'}
+                  ? 'bg-zinc-800/60 text-zinc-100 md:bg-zinc-800 md:border md:border-zinc-700 md:max-w-[85%] md:rounded-lg'
+                  : 'bg-cyan-950/20 text-zinc-300 md:bg-transparent md:border-l-2 md:border-cyan-900/50 md:max-w-[85%] md:rounded-lg'}
               `}>
                 <div className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-strong:text-cyan-400 prose-em:text-zinc-400 prose-code:text-emerald-400">
                   <ReactMarkdown>{msg.content}</ReactMarkdown>
@@ -461,7 +461,7 @@ export default function ChatGMComponent({
                 <Sparkles className="w-3 h-3 text-cyan-500 animate-pulse" />
                 <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-zinc-500">The Architect</span>
               </div>
-              <div className="max-w-[85%] px-4 py-3 bg-transparent border-l-2 border-cyan-900/50 text-zinc-300 text-sm leading-relaxed">
+              <div className="px-4 py-3 bg-cyan-950/20 text-zinc-300 text-sm leading-relaxed md:max-w-[85%] md:bg-transparent md:border-l-2 md:border-cyan-900/50">
                 <div className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-strong:text-cyan-400 prose-em:text-zinc-400">
                   <ReactMarkdown>{streamingContent || '…'}</ReactMarkdown>
                 </div>

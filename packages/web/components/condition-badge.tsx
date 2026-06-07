@@ -33,6 +33,25 @@ interface ConditionBadgeProps {
   onRemove?: () => void
 }
 
+export function ConditionBanner({ condition, onRemove }: ConditionBadgeProps) {
+  const { Icon, color, border, bg } = CONDITION_CONFIG[condition]
+  return (
+    <div className={`flex items-center gap-3 px-4 py-2.5 border ${border} ${bg} mb-4`}>
+      <Icon className={`w-4 h-4 shrink-0 ${color}`} />
+      <span className={`text-[10px] uppercase tracking-[0.3em] ${color} font-bold flex-1`}>{condition}</span>
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          aria-label="Remove condition"
+          className={`w-5 h-5 border ${border} ${bg} flex items-center justify-center ${color} hover:opacity-70 transition-opacity`}
+        >
+          <X className="w-2.5 h-2.5" />
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function ConditionBadge({ condition, onRemove }: ConditionBadgeProps) {
   const { Icon, color, border, bg } = CONDITION_CONFIG[condition]
 

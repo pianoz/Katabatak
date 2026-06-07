@@ -30,7 +30,7 @@ import { GiveToAllyModal } from "@/features/characters/components/inventory/give
 import { SkillTreeViewer } from "@/features/skills/components/skill-tree-viewer"
 import { NotificationOverlay, type PendingOfferData } from "@/features/characters/components/offers/notification-overlay"
 import { getConditionStyle } from "@/lib/utils"
-import { ConditionBadge, type CharacterCondition } from "@/components/condition-badge"
+import { ConditionBadge, ConditionBanner, type CharacterCondition } from "@/components/condition-badge"
 import { ItemTable } from "@/features/characters/components/inventory/item-table"
 import { SpellTable, type SpellE } from "@/features/characters/components/spells/spell-section"
 import VirtualGMComponent from "@/components/virtual-gm-component"
@@ -231,6 +231,46 @@ function DescriptionBlock({ label, text, expandable, onSave }: DescriptionBlockP
               {expanded ? "Show Less" : "Read More"}
             </button>
           )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SyngemPoolBarProps {
+  label: string
+  current: number
+  max: number
+  color: string
+  onIncrement: () => void
+  onDecrement: () => void
+  disabled: boolean
+  showControls: boolean
+}
+
+function SyngemPoolBar({ label, current, max, color, onIncrement, onDecrement, disabled, showControls }: SyngemPoolBarProps) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (current / max) * 100)) : 0
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 border border-border bg-card">
+      <span className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground w-16 shrink-0">{label}</span>
+      <div className="flex-1 h-2 bg-border/30">
+        <div className="h-full transition-[width] duration-700 ease-out" style={{ width: `${pct}%`, backgroundColor: color }} />
+      </div>
+      <span className="text-[10px] font-mono text-muted-foreground w-10 text-right shrink-0">{current}/{max}</span>
+      {showControls && (
+        <>
+          <button
+            onClick={onDecrement}
+            disabled={disabled || current <= 0}
+            className="w-7 h-7 flex items-center justify-center border border-border text-muted-foreground hover:text-foreground disabled:opacity-30 shrink-0"
+          >−</button>
+          <button
+            onClick={onIncrement}
+            disabled={disabled || current >= max}
+            className="w-7 h-7 flex items-center justify-center border border-border text-muted-foreground hover:text-foreground disabled:opacity-30 shrink-0"
+          >+</button>
         </>
       )}
     </div>
@@ -783,15 +823,25 @@ export function CharacterDashboard({
       <main className="px-6 md:px-12 lg:px-20 py-8">
         {repairPopup && <RepairToast message={repairPopup} />}
 
+        {/* Mobile condition banner — desktop uses the fixed ConditionBadge below */}
+        {character.condition && (
+          <div className="md:hidden">
+            <ConditionBanner
+              condition={character.condition as CharacterCondition}
+              onRemove={isOwner ? handleRemoveCondition : undefined}
+            />
+          </div>
+        )}
+
         {variant === "syngem" ? (
-          /* ── SYNGEM variant: 3-column pools | window | pools ──────── */
+          /* ── SYNGEM variant: pool bars (mobile) | 3-column grid (desktop) ── */
           <section className="mb-10">
             <div
-              className="grid gap-4"
-              style={{ gridTemplateColumns: "minmax(0,0.8fr) minmax(0,2fr) minmax(0,0.8fr)", height: "620px" }}
+              className="flex flex-col md:grid md:gap-4 md:h-[620px]"
+              style={{ gridTemplateColumns: "minmax(0,0.8fr) minmax(0,2fr) minmax(0,0.8fr)" }}
             >
-              {/* Left: Essence + Power */}
-              <div className="flex flex-col gap-4 h-full">
+              {/* Desktop-only: Left column — Essence + Power */}
+              <div className="hidden md:flex flex-col gap-4 h-full">
                 <div className="flex-1">
                   <PoolCounter
                     label={`Essence (${character.essence_max})`}
@@ -818,8 +868,8 @@ export function CharacterDashboard({
                 </div>
               </div>
 
-              {/* Center: SYNGEM window */}
-              <div className="overflow-hidden border border-cyan-900/30 min-h-0">
+              {/* SYNGEM window — single render, always mounted */}
+              <div className="overflow-hidden border border-cyan-900/30 h-[520px] md:h-full">
                 <VirtualGMComponent
                   playerName={character.name}
                   characterId={character.id}
@@ -828,8 +878,52 @@ export function CharacterDashboard({
                 />
               </div>
 
-              {/* Right: Will + Health */}
-              <div className="flex flex-col gap-4 h-full">
+              {/* Mobile-only: 4 stacked pool bars below chat (display:none on md = removed from grid flow) */}
+              <div className="md:hidden flex flex-col gap-2 mt-3">
+                <SyngemPoolBar
+                  label={`Essence (${character.essence_max})`}
+                  current={character.current_essence ?? 0}
+                  max={character.essence_max ?? 0}
+                  color="#06b6d4"
+                  onIncrement={() => updatePool("current_essence", 1)}
+                  onDecrement={() => updatePool("current_essence", -1)}
+                  disabled={!isOwner}
+                  showControls={devModeEnabled}
+                />
+                <SyngemPoolBar
+                  label={`Power (${character.power_max})`}
+                  current={character.current_power ?? 0}
+                  max={character.power_max ?? 0}
+                  color="#f97316"
+                  onIncrement={() => updatePool("current_power", 1)}
+                  onDecrement={() => updatePool("current_power", -1)}
+                  disabled={!isOwner}
+                  showControls={devModeEnabled}
+                />
+                <SyngemPoolBar
+                  label={`Will (${character.will_max})`}
+                  current={character.current_will ?? 0}
+                  max={character.will_max ?? 0}
+                  color="#8b5cf6"
+                  onIncrement={() => updatePool("current_will", 1)}
+                  onDecrement={() => updatePool("current_will", -1)}
+                  disabled={!isOwner}
+                  showControls={devModeEnabled}
+                />
+                <SyngemPoolBar
+                  label={`Health (${character.health_max})`}
+                  current={character.current_health ?? 0}
+                  max={character.health_max ?? 0}
+                  color="#ef4444"
+                  onIncrement={() => updatePool("current_health", 1)}
+                  onDecrement={() => updatePool("current_health", -1)}
+                  disabled={!isOwner}
+                  showControls={devModeEnabled}
+                />
+              </div>
+
+              {/* Desktop-only: Right column — Will + Health */}
+              <div className="hidden md:flex flex-col gap-4 h-full">
                 <div className="flex-1">
                   <PoolCounter
                     label={`Will (${character.will_max})`}
@@ -1000,8 +1094,8 @@ export function CharacterDashboard({
           {/* Tab 2: Skills & Attributes */}
           <TabsContent value="skills">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
-              {/* Left: Attributes + descriptions */}
-              <div className="lg:col-span-1 space-y-6">
+              {/* 1: Attributes + Denarius — always first on mobile, col-span-1 row-1 on desktop */}
+              <div className="lg:col-span-1 space-y-6 order-1 lg:order-none">
                 <div>
                   <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground mb-3">Attributes</h2>
                   <div className="grid grid-cols-2 gap-2">
@@ -1048,19 +1142,10 @@ export function CharacterDashboard({
                     </div>
                   </div>
                 </div>
-
-                <div className="space-y-4">
-                  <DescriptionBlock label="Primary Background"   text={character.background_primary ?? undefined}   />
-                  <DescriptionBlock label="Physical Description" text={character.physical_description ?? undefined} onSave={isOwner ? (v) => handleSaveDescription("physical_description", v) : undefined} />
-                  <DescriptionBlock label="Backstory"            text={character.backstory ?? undefined} expandable onSave={isOwner ? (v) => handleSaveDescription("backstory", v) : undefined} />
-                </div>
-                <div className="text-xs text-muted-foreground pt-4 border-t border-border">
-                  Created {character.created_at ? new Date(character.created_at).toLocaleDateString() : "Unknown"}
-                </div>
               </div>
 
-              {/* Right: Skill Tree */}
-              <div className="lg:col-span-2">
+              {/* 2: Skill Tree — second on mobile, col-span-2 row-1 on desktop */}
+              <div className="lg:col-span-2 order-2 lg:order-none">
                 <div className="flex items-center gap-2 mb-4">
                   <InfoTooltip text="Spend skill points to unlock new abilities. Skills are interconnected — unlocking one may open paths to deeper, more powerful abilities gained through discovery and level-ups." />
                 </div>
@@ -1073,6 +1158,16 @@ export function CharacterDashboard({
                     startTransition(() => router.refresh())
                   }}
                 />
+              </div>
+
+              {/* 3: Descriptions — third on mobile, col-span-1 row-2 on desktop */}
+              <div className="lg:col-span-1 order-3 lg:order-none space-y-4">
+                <DescriptionBlock label="Primary Background"   text={character.background_primary ?? undefined}   />
+                <DescriptionBlock label="Physical Description" text={character.physical_description ?? undefined} onSave={isOwner ? (v) => handleSaveDescription("physical_description", v) : undefined} />
+                <DescriptionBlock label="Backstory"            text={character.backstory ?? undefined} expandable onSave={isOwner ? (v) => handleSaveDescription("backstory", v) : undefined} />
+                <div className="text-xs text-muted-foreground pt-4 border-t border-border">
+                  Created {character.created_at ? new Date(character.created_at).toLocaleDateString() : "Unknown"}
+                </div>
               </div>
             </div>
 

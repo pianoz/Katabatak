@@ -6,16 +6,15 @@ import { createClient } from "@/lib/supabase/client"
 import { useCharacterStore } from "@/features/characters/hooks/use-character-store"
 import { logRollEvent } from "@/lib/services/roll-service"
 
-type PoolName = "Essence" | "Power" | "Will" | "Health"
+type PoolName = "Essence" | "Power" | "Will"
 
 const POOL_COLOR: Record<PoolName, string> = {
   Essence: "text-cyan-400",
   Power:   "text-muted-foreground",
   Will:    "text-muted-foreground",
-  Health:  "text-muted-foreground",
 }
 
-const POOLS: PoolName[] = ["Essence", "Power", "Will", "Health"]
+const POOLS: PoolName[] = ["Essence", "Power", "Will"]
 
 interface RollEntry {
   pool: PoolName
@@ -141,14 +140,12 @@ export function PoolCheckPanel({ character }: PoolCheckPanelProps) {
     Essence: Math.floor((character.essence_max ?? 0) / 2),
     Power:   Math.floor((character.power_max   ?? 0) / 2),
     Will:    Math.floor((character.will_max    ?? 0) / 2),
-    Health:  Math.floor((character.health_max  ?? 0) / 2),
   }
 
   const currentFor: Record<PoolName, number> = {
     Essence: character.current_essence ?? 0,
     Power:   character.current_power   ?? 0,
     Will:    character.current_will    ?? 0,
-    Health:  character.current_health  ?? 0,
   }
 
   const handleRoll = (pool: PoolName) => {
@@ -169,7 +166,7 @@ export function PoolCheckPanel({ character }: PoolCheckPanelProps) {
     }, ...prev].slice(0, 20))
 
     if (sacrifice > 0) {
-      const storePool = pending.pool.toLowerCase() as "essence" | "power" | "will" | "health"
+      const storePool = pending.pool.toLowerCase() as "essence" | "power" | "will"
       const newVal = currentFor[pending.pool] - sacrifice
       useCharacterStore.getState().updatePool(storePool, newVal)
     }
@@ -197,7 +194,7 @@ export function PoolCheckPanel({ character }: PoolCheckPanelProps) {
           onCancel={() => setPending(null)}
         />
       )}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-0 border border-border">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-0 border border-border">
         {POOLS.map(pool => (
           <div key={pool} className="border-r border-border last:border-r-0 border-b md:border-b-0">
             <div className="px-3 py-2 border-b border-border bg-secondary/10">

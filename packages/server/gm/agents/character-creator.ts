@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { z } from 'zod'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { synLog } from '../logger.js'
 import { createClaudeClient } from '../claude-client.js'
@@ -64,12 +65,12 @@ Use the player's Q&A answers to give the character their specific voice, trade, 
 The story above is fixed — the waystone, the fire, Brin, the flight to Karkill. The character's particulars
 (who they are, who they showed it to, the exact form the danger took, small telling details) come from the answers.
 
-Respond with only valid JSON — no markdown, no explanation:
+Respond with only valid JSON and no explanation outside the JSON object. All fields must be plain text strings EXCEPT story_hook, which must use markdown formatting: separate paragraphs with \n\n, use ## for a short section header (the character's name or an epithet), and use **bold** sparingly for proper nouns or moments of weight. Do not use markdown in any other field.
 {
   "background_primary": "<1-3 words which encapsulate who this character was and is>",
   "physical_description": "<2-3 vivid sentences of appearance — what a stranger sees first, distinguishing marks, the wear the road has put on them>",
   "backstory": "<4-6 sentences weaving the Q&A identity into a full picture of who this person was before the events described took place. What they did, what they desired, what they thought.>",
-  "story_hook": "<The full story told in rich atmospheric prose. 8-12 sentences minimum. Written in second person (you) or close third. Begin before the inn — the journey south, the company of strangers, small kindnesses. Then the fire. Then the aftermath. End on the road to Karkill in the grey morning light, the waystone in hand, its needle pointing east for the first time. Let the reader feel the exhaustion, the grief, the impossible weight of what points toward them. Do not resolve the tension. End in motion.>",
+  "story_hook": "<The full story told in rich atmospheric prose with markdown formatting. 8-12 paragraphs minimum, each separated by \\n\\n. Open with a ## heading (the character's name or a short epithet). Written in second person (you) or close third. Begin before the inn — the journey south, the company of strangers, small kindnesses. Then the fire. Then the aftermath. End on the road to Karkill in the grey morning light, the waystone in hand, its needle pointing east for the first time. Let the reader feel the exhaustion, the grief, the impossible weight of what points toward them. Do not resolve the tension. End in motion.>",
   "initial_quest": {
     "id": "follow_the_waystone",
     "title": "The Waystone",
@@ -81,18 +82,25 @@ Respond with only valid JSON — no markdown, no explanation:
 Tone: melancholic, atmospheric, intimate. Ghibli, Steinbeck, Faulkner, Márquez. Humor and grief are bedfellows.
 The world is hard and there are small kindnesses that make it seem worth continuing. Do not write toward heroism. Write toward truth. Insert lines of dialogue to ground what is happening occasionally, or draw attention to individual events or conditions.`
 
+const CharacterCreatorOutputSchema = z.object({
+  background_primary: z.string().min(1),
+  physical_description: z.string().min(1),
+  backstory: z.string().min(1),
+  story_hook: z.string().min(1),
+  initial_quest: z.object({
+    id: z.string(),
+    title: z.string(),
+    status: z.string(),
+    description: z.string(),
+  }),
+})
+
 export interface CharacterCreatorInput {
   questions: string[]
   answers: string[]
 }
 
-export interface CharacterCreatorOutput {
-  background_primary: string
-  physical_description: string
-  backstory: string
-  story_hook: string
-  initial_quest: { id: string; title: string; status: string; description: string }
-}
+export type CharacterCreatorOutput = z.infer<typeof CharacterCreatorOutputSchema>
 
 /** One-shot call that builds a character profile from player onboarding Q&A. */
 export async function runCharacterCreator(
@@ -119,11 +127,17 @@ export async function runCharacterCreator(
   const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
   const jsonMatch = text.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error(`No JSON object found in character creator response. Raw: ${text.slice(0, 200)}`)
-  const result = JSON.parse(jsonMatch[0]) as CharacterCreatorOutput
-  if (!result.story_hook) {
-    // DB prompt is likely outdated — use backstory as fallback so the reveal doesn't stall
-    synLog('CHARACTER-CREATOR', 'WARNING: story_hook missing from response, falling back to backstory')
-    result.story_hook = result.backstory ?? ''
+
+  const parsed = CharacterCreatorOutputSchema.safeParse(JSON.parse(jsonMatch[0]))
+  if (!parsed.success) {
+    synLog('CHARACTER-CREATOR', '⚠ schema validation failed', parsed.error.issues)
+    // story_hook missing (likely DB prompt is outdated) — patch and re-validate
+    const raw = JSON.parse(jsonMatch[0]) as Record<string, unknown>
+    if (!raw.story_hook && raw.backstory) {
+      synLog('CHARACTER-CREATOR', 'WARNING: story_hook missing, falling back to backstory')
+      raw.story_hook = raw.backstory
+    }
+    return CharacterCreatorOutputSchema.parse(raw)
   }
-  return result
+  return parsed.data
 }

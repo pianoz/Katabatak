@@ -105,6 +105,12 @@ export interface LocationEntity {
   long_description: string
 }
 
+/** Full world-entity data for entities physically present at the player's location. */
+export interface LocationEntityFull extends LocationEntity {
+  type: string
+  data: Record<string, unknown>
+}
+
 /** GM-only notes for an active quest, fetched from quest_templates. Not shown to the player. */
 export interface ActiveQuestNote {
   questId: string
@@ -123,8 +129,14 @@ export interface ContextBlock {
   locationEntities: LocationEntity[]
   /** Character-scoped improvised entities at the current location (from improvised_entities table). */
   improvisedEntities: LocationEntity[]
+  /** Canonical world_entities that are children of the player's current place. */
+  entitiesAtLocation: LocationEntityFull[]
+  /** Other places/locations in the same region as the player's current place. */
+  connectedLocations: Array<{ id: string; name: string; short_description: string }>
   encounterData: EncounterWithCreatures | null
   npcs: EnrichedNpc[]
+  /** Subset of character inventory flagged as tracked (equipped + quest/special items). */
+  trackedInventory: FullCharacter['inventory']
   inventoryWeight: { current: number; max: number }
   backstory: string | null
   physicalDescription: string | null

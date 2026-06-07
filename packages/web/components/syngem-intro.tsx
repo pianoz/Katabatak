@@ -2,6 +2,7 @@
 "use client"
 
 import { useState, useEffect, useLayoutEffect, useRef } from "react"
+import ReactMarkdown from "react-markdown"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { createCharacterWithItems } from "@/lib/services/character-service"
@@ -417,12 +418,12 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
               >
                 <div style={{ height: topSpacerHeight }} aria-hidden="true" />
                 <div className="border-l-2 border-cyan-900/40 pl-6" style={{ paddingBottom: topSpacerHeight / 2 }}>
-                  <p className="font-serif text-zinc-300 text-base leading-loose">
-                    {displayed}
+                  <div className="prose prose-invert max-w-none prose-p:font-serif prose-p:text-zinc-300 prose-p:leading-loose prose-headings:font-sans prose-headings:uppercase prose-headings:tracking-widest prose-headings:text-[0.65rem] prose-headings:text-zinc-500 prose-headings:mb-4 prose-strong:text-zinc-100 prose-p:mt-0 prose-p:mb-4">
+                    <ReactMarkdown>{displayed}</ReactMarkdown>
                     {!typewritingDone && (
                       <span className="inline-block w-0.5 h-4 bg-cyan-500/60 animate-pulse ml-0.5 align-middle" />
                     )}
-                  </p>
+                  </div>
                 </div>
               </div>
               <div className="h-12 flex items-center pl-6 shrink-0 mt-4">

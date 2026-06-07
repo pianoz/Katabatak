@@ -1,11 +1,24 @@
 import { getFullCharacter } from '../services/character-service.js'
+import type { InventoryItem } from '../services/character-service.js'
 import { getGameWithMembers, getActiveEncounter } from '../services/game-service.js'
 import { getSyngemGame } from '../services/syngem-game-service.js'
 import { getNpcsForGame, getNpcsForCharacter, computeNpcRoutineLocation } from '../services/world-service.js'
 import type { NpcRow } from '../services/world-service.js'
 import supabase from './tools/db.js'
-import { synLog } from './logger.js'
-import type { ContextBlock, LocationEntity, EnrichedNpc, NpcPersonalityProfile, ActiveQuestNote } from './types.js'
+import { synLog, synLogVerbose } from './logger.js'
+import type {
+  ContextBlock,
+  LocationEntity,
+  LocationEntityFull,
+  EnrichedNpc,
+  NpcPersonalityProfile,
+  ActiveQuestNote,
+} from './types.js'
+import type { GameWithMembers, EncounterWithCreatures } from '../services/game-service.js'
+import type { SyngemGameRow } from '../services/syngem-game-service.js'
+import type { FullCharacter } from '../services/character-service.js'
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function poolText(current: number | null, max: number | null): string {
   if (current === null || max === null || max === 0) return 'Unknown'
@@ -16,32 +29,45 @@ function poolText(current: number | null, max: number | null): string {
   return 'Full'
 }
 
-/** Fetches improvised entities the Architect created for this character at the given location. */
-async function resolveImprovisedEntities(
-  characterId: string,
-  locationPlaceId: string | null,
-): Promise<LocationEntity[]> {
-  if (!locationPlaceId) return []
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase as any)
-    .from('improvised_entities')
-    .select('id, name, data')
-    .eq('character_id', characterId)
-    .eq('parent_id', locationPlaceId)
-
-  if (!data?.length) return []
-
-  return (data as Array<{ id: string; name: string; data: unknown }>).map((e) => {
-    const d = e.data as Record<string, unknown>
-    return {
-      id: e.id,
-      name: e.name,
-      short_description: (d?.['short_description'] as string | undefined) ?? '',
-      long_description: (d?.['long_description'] as string | undefined) ?? '',
-    }
-  })
+function dispositionLabel(disposition: number): EnrichedNpc['dispositionLabel'] {
+  if (disposition <= -50) return 'hostile'
+  if (disposition < 0) return 'wary'
+  if (disposition < 50) return 'neutral'
+  return 'friendly'
 }
+
+// ─── Module return types ──────────────────────────────────────────────────────
+
+interface CharacterHydration {
+  fullCharacter: FullCharacter
+  healthText: string
+  essenceText: string
+  powerText: string
+  willText: string
+  physicalDescription: string | null
+  backstory: string | null
+  activeQuestNotes: ActiveQuestNote[]
+}
+
+interface InventoryHydration {
+  trackedInventory: InventoryItem[]
+  inventoryWeight: { current: number; max: number }
+}
+
+interface GameHydration {
+  syngemGame: SyngemGameRow | null
+  game: GameWithMembers | null
+  encounterData: EncounterWithCreatures | null
+}
+
+interface LocationHydration {
+  locationEntities: LocationEntity[]
+  entitiesAtLocation: LocationEntityFull[]
+  connectedLocations: Array<{ id: string; name: string; short_description: string }>
+  improvisedEntities: LocationEntity[]
+}
+
+// ─── Location helpers (kept exported for lore-engine contextBlock formatter) ──
 
 export async function resolveLocationEntities(
   characterId: string,
@@ -49,7 +75,6 @@ export async function resolveLocationEntities(
 ): Promise<LocationEntity[]> {
   if (!locationPlaceId) return []
 
-  // Fetch the place entity then walk up parent_id to collect region and nation
   const chain: Array<{ id: string; name: string; parent_id: string | null; data: unknown }> = []
 
   let currentId: string | null = locationPlaceId
@@ -67,7 +92,6 @@ export async function resolveLocationEntities(
 
   if (!chain.length) return []
 
-  // Fetch player mutations for short_description overrides
   const entityIds = chain.map((e) => e.id)
   const { data: mutations } = await supabase
     .from('player_entity_mutations')
@@ -97,6 +121,238 @@ export async function resolveLocationEntities(
     return { id: e.id, name: e.name, short_description, long_description }
   })
 }
+
+async function resolveImprovisedEntities(
+  characterId: string,
+  locationPlaceId: string | null,
+): Promise<LocationEntity[]> {
+  if (!locationPlaceId) return []
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
+    .from('improvised_entities')
+    .select('id, name, data')
+    .eq('character_id', characterId)
+    .eq('parent_id', locationPlaceId)
+
+  if (!data?.length) return []
+
+  return (data as Array<{ id: string; name: string; data: unknown }>).map((e) => {
+    const d = e.data as Record<string, unknown>
+    return {
+      id: e.id,
+      name: e.name,
+      short_description: (d?.['short_description'] as string | undefined) ?? '',
+      long_description: (d?.['long_description'] as string | undefined) ?? '',
+    }
+  })
+}
+
+function enrichAndFilterNpcs(
+  npcs: NpcRow[],
+  characterId: string,
+  characterLocation: string | null,
+  gameTimeMinutes: number,
+): EnrichedNpc[] {
+  const enriched: EnrichedNpc[] = []
+
+  for (const npc of npcs) {
+    const isFollowing = npc.following_character_id === characterId
+    const routineLocation = computeNpcRoutineLocation(npc, gameTimeMinutes)
+    const expectedLocation = isFollowing ? characterLocation : (routineLocation ?? npc.current_location_id)
+    const isVisible = isFollowing || expectedLocation === characterLocation
+    if (!isVisible) continue
+
+    if (!isFollowing && routineLocation && routineLocation !== npc.current_location_id) {
+      supabase.from('npcs').update({ current_location_id: routineLocation }).eq('id', npc.id).then()
+    }
+
+    const profile = (npc.personality_profile ?? {}) as NpcPersonalityProfile
+    const disposition = npc.disposition_to_players ?? 0
+
+    enriched.push({
+      id: npc.id,
+      name: npc.name,
+      title: npc.title ?? null,
+      faction: npc.faction ?? null,
+      disposition,
+      dispositionLabel: dispositionLabel(disposition),
+      isFollowing,
+      lastEncounterSummary: profile.memory?.last_encounter_summary ?? null,
+      currentTask: profile.current_task ?? null,
+      personality: isFollowing ? (profile.personality ?? null) : null,
+      smallSummary: isFollowing ? null : (npc.small_summary ?? null),
+    })
+  }
+
+  return enriched
+}
+
+// ─── Module functions ─────────────────────────────────────────────────────────
+
+/** Fetches character stats, pool texts, quest notes, and biographical fields. */
+export async function hydrateCharacter(characterId: string): Promise<CharacterHydration | null> {
+  const fullCharacter = await getFullCharacter(characterId)
+  if (!fullCharacter) return null
+
+  const { character } = fullCharacter
+
+  const questObjectives = (character as Record<string, unknown>)['quest_objectives'] as
+    | Array<{ id: string; status: string }>
+    | null
+    | undefined
+  const activeQuestIds = (questObjectives ?? [])
+    .filter((q) => q.status === 'active')
+    .map((q) => q.id)
+
+  const questTemplates = activeQuestIds.length
+    ? await supabase
+        .from('quest_templates')
+        .select('id, description_gm')
+        .in('id', activeQuestIds)
+        .then(({ data }) => data ?? [])
+    : []
+
+  return {
+    fullCharacter,
+    healthText: poolText(character.current_health, character.health_max),
+    essenceText: poolText(character.current_essence, character.essence_max),
+    powerText: poolText(character.current_power, character.power_max),
+    willText: poolText(character.current_will, character.will_max),
+    physicalDescription: character.physical_description ?? null,
+    backstory: character.backstory ?? null,
+    activeQuestNotes: questTemplates.map((t) => ({ questId: t.id, gmNotes: t.description_gm })),
+  }
+}
+
+/** Fetches only tracked (quest/special/equipped) inventory items and computes carry weight. */
+export async function hydrateInventory(characterId: string): Promise<InventoryHydration> {
+  const { data } = await supabase
+    .from('character_inventory')
+    .select('id, item_id, is_equipped, tracked, condition, quantity, items(name, type)')
+    .eq('character_id', characterId)
+    .or('tracked.eq.true,is_equipped.eq.true')
+
+  const trackedInventory = (data ?? []) as unknown as InventoryItem[]
+  const equippedCount = trackedInventory.filter((i) => i.is_equipped).length
+
+  return { trackedInventory, inventoryWeight: { current: equippedCount, max: 0 } }
+}
+
+/** Fetches syngemGame, optionally the multiplayer game record and active encounter. */
+export async function hydrateGame(
+  characterId: string,
+  gameId?: string,
+): Promise<GameHydration> {
+  const [syngemGame, game, encounterData] = await Promise.all([
+    getSyngemGame(characterId),
+    gameId ? getGameWithMembers(gameId) : Promise.resolve(null),
+    gameId ? getActiveEncounter(gameId) : Promise.resolve(null),
+  ])
+  return { syngemGame, game, encounterData }
+}
+
+/** Fetches and filters NPCs visible at the player's location. */
+export async function hydrateNpcs(
+  characterId: string,
+  gameId: string | undefined,
+  locationPlace: string | null,
+  gameTimeMinutes: number,
+): Promise<EnrichedNpc[]> {
+  const [gameNpcs, companionNpcs] = await Promise.all([
+    gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
+    getNpcsForCharacter(characterId),
+  ])
+  const npcMap = new Map([...gameNpcs, ...companionNpcs].map((n) => [n.id, n]))
+  return enrichAndFilterNpcs(Array.from(npcMap.values()), characterId, locationPlace, gameTimeMinutes)
+}
+
+/**
+ * Fetches the location chain (place→region→nation), entities physically present at the
+ * current place, connected locations (siblings in same region), and improvised entities.
+ */
+export async function hydrateLocation(
+  characterId: string,
+  locationPlaceId: string | null,
+): Promise<LocationHydration> {
+  if (!locationPlaceId) {
+    return { locationEntities: [], entitiesAtLocation: [], connectedLocations: [], improvisedEntities: [] }
+  }
+
+  const [locationEntities, improvisedEntities] = await Promise.all([
+    resolveLocationEntities(characterId, locationPlaceId),
+    resolveImprovisedEntities(characterId, locationPlaceId),
+  ])
+
+  // locationEntities is place→region→nation; index 1 is the region
+  const regionId = locationEntities[1]?.id ?? null
+
+  const [rawEntitiesAt, rawConnected] = await Promise.all([
+    supabase
+      .from('world_entities')
+      .select('id, name, type, data')
+      .eq('parent_id', locationPlaceId),
+    regionId
+      ? supabase
+          .from('world_entities')
+          .select('id, name, data')
+          .eq('parent_id', regionId)
+          .in('type', ['place', 'location'])
+          .neq('id', locationPlaceId)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const entityAtIds = ((rawEntitiesAt.data ?? []) as Array<{ id: string }>).map((e) => e.id)
+  const mutationMap = new Map<string, Record<string, unknown>>()
+  if (entityAtIds.length) {
+    const { data: mutRows } = await supabase
+      .from('player_entity_mutations')
+      .select('entity_id, mutations')
+      .eq('player_id', characterId)
+      .in('entity_id', entityAtIds)
+    for (const m of mutRows ?? []) {
+      if (m.entity_id) mutationMap.set(m.entity_id, m.mutations as Record<string, unknown>)
+    }
+  }
+
+  const entitiesAtLocation: LocationEntityFull[] = (
+    (rawEntitiesAt.data ?? []) as Array<{ id: string; name: string; type: string; data: unknown }>
+  ).map((e) => {
+    const override = mutationMap.get(e.id)
+    const data = (e.data ?? {}) as Record<string, unknown>
+    const short_description =
+      (override?.['short_description'] as string | undefined) ??
+      (override?.['short_desc'] as string | undefined) ??
+      (data['short_description'] as string | undefined) ??
+      (data['short_desc'] as string | undefined) ??
+      ''
+    const long_description =
+      (override?.['long_description'] as string | undefined) ??
+      (override?.['long_desc'] as string | undefined) ??
+      (data['long_description'] as string | undefined) ??
+      (data['long_desc'] as string | undefined) ??
+      ''
+    return { id: e.id, name: e.name, type: e.type, short_description, long_description, data }
+  })
+
+  const connectedLocations = (
+    (rawConnected.data ?? []) as Array<{ id: string; name: string; data: unknown }>
+  ).map((e) => {
+    const data = (e.data ?? {}) as Record<string, unknown>
+    return {
+      id: e.id,
+      name: e.name,
+      short_description:
+        (data['short_description'] as string | undefined) ??
+        (data['short_desc'] as string | undefined) ??
+        '',
+    }
+  })
+
+  return { locationEntities, entitiesAtLocation, connectedLocations, improvisedEntities }
+}
+
+// ─── Formatter (used by lore-engine) ─────────────────────────────────────────
 
 /**
  * Serializes a ContextBlock into a standardized plain-text prompt section.
@@ -152,64 +408,10 @@ export function contextBlock(ctx: ContextBlock): string {
   return lines.join('\n')
 }
 
-function dispositionLabel(disposition: number): EnrichedNpc['dispositionLabel'] {
-  if (disposition <= -50) return 'hostile'
-  if (disposition < 0) return 'wary'
-  if (disposition < 50) return 'neutral'
-  return 'friendly'
-}
+// ─── Composed hydrator ────────────────────────────────────────────────────────
 
 /**
- * Applies lazy routine placement and filters NPCs to those visible at the player's location.
- * Fire-and-forget DB writes update current_location_id when an NPC arrives at the player's spot.
- */
-function enrichAndFilterNpcs(
-  npcs: NpcRow[],
-  characterId: string,
-  characterLocation: string | null,
-  gameTimeMinutes: number,
-): EnrichedNpc[] {
-  const enriched: EnrichedNpc[] = []
-
-  for (const npc of npcs) {
-    const isFollowing = npc.following_character_id === characterId
-
-    // Compute where this NPC should be right now
-    const routineLocation = computeNpcRoutineLocation(npc, gameTimeMinutes)
-    const expectedLocation = isFollowing ? characterLocation : (routineLocation ?? npc.current_location_id)
-
-    // Only show NPCs at the player's location or actively following
-    const isVisible = isFollowing || expectedLocation === characterLocation
-    if (!isVisible) continue
-
-    // If the NPC's DB location differs from expected, silently update it (fire-and-forget)
-    if (!isFollowing && routineLocation && routineLocation !== npc.current_location_id) {
-      supabase.from('npcs').update({ current_location_id: routineLocation }).eq('id', npc.id).then()
-    }
-
-    const profile = (npc.personality_profile ?? {}) as NpcPersonalityProfile
-    const disposition = npc.disposition_to_players ?? 0
-
-    enriched.push({
-      id: npc.id,
-      name: npc.name,
-      title: npc.title ?? null,
-      faction: npc.faction ?? null,
-      disposition,
-      dispositionLabel: dispositionLabel(disposition),
-      isFollowing,
-      lastEncounterSummary: profile.memory?.last_encounter_summary ?? null,
-      currentTask: profile.current_task ?? null,
-      personality: isFollowing ? (profile.personality ?? null) : null,
-      smallSummary: isFollowing ? null : (npc.small_summary ?? null),
-    })
-  }
-
-  return enriched
-}
-
-/**
- * Builds a full ContextBlock for a player turn from parallel DB reads.
+ * Builds a full ContextBlock for a player turn by composing the 5 module hydrators.
  * Returns null if the character cannot be found.
  */
 export async function autoHydrate(
@@ -219,79 +421,58 @@ export async function autoHydrate(
 ): Promise<ContextBlock | null> {
   synLog('HYDRATOR', `→ fetching context | char:${characterId}${gameId ? ` game:${gameId}` : ''}`, undefined, requestId)
 
-  const fullCharacter = await getFullCharacter(characterId)
-  if (!fullCharacter) return null
+  const [charData, gameData] = await Promise.all([
+    hydrateCharacter(characterId),
+    hydrateGame(characterId, gameId),
+  ])
 
-  const { character } = fullCharacter
+  if (!charData) return null
 
-  // Fetch quest objectives to look up GM notes for active quests
-  const questObjectives = (character as Record<string, unknown>)['quest_objectives'] as
-    | Array<{ id: string; status: string }>
-    | null
-    | undefined
-  const activeQuestIds = (questObjectives ?? [])
-    .filter((q) => q.status === 'active')
-    .map((q) => q.id)
+  const { fullCharacter, healthText, essenceText, powerText, willText, physicalDescription, backstory, activeQuestNotes } = charData
+  const locationPlace = fullCharacter.character.location_place
 
-  const [game, encounterData, gameNpcs, companionNpcs, locationEntities, improvisedEntities, syngemGame, questTemplates] =
-    await Promise.all([
-      gameId ? getGameWithMembers(gameId) : Promise.resolve(null),
-      gameId ? getActiveEncounter(gameId) : Promise.resolve(null),
-      gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
-      getNpcsForCharacter(characterId),
-      resolveLocationEntities(characterId, character.location_place),
-      resolveImprovisedEntities(characterId, character.location_place),
-      getSyngemGame(characterId),
-      activeQuestIds.length
-        ? supabase
-            .from('quest_templates')
-            .select('id, description_gm')
-            .in('id', activeQuestIds)
-            .then(({ data }) => data ?? [])
-        : Promise.resolve([]),
-    ])
+  const [locationData, inventoryData, npcs] = await Promise.all([
+    hydrateLocation(characterId, locationPlace),
+    hydrateInventory(characterId),
+    hydrateNpcs(characterId, gameId, locationPlace, gameData.syngemGame?.game_time_minutes ?? 720),
+  ])
 
-  const activeQuestNotes: ActiveQuestNote[] = questTemplates.map((t) => ({
-    questId: t.id,
-    gmNotes: t.description_gm,
-  }))
+  const { locationEntities, entitiesAtLocation, connectedLocations, improvisedEntities } = locationData
+  const { trackedInventory, inventoryWeight } = inventoryData
 
-  // Merge game NPCs and companion NPCs, deduplicating by id
-  const npcMap = new Map([...gameNpcs, ...companionNpcs].map((n) => [n.id, n]))
-  const allNpcs = Array.from(npcMap.values())
+  // carrying_capacity lives on character; weight.max filled here
+  inventoryWeight.max = fullCharacter.character.carrying_capacity ?? 0
 
-  const npcs = enrichAndFilterNpcs(
-    allNpcs,
-    characterId,
-    character.location_place,
-    syngemGame?.game_time_minutes ?? 720,
+  const locStr = locationPlace ?? 'unknown'
+  synLog(
+    'HYDRATOR',
+    `✓ built | ${fullCharacter.character.name} | ${locStr} | ${locationEntities.length} loc entities, ${entitiesAtLocation.length} at-loc, ${connectedLocations.length} connected, ${npcs.length} NPCs visible${gameData.encounterData?.isInCombat ? ' | COMBAT' : ''}${gameData.syngemGame ? ` | day ${gameData.syngemGame.game_date_days}` : ''}`,
+    undefined,
+    requestId,
   )
 
-  const locStr = character.location_place ?? 'unknown'
-  synLog('HYDRATOR', `✓ built | ${character.name} | ${locStr} | ${locationEntities.length} entities, ${npcs.length}/${allNpcs.length} NPCs visible${encounterData?.isInCombat ? ' | COMBAT' : ''}${syngemGame ? ` | day ${syngemGame.game_date_days}` : ''}`, undefined, requestId)
-
-  const equippedWeight = fullCharacter.inventory
-    .filter((i) => i.is_equipped)
-    .reduce((sum) => sum + 1, 0)
-
-  return {
+  const contextPayload: ContextBlock = {
     character: fullCharacter,
-    game,
-    syngemGame,
-    healthText: poolText(character.current_health, character.health_max),
-    essenceText: poolText(character.current_essence, character.essence_max),
-    powerText: poolText(character.current_power, character.power_max),
-    willText: poolText(character.current_will, character.will_max),
+    game: gameData.game,
+    syngemGame: gameData.syngemGame,
+    healthText,
+    essenceText,
+    powerText,
+    willText,
     locationEntities,
     improvisedEntities,
-    encounterData,
+    entitiesAtLocation,
+    connectedLocations,
+    encounterData: gameData.encounterData,
     npcs,
-    inventoryWeight: {
-      current: equippedWeight,
-      max: character.carrying_capacity ?? 0,
-    },
-    backstory: character.backstory ?? null,
-    physicalDescription: character.physical_description ?? null,
+    trackedInventory,
+    inventoryWeight,
+    backstory,
+    physicalDescription,
     activeQuestNotes,
   }
+
+  synLogVerbose('HYDRATOR', '◉ full context payload', contextPayload, requestId)
+
+  return contextPayload
 }

@@ -9,6 +9,7 @@ export interface InventoryItem {
   id: string
   item_id: string | null
   is_equipped: boolean | null
+  tracked: boolean | null
   condition: number | null
   quantity: number | null
   items: { name: string; type: string | null } | null
@@ -55,7 +56,7 @@ export async function getFullCharacter(id: string): Promise<FullCharacter | null
       supabase.from('characters').select('*').eq('id', id).single(),
       supabase
         .from('character_inventory')
-        .select('id, item_id, is_equipped, condition, quantity, items(name, type)')
+        .select('id, item_id, is_equipped, tracked, condition, quantity, items(name, type)')
         .eq('character_id', id),
       supabase
         .from('character_skills')

@@ -157,18 +157,24 @@ async function grantItem(
   quantity?: number,
   requestId?: string,
 ): Promise<void> {
+  const TRACKED_TYPES = new Set(['quest'])
+  const TRACKED_RARITIES = new Set(['special', 'rare', 'epic', 'legendary'])
+
   // 1. Find existing item template by name
   const { data: existing } = await supabase
     .from('items')
-    .select('id')
+    .select('id, rarity')
     .ilike('name', itemName)
     .limit(1)
     .maybeSingle()
 
   let itemId: string
+  let shouldTrack = TRACKED_TYPES.has(itemType.toLowerCase())
 
   if (existing) {
     itemId = existing.id as string
+    const rarity = (existing as { id: string; rarity: string | null }).rarity ?? ''
+    if (TRACKED_RARITIES.has(rarity.toLowerCase())) shouldTrack = true
     synLog('STATE-EXECUTOR', `→ grant_item: found existing template "${itemName}" (${itemId})`, undefined, requestId)
   } else {
     // 2. Create a minimal item template
@@ -199,6 +205,7 @@ async function grantItem(
       quantity: quantity ?? 1,
       condition: 100,
       is_equipped: false,
+      tracked: shouldTrack,
     } as unknown as Database['public']['Tables']['character_inventory']['Insert'])
 
   if (invError) {

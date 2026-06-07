@@ -32,7 +32,6 @@ import { NotificationOverlay, type PendingOfferData } from "@/features/character
 import { getConditionStyle } from "@/lib/utils"
 import { ConditionBadge, type CharacterCondition } from "@/components/condition-badge"
 import { ItemTable } from "@/features/characters/components/inventory/item-table"
-import { ActionCard } from "@/features/characters/components/actions/action-card"
 import { SpellTable, type SpellE } from "@/features/characters/components/spells/spell-section"
 import VirtualGMComponent from "@/components/virtual-gm-component"
 import { Character } from "@/components/types/types"
@@ -135,32 +134,6 @@ function buildSnapshot(char: Character, items: Item[]): CharacterSnapshot {
   }
 }
 
-type ActionType = "Attack" | "Defend" | "Cast"
-
-// Synthetic unarmed items — shown in action card dropdowns, never in inventory tables
-const UNARMED_ATTACK_ITEM: Item = {
-  id: "__unarmed__",
-  name: "Unarmed Strike",
-  type: "weapon",
-  subtype: "melee",
-  hidden: false,
-  consumable: false,
-  damage: 2,
-  die_count: 1,
-  cost: 0,
-  short_description: "Bare hands. Better than nothing.",
-}
-
-const UNARMED_DEFEND_ITEM: Item = {
-  id: "__unarmed_def__",
-  name: "Unarmed Defence",
-  type: "armor",
-  hidden: false,
-  consumable: false,
-  defence: 0,
-  cost: 0,
-  short_description: "No armor. Your skin is your shield.",
-}
 
 interface Notification {
   text?: string
@@ -350,12 +323,28 @@ export function CharacterDashboard({
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [devModeEnabled, setDevModeEnabled] = useState(false)
+  type LogLevel = 'verbose' | 'errors+' | 'errors' | 'silent'
+  const LOG_LEVELS: LogLevel[] = ['verbose', 'errors+', 'errors', 'silent']
+  const [logLevel, setLogLevelState] = useState<LogLevel>('verbose')
   useEffect(() => {
     setDevModeEnabled(localStorage.getItem('devModeEnabled') === 'true')
+    const stored = localStorage.getItem('synLogLevel') as LogLevel | null
+    if (stored && (['verbose', 'errors+', 'errors', 'silent'] as string[]).includes(stored)) {
+      setLogLevelState(stored)
+    }
   }, [])
   const toggleDevMode = (val: boolean) => {
     localStorage.setItem('devModeEnabled', String(val))
     setDevModeEnabled(val)
+  }
+  const handleLogLevelChange = (level: LogLevel) => {
+    localStorage.setItem('synLogLevel', level)
+    setLogLevelState(level)
+    void fetch('/api/dev/log-level', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level }),
+    }).catch(() => { /* non-critical */ })
   }
   const [activeTab,      setActiveTab]      = useState("actions")
   const [syngemActive,   setSyngemActive]   = useState(false)
@@ -444,7 +433,6 @@ export function CharacterDashboard({
   const storeModifyStat    = useCharacterStore(s => s.modifyStat)
   const storeLoadFromSnap  = useCharacterStore(s => s.loadFromSnapshot)
   const storeEquipItem     = useCharacterStore(s => s.equipItem)
-  const storeUnequipAll    = useCharacterStore(s => s.unequipAll)
   const storeInventory     = useCharacterStore(s => s.inventory)
   useCharacterSync()
 
@@ -453,14 +441,10 @@ export function CharacterDashboard({
     storeLoadFromSnap(buildSnapshot(character, items))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character.id])
-  const [lastRoll,       setLastRoll]       = useState<{ label: string; value: number } | null>(null)
-  const [pendingAction,  setPendingAction]  = useState<{ type: ActionType; itemId: string; isStrong: boolean } | null>(null)
-  const [activePrompts,  setActivePrompts]  = useState<import("@/lib/effect-engine").EffectPrompt[]>([])
   const [inspectingItem, setInspectingItem] = useState<Item | null>(null)
   const [givingItem,     setGivingItem]     = useState<Item | null>(null)
   const [notification,   setNotification]   = useState<Notification | null>(null)
   const [repairPopup,    setRepairPopup]    = useState<string | null>(null)
-  const [actionError,        setActionError]        = useState<string | null>(null)
   const [actionSkillsOpen,   setActionSkillsOpen]   = useState(false)
 
   // ── Derived item lists ──────────────────────────────────────────────────────
@@ -500,18 +484,13 @@ export function CharacterDashboard({
   const effectiveCarryCapacity = Math.round(
     (character.carrying_capacity ?? 0) + (skillFx.statModifiers['carry_weight']?.add ?? 0)
   )
-  const effectiveAttackItems = [...attackItems, UNARMED_ATTACK_ITEM]
-  const effectiveDefendItems = [...defendItems, UNARMED_DEFEND_ITEM]
-
-  // Sync action card selection with equipped item on initial load
+  // Sync selection with equipped item on initial load
   useEffect(() => {
     const equippedWeapon = attackItems.find(w => w.is_equipped)
     if (equippedWeapon) setSelectedAttackId(equippedWeapon.id)
-    else if (attackItems.length === 0) setSelectedAttackId(UNARMED_ATTACK_ITEM.id)
 
     const equippedArmor = defendItems.find(a => a.is_equipped)
     if (equippedArmor) setSelectedDefendId(equippedArmor.id)
-    else if (defendItems.length === 0) setSelectedDefendId(UNARMED_DEFEND_ITEM.id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character.id])
 
@@ -563,69 +542,6 @@ export function CharacterDashboard({
     storeModifyStat("denarius", delta)
     const newValue = Math.max(0, (character.denarius ?? 0) + delta)
     setCharacter(prev => ({ ...prev, denarius: newValue }))
-  }
-
-  const handleAction = async (actionType: ActionType, itemId: string, isStrong = false) => {
-    // Resolve real item or fall back to synthetic unarmed constants
-    const item = items.find((i) => i.id === itemId)
-      ?? (itemId === UNARMED_ATTACK_ITEM.id ? UNARMED_ATTACK_ITEM : null)
-      ?? (itemId === UNARMED_DEFEND_ITEM.id ? UNARMED_DEFEND_ITEM : null)
-    if (!item) return
-
-    const supabase = createClient()
-
-    let baseValue: number
-    if (actionType === "Defend") {
-      baseValue = isStrong ? (item.strong_defence ?? item.defence ?? 0) : (item.defence ?? 0)
-    } else {
-      const dieFace = isStrong ? (item.strong_damage ?? item.damage ?? 0) : (item.damage ?? 0)
-      const dieCount = item.die_count ?? 0
-      baseValue = rollDice(dieCount, dieFace)
-      if (dieCount > 0 && dieFace > 0) {
-        const rollMax = dieCount * dieFace
-        const hasNearCrit = skillFx.nearCriticalChecks.some(
-          (c) => (c.target === "attack" || c.target === "any") && c.die_size === dieFace
-        )
-        if (hasNearCrit && baseValue === rollMax - 1) {
-          baseValue = rollMax
-        }
-      }
-    }
-
-    const total = (baseValue + (item.modifier ?? 0)) * (item.coefficient ?? 1)
-    setLastRoll({ label: `${actionType}ed for`, value: total })
-
-    const rollCtx = actionType === "Attack" ? "attack" : actionType === "Defend" ? "defense" : null
-    setActivePrompts(
-      rollCtx
-        ? skillFx.prompts.filter((p) => p.roll_context === rollCtx || p.roll_context === "any")
-        : []
-    )
-
-    if (actionType === "Attack" || actionType === "Cast") {
-      if (item.subtype !== "melee") {
-        const newCondition = Math.max(0, (item.condition ?? 0) - total)
-        if (newCondition <= 0) {
-          await removeInventoryItem(supabase, item.id)
-        } else {
-          await updateInventoryItem(supabase, item.id, { condition: newCondition })
-        }
-        startTransition(() => router.refresh())
-      }
-    }
-
-    const cost = isStrong ? (item.strong_cost ?? item.cost) : item.cost
-    if (isOwner && cost && item.cost_attribute_name) {
-      const pool: PoolKey = item.cost_attribute_name === "power" ? "current_power" : "current_will"
-      const currentValue = character[pool] ?? 0
-      if (currentValue < cost) {
-        const attrLabel = item.cost_attribute_name === "power" ? "Power" : "Will"
-        setActionError(`You do not have enough ${attrLabel} to do that action`)
-        setTimeout(() => setActionError(null), 3000)
-        return
-      }
-      await updatePool(pool, -cost)
-    }
   }
 
   const handleRepair = async (item: Item) => {
@@ -771,6 +687,17 @@ export function CharacterDashboard({
                 </label>
               </div>
             )}
+            {isDev && devModeEnabled && (
+              <select
+                value={logLevel}
+                onChange={(e) => handleLogLevelChange(e.target.value as LogLevel)}
+                className="text-[10px] uppercase tracking-widest border border-border bg-background text-muted-foreground px-2 py-1 cursor-pointer"
+              >
+                {LOG_LEVELS.map(l => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            )}
             {isOwner && variant !== "syngem" && (
               <button
                 onClick={handleEnterSyngem}
@@ -861,26 +788,34 @@ export function CharacterDashboard({
           <section className="mb-10">
             <div
               className="grid gap-4"
-              style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr) minmax(0,1fr)", height: "620px" }}
+              style={{ gridTemplateColumns: "minmax(0,0.8fr) minmax(0,2fr) minmax(0,0.8fr)", height: "620px" }}
             >
               {/* Left: Essence + Power */}
-              <div className="flex flex-col gap-4">
-                <PoolCounter
-                  label={`ES (${character.essence_max})`}
-                  value={character.current_essence ?? 0}
-                  max={character.essence_max ?? 0}
-                  onIncrement={() => updatePool("current_essence", 1)}
-                  onDecrement={() => updatePool("current_essence", -1)}
-                  disabled={!isOwner}
-                />
-                <PoolCounter
-                  label={`PW (${character.power_max})`}
-                  value={character.current_power ?? 0}
-                  max={character.power_max ?? 0}
-                  onIncrement={() => updatePool("current_power", 1)}
-                  onDecrement={() => updatePool("current_power", -1)}
-                  disabled={!isOwner}
-                />
+              <div className="flex flex-col gap-4 h-full">
+                <div className="flex-1">
+                  <PoolCounter
+                    label={`Essence (${character.essence_max})`}
+                    value={character.current_essence ?? 0}
+                    max={character.essence_max ?? 0}
+                    onIncrement={() => updatePool("current_essence", 1)}
+                    onDecrement={() => updatePool("current_essence", -1)}
+                    disabled={!isOwner}
+                    showControls={devModeEnabled}
+                    className="h-full"
+                  />
+                </div>
+                <div className="flex-1">
+                  <PoolCounter
+                    label={`Power (${character.power_max})`}
+                    value={character.current_power ?? 0}
+                    max={character.power_max ?? 0}
+                    onIncrement={() => updatePool("current_power", 1)}
+                    onDecrement={() => updatePool("current_power", -1)}
+                    disabled={!isOwner}
+                    showControls={devModeEnabled}
+                    className="h-full"
+                  />
+                </div>
               </div>
 
               {/* Center: SYNGEM window */}
@@ -894,23 +829,31 @@ export function CharacterDashboard({
               </div>
 
               {/* Right: Will + Health */}
-              <div className="flex flex-col gap-4">
-                <PoolCounter
-                  label={`WP (${character.will_max})`}
-                  value={character.current_will ?? 0}
-                  max={character.will_max ?? 0}
-                  onIncrement={() => updatePool("current_will", 1)}
-                  onDecrement={() => updatePool("current_will", -1)}
-                  disabled={!isOwner}
-                />
-                <PoolCounter
-                  label={`HP (${character.health_max})`}
-                  value={character.current_health ?? 0}
-                  max={character.health_max ?? 0}
-                  onIncrement={() => updatePool("current_health", 1)}
-                  onDecrement={() => updatePool("current_health", -1)}
-                  disabled={!isOwner}
-                />
+              <div className="flex flex-col gap-4 h-full">
+                <div className="flex-1">
+                  <PoolCounter
+                    label={`Will (${character.will_max})`}
+                    value={character.current_will ?? 0}
+                    max={character.will_max ?? 0}
+                    onIncrement={() => updatePool("current_will", 1)}
+                    onDecrement={() => updatePool("current_will", -1)}
+                    disabled={!isOwner}
+                    showControls={devModeEnabled}
+                    className="h-full"
+                  />
+                </div>
+                <div className="flex-1">
+                  <PoolCounter
+                    label={`Health (${character.health_max})`}
+                    value={character.current_health ?? 0}
+                    max={character.health_max ?? 0}
+                    onIncrement={() => updatePool("current_health", 1)}
+                    onDecrement={() => updatePool("current_health", -1)}
+                    disabled={!isOwner}
+                    showControls={devModeEnabled}
+                    className="h-full"
+                  />
+                </div>
               </div>
             </div>
           </section>
@@ -991,96 +934,6 @@ export function CharacterDashboard({
             <div className="flex items-center gap-2 mb-4">
               <h2 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">Actions</h2>
               <InfoTooltip text="Execute combat using equipped weapons and armor. Attack rolls your weapon's dice for damage; Defend applies flat damage reduction from your armor." />
-            </div>
-
-            {/* ROLL button — select an action card first, then fire here */}
-            {(() => {
-              const pendingItem = pendingAction
-                ? (items.find(i => i.id === pendingAction.itemId)
-                  ?? (pendingAction.itemId === UNARMED_ATTACK_ITEM.id ? UNARMED_ATTACK_ITEM : null)
-                  ?? (pendingAction.itemId === UNARMED_DEFEND_ITEM.id ? UNARMED_DEFEND_ITEM : null))
-                : null
-              const label = pendingAction
-                ? `Roll: ${pendingAction.isStrong ? "Strong " : ""}${pendingAction.type}${pendingItem ? ` — ${pendingItem.name}` : ""}`
-                : "Roll"
-              return (
-                <button
-                  onClick={() => {
-                    if (!pendingAction) return
-                    const action = pendingAction
-                    setPendingAction(null)
-                    handleAction(action.type, action.itemId, action.isStrong)
-                  }}
-                  disabled={!pendingAction}
-                  className={`w-full mb-4 py-5 border-2 font-serif text-2xl tracking-[0.4em] uppercase transition-all ${
-                    pendingAction
-                      ? "border-foreground/50 text-foreground hover:bg-secondary/20 cursor-pointer"
-                      : "border-border/20 bg-card/30 text-muted-foreground/20 cursor-not-allowed"
-                  }`}
-                >
-                  {label}
-                </button>
-              )
-            })()}
-
-            {actionError && (
-              <div className="mb-4 p-3 bg-red-950/60 border border-red-700/70 text-center animate-in fade-in slide-in-from-top-1">
-                <span className="text-xs uppercase tracking-widest text-red-400">
-                  {actionError}
-                </span>
-              </div>
-            )}
-
-            {lastRoll && (
-              <div className="mb-4 p-3 bg-secondary/30 border border-border text-center animate-in fade-in slide-in-from-top-1">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                  {lastRoll.label} Result:
-                </span>
-                <span className="ml-2 font-serif text-2xl text-foreground">{lastRoll.value}</span>
-              </div>
-            )}
-
-            {activePrompts.length > 0 && (
-              <div className="mb-4 space-y-2 animate-in fade-in slide-in-from-top-1">
-                {activePrompts.map((p) => (
-                  <div key={p.effect_id} className="p-3 border border-cyan-800/60 bg-cyan-950/20 flex items-start gap-3">
-                    <span className="text-[10px] uppercase tracking-[0.3em] text-cyan-500 shrink-0 pt-0.5">Active Effect</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-serif text-foreground">{p.prompt_text}</p>
-                      {p.reminder_text && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{p.reminder_text}</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4 mb-10">
-              <ActionCard
-                label="Attack"
-                items={effectiveAttackItems}
-                selectedId={selectedAttackId}
-                onSelect={(id) => {
-                  setSelectedAttackId(id)
-                  if (id === UNARMED_ATTACK_ITEM.id) storeUnequipAll("weapon")
-                  else storeEquipItem(id)
-                }}
-                onAction={(isStrong) => setPendingAction({ type: "Attack", itemId: selectedAttackId, isStrong })}
-                isFlat={false}
-              />
-              <ActionCard
-                label="Defend"
-                items={effectiveDefendItems}
-                selectedId={selectedDefendId}
-                onSelect={(id) => {
-                  setSelectedDefendId(id)
-                  if (id === UNARMED_DEFEND_ITEM.id) storeUnequipAll("armor")
-                  else storeEquipItem(id)
-                }}
-                onAction={(isStrong) => setPendingAction({ type: "Defend", itemId: selectedDefendId, isStrong })}
-                isFlat={true}
-              />
             </div>
 
             {/* Active Skills */}
@@ -1168,7 +1021,7 @@ export function CharacterDashboard({
                   <div className="mt-2 border border-border bg-card px-4 py-3 flex items-center justify-between">
                     <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Denarius</span>
                     <div className="flex items-center gap-2">
-                      {isOwner && (
+                      {isOwner && (variant !== "syngem" || devModeEnabled) && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1182,7 +1035,7 @@ export function CharacterDashboard({
                       <span className="font-serif text-lg text-foreground min-w-[3ch] text-center">
                         {character.denarius ?? 0}
                       </span>
-                      {isOwner && (
+                      {isOwner && (variant !== "syngem" || devModeEnabled) && (
                         <Button
                           variant="ghost"
                           size="icon"

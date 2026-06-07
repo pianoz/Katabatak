@@ -1,0 +1,1 @@
+ALTER TABLE character_inventory ADD COLUMN tracked BOOLEAN NOT NULL DEFAULT FALSE;

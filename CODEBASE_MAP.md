@@ -110,7 +110,7 @@ Character sheet, creation, and management.
 | `components/offers/` | `notification-overlay` — pending item/spell/reward offers |
 | `hooks/use-pending-offers.ts` | Track and refresh pending game rewards |
 | `hooks/use-character-store.ts` | Character state management (optimistic updates). Actions: `updatePool`, `modifyStat`, `toggleEquip`, `equipItem` (exclusive per-category), `unequipAll` |
-| `hooks/use-character-sync.ts` | Real-time character sync with DB — debounced 1.5 s write covers all dirty `is_equipped` changes |
+| `hooks/use-character-sync.ts` | Real-time character sync with DB — debounced 1.5 s write covers all dirty `is_equipped` changes. Note: `tracked` is set by the server (`state-executor`) at grant time; equipped items are always included in hydration via the `OR is_equipped=true` filter regardless of `tracked` |
 
 #### `features/combat/`
 
@@ -295,20 +295,20 @@ server/
 └── gm/
     ├── handler.ts                 # Pipeline orchestrator — per-stage wall-clock timing (hydrator/lore/architect) populated into _timingOut ref after architect stream closes. Threads requestId (from GMMessageInput) into all synLog calls and every stage invocation
     ├── logger.ts                  # synLog(tag, msg, detail?, requestId?) dev file logger. When requestId is provided, also pushes the entry to addTraceEntry() for admin dashboard tracing. synLogVerbose follows the same signature. + LogLevel / setLogLevel()
-    ├── types.ts                   # GMMessageInput (incl. anthropicApiKey?, requestId?, _timingOut? output ref), ContextBlock, CheckRequired, etc. Exports LedgerOutputSchema (discriminated union, 7 actions) and LoreEngineOutputSchema — Zod runtime schemas used by Ledger and Lore-Engine agents to validate LLM JSON before it reaches the DB
+    ├── types.ts                   # GMMessageInput (incl. anthropicApiKey?, requestId?, _timingOut? output ref), ContextBlock, CheckRequired, etc. Exports LedgerOutputSchema (discriminated union, 7 actions) and LoreEngineOutputSchema — Zod runtime schemas used by Ledger and Lore-Engine agents to validate LLM JSON before it reaches the DB. ContextBlock now includes: `trackedInventory` (filtered inventory), `entitiesAtLocation` (LocationEntityFull[] — world_entities children of current place), `connectedLocations` (sibling places in same region). `LocationEntityFull` extends `LocationEntity` with `type` and `data` fields
     ├── claude-client.ts           # BYOK: createClaudeClient(apiKey?) — per-request Anthropic factory
     ├── record-token-usage.ts      # BYOK: fire-and-forget token count writes to token_usage
     ├── budget-guard.ts            # BYOK: checkBudget(userId) — reads cap + aggregate, returns allowed bool
-    ├── auto-hydrator.ts           # Layer 1: builds ContextBlock from parallel DB reads. Accepts optional requestId for trace logging
+    ├── auto-hydrator.ts           # Layer 1: builds ContextBlock by composing 5 exported module functions. Exported modules: `hydrateCharacter` (stats, pool texts, quest notes), `hydrateInventory` (tracked+equipped items only, carry weight), `hydrateGame` (syngemGame, multiplayer game, encounter), `hydrateNpcs` (enriched+filtered NPC list), `hydrateLocation` (chain walk-up + entities physically at current place + connected sibling locations + improvised entities). `autoHydrate` composes all 5 in two parallel batches. `contextBlock()` and `resolveLocationEntities()` remain exported for lore-engine
     ├── style-modulator.ts         # Layer 3: picks a random style file from gm/content/
-    ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB. create_entity deduplicates against world_entities then improvised_entities; grant_item writes to character_inventory. All internal helpers accept requestId for trace logging
+    ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB. create_entity deduplicates against world_entities then improvised_entities; grant_item writes to character_inventory and sets `tracked=true` for quest-type or special/rare/epic/legendary rarity items. All internal helpers accept requestId for trace logging
     ├── content/
     │   ├── style_1.txt            # Restrained / observational
     │   ├── style_2.txt            # Lyrical / elegiac
     │   └── style_3.txt            # Terse / consequential
     ├── agents/
     │   ├── lore-engine.ts         # Layer 2: intent + mechanics (Haiku, slug: lore-engine). Validates LLM JSON against LoreEngineOutputSchema (safeParse); logs Zod issues on failure and returns no-check task fallback. Accepts requestId for trace logging
-    │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect). Accepts requestId for trace logging
+    │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect). `serializeContextBlock` uses `trackedInventory` (not full inventory) for Equipped/Carrying sections; adds `=== LOCATION ENTITIES ===` (world_entities at current place) and `=== CONNECTED LOCATIONS ===` (sibling places) blocks. Accepts requestId for trace logging
     │   ├── ledger.ts              # Layer 5a: world-state audit (Sonnet, async, slug: ledger). Validates parsed array against LedgerOutputSchema (safeParse); logs Zod issues on failure and returns [] — prevents malformed actions from reaching state-executor. Accepts requestId for trace logging
     │   ├── summary.ts             # Layer 6: Scribe summarizer (Haiku, async, slug: scribe). Defines ScribeOutputSchema locally; validates LLM JSON (safeParse) and logs Zod issues on failure before returning empty fallback. Accepts requestId for trace logging
     │   ├── character-creator.ts   # One-shot: builds character profile from Q&A using the Waystone story scaffold (Sonnet, temp 0.9, max 2000 tokens). Returns background_primary/secondary, physical_description, backstory, story_hook, initial_quest. Called by POST /character-creator
@@ -339,7 +339,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 |-------|---------|
 | `profiles` | User accounts. `username`, `avatar_url`, `is_dev` flag, `token_budget` (nullable int — BYOK spend cap) |
 | `characters` | Player characters. Stats, level, `location_place` (FK to `world_entities`), notes. AI fields: `quest_objectives` (JSONB array of `{id, title, status, description, current_stage?, grants_applied?}`), `key_entity_ids`, `ai_game`, `syngem_game`. `syngem_game = true` marks a dedicated SYNGEM AI character (created via intro flow); `ai_game = true` marks the AI pipeline active |
-| `character_inventory` | Items owned by characters. `condition`, `is_equipped` (bool — exclusive per type category via store) |
+| `character_inventory` | Items owned by characters. `condition`, `is_equipped` (bool — exclusive per type category via store), `tracked` (bool, default false — marks items the AI should always be aware of: quest/special/rare items set at grant time via `state-executor`; equipped items always included in hydration via `OR is_equipped=true` query) |
 | `character_skills` | Unlocked skills per character. `current_rank`, `unlocked_at` |
 | `character_spells` | Spells known by character |
 | `character_action_skills` | Contextual combat action skills |
@@ -422,6 +422,7 @@ offer_type:   item | denarius | skill_point | spell
 | `20260529200000_add_quest_engine.sql` | Makes `npcs.game_id` nullable; creates `quest_templates` table (RLS: service_role write, authenticated read); seeds 4 items (waystone, backpack, rations, tarp); seeds the `follow_the_waystone` quest template with Brin's NPC template, 7 stages, start grants, and completion grants |
 | `20260529230000_add_combat_fields.sql` | Adds `ascii_art text` to `creatures`; adds `combat_phase text` (CHECK: player_attack\|player_defend) to `games`; adds `strong_cost integer` and `strong_defence integer` to `encounter_creatures` |
 | `20260601000000_add_improvised_entities.sql` | `improvised_entities` table — character-scoped entities from Architect improvisations. Composite PK `(character_id, id)`. `parent_id → world_entities`. Index on `(character_id, parent_id)`. Authenticated SELECT policy |
+| `20260606000000_add_tracked_to_character_inventory.sql` | `tracked BOOLEAN NOT NULL DEFAULT FALSE` on `character_inventory` — marks items the SYNGEM AI should always load (quest/special items, set at grant time) |
 
 ---
 

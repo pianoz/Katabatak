@@ -17,7 +17,12 @@ function formatGameTime(syngemGame: ContextBlock['syngemGame']): string | null {
 }
 
 function serializeContextBlock(ctx: ContextBlock): string {
-  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, improvisedEntities, encounterData, npcs, inventoryWeight, syngemGame } = ctx
+  const {
+    character: { character, skills, spells },
+    healthText, essenceText, powerText, willText,
+    locationEntities, improvisedEntities, entitiesAtLocation, connectedLocations,
+    encounterData, npcs, trackedInventory, inventoryWeight, syngemGame,
+  } = ctx
 
   const lines: string[] = [
     '=== CHARACTER STATE ===',
@@ -41,8 +46,8 @@ function serializeContextBlock(ctx: ContextBlock): string {
   if (character.condition_text) lines.push(`Condition: ${character.condition_text}`)
   if (character.notes) lines.push(`Notes: ${character.notes}`)
 
-  const equipped = inventory.filter((i) => i.is_equipped).map((i) => i.items?.name ?? '?')
-  const carried = inventory.filter((i) => !i.is_equipped).map((i) => i.items?.name ?? '?')
+  const equipped = trackedInventory.filter((i) => i.is_equipped).map((i) => i.items?.name ?? '?')
+  const carried = trackedInventory.filter((i) => !i.is_equipped).map((i) => i.items?.name ?? '?')
   if (equipped.length) lines.push(`Equipped: ${equipped.join(', ')}`)
   if (carried.length) lines.push(`Carrying: ${carried.join(', ')}`)
   if (skills.length) lines.push(`Skills: ${skills.map((s) => `${s.skills?.name ?? '?'} (rank ${s.current_rank})`).join(', ')}`)
@@ -52,6 +57,20 @@ function serializeContextBlock(ctx: ContextBlock): string {
     lines.push('', '=== CURRENT LOCATION ===')
     for (const e of locationEntities) {
       if (e.short_description) lines.push(`${e.name}: ${e.short_description}`)
+    }
+  }
+
+  if (entitiesAtLocation.length) {
+    lines.push('', '=== LOCATION ENTITIES ===')
+    for (const e of entitiesAtLocation) {
+      lines.push(e.short_description ? `${e.name} [${e.type}]: ${e.short_description}` : `${e.name} [${e.type}]`)
+    }
+  }
+
+  if (connectedLocations.length) {
+    lines.push('', '=== CONNECTED LOCATIONS ===')
+    for (const loc of connectedLocations) {
+      lines.push(loc.short_description ? `${loc.name}: ${loc.short_description}` : loc.name)
     }
   }
 

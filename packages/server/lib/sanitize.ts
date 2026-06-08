@@ -1,22 +1,22 @@
-/**
+﻿/**
  * Sanitizes player-supplied text before it enters AI prompts or DB writes.
  *
  * Operations (in order):
  * 1. Trim leading/trailing whitespace
- * 2. Strip null bytes and non-printable ASCII control chars (0x00–0x1F) except \n and \r
+ * 2. Strip null bytes and non-printable ASCII control chars (0x00-0x1F) except \n and \r
  * 3. Strip zero-width and invisible Unicode characters
  * 4. Strip backticks (prompt injection via code-fence spoofing)
- * 5. Normalize \r\n and \r → \n
+ * 5. Normalize \r\n and \r to \n
  * 6. Collapse runs of 3+ consecutive \n to \n\n (blocks fake === SYSTEM === header injection)
  * 7. Replace tabs with a single space
  * 8. Collapse runs of 2+ spaces to one space
- * 9. Truncate to maxLength (silent — no throw)
+ * 9. Truncate to maxLength (silent - no throw)
  */
 export function sanitizeInput(raw: string, maxLength: number): string {
   return raw
     .trim()
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
-    .replace(/[​-‏  ﻿­]/g, '')
+    .replace(/[\u200B-\u200F\u2028\u2029\uFEFF\u00AD]/g, '')
     .replace(/`/g, '')
     .replace(/\r\n|\r/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

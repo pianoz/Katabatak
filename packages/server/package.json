@@ -8,7 +8,8 @@
     "chat": "tsx --env-file=.env.local chat.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:tools": "tsx --env-file=.env.local test-tools.ts"
+    "test:tools": "tsx --env-file=.env.local test-tools.ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

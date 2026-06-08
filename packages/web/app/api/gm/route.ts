@@ -37,6 +37,13 @@ export async function POST(req: NextRequest) {
     checkResolution?: { choice: 'spend' | 'roll'; pool: string; roll_result?: number }
   }
 
+  if (body.message && body.message.length > 600) {
+    return NextResponse.json(
+      { error: 'Message too long (max 500 characters)' },
+      { status: 400 },
+    )
+  }
+
   if (!GM_API_KEY) {
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
   }

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
+import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { Json } from '@db-types'
 import supabase from '../tools/db.js'
 import { getSyngemGame, updateSyngemSummary } from '../../services/syngem-game-service.js'
@@ -82,9 +83,15 @@ const ScribeOutputSchema = z.object({
   key_entity_ids: z.array(z.string()),
 })
 
+const scribeTool: Anthropic.Tool = {
+  name: 'output',
+  description: 'Compressed narrative summary, quest objective updates, and key entity IDs',
+  input_schema: zodToJsonSchema(ScribeOutputSchema) as Anthropic.Tool['input_schema'],
+}
+
 /**
  * Compresses recent conversation turns into a narrative summary, quest objectives, and key entity IDs.
- * Merges with the existing summary on the syngem_game row; silently returns on parse failure.
+ * Uses Anthropic tool forcing for structured output; merges with the existing summary on the syngem_game row.
  * Returns IDs of any quests newly marked completed so the handler can fire completion grants.
  */
 export async function runScribe(
@@ -135,6 +142,8 @@ export async function runScribe(
     temperature: 0.5,
     system,
     messages: [{ role: 'user', content: priorBlock + turns }],
+    tools: [scribeTool],
+    tool_choice: { type: 'tool' as const, name: 'output' },
   })
 
   if (userId) {
@@ -148,20 +157,13 @@ export async function runScribe(
     })
   }
 
-  const text = response.content.find((b) => b.type === 'text')?.text ?? ''
-  let parsed: ScribeOutput
-  const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-  try {
-    const result = ScribeOutputSchema.safeParse(JSON.parse(cleaned))
-    if (!result.success) {
-      synLog('SCRIBE', `⚠ schema validation failed | raw:"${text.slice(0, 80)}"`, result.error.issues, requestId)
-      return { completedQuestIds: [] }
-    }
-    parsed = result.data
-  } catch {
-    synLog('SCRIBE', `⚠ JSON parse failed | raw:"${text.slice(0, 80)}"`, undefined, requestId)
+  const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+  const result = ScribeOutputSchema.safeParse(toolBlock?.input ?? {})
+  if (!result.success) {
+    synLog('SCRIBE', '⚠ schema validation failed', result.error.issues, requestId)
     return { completedQuestIds: [] }
   }
+  const parsed: ScribeOutput = result.data
 
   const updatedObjectives = parsed.quest_updates?.objectives ?? []
   const completedQuestIds = parsed.quest_updates?.completed_quest_ids ?? []
@@ -205,14 +207,11 @@ export async function summarizeHistory({
     temperature: 0.5,
     system,
     messages: [{ role: 'user', content: priorBlock + turns }],
+    tools: [scribeTool],
+    tool_choice: { type: 'tool' as const, name: 'output' },
   })
 
-  const text = response.content.find((b) => b.type === 'text')?.text ?? ''
-  try {
-    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-    const parsed = JSON.parse(cleaned) as ScribeOutput
-    return parsed.summary
-  } catch {
-    return text
-  }
+  const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+  const parsed = ScribeOutputSchema.safeParse(toolBlock?.input ?? {})
+  return parsed.success ? parsed.data.summary : ''
 }

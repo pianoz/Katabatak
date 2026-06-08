@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { zodToJsonSchema } from 'zod-to-json-schema'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { contextBlock } from '../auto-hydrator.js'
 import { synLog, synLogVerbose } from '../logger.js'
@@ -6,6 +7,12 @@ import type { ContextBlock, ConversationTurn, LoreEngineOutput } from '../types.
 import { LoreEngineOutputSchema } from '../types.js'
 import { createClaudeClient } from '../claude-client.js'
 import { recordTokenUsage } from '../record-token-usage.js'
+
+const loreEngineTool: Anthropic.Tool = {
+  name: 'output',
+  description: 'Structured classification of player intent and mechanical requirements',
+  input_schema: zodToJsonSchema(LoreEngineOutputSchema) as Anthropic.Tool['input_schema'],
+}
 
 const FALLBACK_SYSTEM = `You are the Lore-Engine, the mechanical gatekeeper for the Katabatak RPG. Your sole job is to parse player intent and translate it into structured game mechanics.
 
@@ -50,7 +57,7 @@ Rules:
 
 /**
  * Classifies player intent and determines whether a skill check is required.
- * Falls back to a no-check task action if the model returns unparseable JSON.
+ * Uses Anthropic tool forcing for structured output; falls back to a no-check task action if schema validation fails.
  */
 export async function runLoreEngine({
   lastTwoTurns,
@@ -102,6 +109,8 @@ export async function runLoreEngine({
       temperature: 0,
       system: [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }],
       messages: [{ role: 'user', content: userContent }],
+      tools: [loreEngineTool],
+      tool_choice: { type: 'tool' as const, name: 'output' },
     })
   } catch (apiErr) {
     synLog('LORE-ENGINE', `✗ API error: ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`, undefined, requestId)
@@ -119,16 +128,9 @@ export async function runLoreEngine({
     })
   }
 
-  const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
-  synLogVerbose('LORE-ENGINE', '← raw response:', text, requestId)
-  const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-  let rawParsed: unknown
-  try {
-    rawParsed = JSON.parse(cleaned)
-  } catch {
-    synLog('LORE-ENGINE', '⚠ JSON parse failed — using fallback. Full raw response:', text, requestId)
-    return { action_type: 'task', requires_check: false }
-  }
+  const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+  const rawParsed: unknown = toolBlock?.input ?? {}
+  synLogVerbose('LORE-ENGINE', '← raw response:', rawParsed, requestId)
   const validation = LoreEngineOutputSchema.safeParse(rawParsed)
   if (!validation.success) {
     synLog('LORE-ENGINE', '⚠ schema validation failed — using fallback', validation.error.issues, requestId)

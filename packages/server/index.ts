@@ -13,6 +13,7 @@ import { initCombat, resolvePlayerAttack, resolvePlayerDefend, resolvePlayerEqui
 import { runEval } from './gm/services/claude-service.js'
 import { autoHydrate } from './gm/auto-hydrator.js'
 import { requireGmKey } from './middleware/auth.js'
+import { sanitizeInput, LIMITS } from './lib/sanitize.js'
 import { adminRouter, sessionMiddleware } from './admin/routes.js'
 import { logRequest, type StageTiming } from './admin/request-logger.js'
 import { setLogLevel, synLog } from './gm/logger.js'
@@ -107,14 +108,14 @@ app.use('/gm', requireGmKey)
 app.use('/gm', gmLimiter)
 
 app.post('/gm', async (req, res) => {
-  const { message, characterId, userId, gameId, checkResolution } = req.body as {
+  const { message: rawMessage, characterId, userId, gameId, checkResolution } = req.body as {
     message?: string
     characterId?: string
     userId?: string
     gameId?: string
     checkResolution?: CheckResolution
   }
-  if (!message) {
+  if (!rawMessage) {
     res.status(400).json({ error: 'message is required' })
     return
   }
@@ -124,6 +125,11 @@ app.post('/gm', async (req, res) => {
   }
   if (!userId) {
     res.status(400).json({ error: 'userId is required' })
+    return
+  }
+  const message = sanitizeInput(rawMessage, LIMITS.GM_MESSAGE)
+  if (!message) {
+    res.status(400).json({ error: 'message is required' })
     return
   }
 
@@ -477,10 +483,13 @@ app.post('/character-creator', requireGmKey, async (req, res) => {
     res.status(400).json({ error: 'questions and answers arrays are required' })
     return
   }
+  const sanitizedAnswers = answers.map((a) =>
+    sanitizeInput(typeof a === 'string' ? a : String(a), LIMITS.CHARACTER_CREATOR_ANSWER)
+  )
   try {
     const result = await runCharacterCreator({
       questions: questions as string[],
-      answers: answers as string[],
+      answers: sanitizedAnswers,
     })
     res.json(result)
   } catch (err) {

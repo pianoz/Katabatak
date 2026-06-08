@@ -20,6 +20,18 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json() as { questions?: unknown; answers?: unknown }
 
+  if (Array.isArray(body.answers)) {
+    const tooLong = (body.answers as unknown[]).some(
+      (a) => typeof a === 'string' && a.length > 600,
+    )
+    if (tooLong) {
+      return NextResponse.json(
+        { error: 'Answer too long (max 500 characters)' },
+        { status: 400 },
+      )
+    }
+  }
+
   let serverRes: Response
   try {
     serverRes = await fetch(`${GM_SERVER}/character-creator`, {

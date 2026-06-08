@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
+import { zodToJsonSchema } from 'zod-to-json-schema'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { synLog } from '../logger.js'
 import { createClaudeClient } from '../claude-client.js'
@@ -95,6 +96,12 @@ const CharacterCreatorOutputSchema = z.object({
   }),
 })
 
+const characterCreatorTool: Anthropic.Tool = {
+  name: 'output',
+  description: 'Structured character profile generated from player onboarding Q&A',
+  input_schema: zodToJsonSchema(CharacterCreatorOutputSchema) as Anthropic.Tool['input_schema'],
+}
+
 export interface CharacterCreatorInput {
   questions: string[]
   answers: string[]
@@ -122,17 +129,17 @@ export async function runCharacterCreator(
     temperature: 0.9,
     system,
     messages: [{ role: 'user', content: qa }],
+    tools: [characterCreatorTool],
+    tool_choice: { type: 'tool' as const, name: 'output' },
   })
 
-  const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error(`No JSON object found in character creator response. Raw: ${text.slice(0, 200)}`)
+  const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+  const raw = (toolBlock?.input ?? {}) as Record<string, unknown>
 
-  const parsed = CharacterCreatorOutputSchema.safeParse(JSON.parse(jsonMatch[0]))
+  const parsed = CharacterCreatorOutputSchema.safeParse(raw)
   if (!parsed.success) {
     synLog('CHARACTER-CREATOR', '⚠ schema validation failed', parsed.error.issues)
     // story_hook missing (likely DB prompt is outdated) — patch and re-validate
-    const raw = JSON.parse(jsonMatch[0]) as Record<string, unknown>
     if (!raw.story_hook && raw.backstory) {
       synLog('CHARACTER-CREATOR', 'WARNING: story_hook missing, falling back to backstory')
       raw.story_hook = raw.backstory

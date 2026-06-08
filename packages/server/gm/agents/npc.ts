@@ -1,6 +1,19 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { z } from 'zod'
+import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { ToolResult } from '../types.js'
 import { createClaudeClient } from '../claude-client.js'
+
+const NpcOutputSchema = z.object({
+  dialogue: z.string(),
+  mood: z.string(),
+})
+
+const npcTool: Anthropic.Tool = {
+  name: 'output',
+  description: 'NPC dialogue and mood',
+  input_schema: zodToJsonSchema(NpcOutputSchema) as Anthropic.Tool['input_schema'],
+}
 
 const SYSTEM = `You are a dialogue engine for Katabatak, a fantasy tabletop RPG. Your only job is to voice NPCs.
 
@@ -32,13 +45,11 @@ export async function getNpcResponse(input: Record<string, unknown>, passedClien
         content: `NPC: ${npc_name}\nPersonality: ${personality}\nSituation: ${situation}\nPlayer said or did: ${player_input}`,
       },
     ],
+    tools: [npcTool],
+    tool_choice: { type: 'tool' as const, name: 'output' },
   })
 
-  const text = response.content.find((b) => b.type === 'text')?.text ?? ''
-  try {
-    const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-    return JSON.parse(cleaned) as ToolResult
-  } catch {
-    return { error: 'Could not parse NPC response', raw: text }
-  }
+  const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+  const parsed = NpcOutputSchema.safeParse(toolBlock?.input ?? {})
+  return parsed.success ? parsed.data : { error: 'Could not parse NPC response' }
 }

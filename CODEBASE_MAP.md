@@ -433,8 +433,8 @@ offer_type:   item | denarius | skill_point | spell
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key |
-| `GM_SERVER_URL` | No | GM server base URL (default: `http://localhost:3001`) |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase publishable (anon) key |
+| `SUPABASE_SECRET_KEY` | Yes | Supabase secret key (bypasses RLS, server-side only) |
 | `GM_API_KEY` | Yes | Shared secret sent as `Authorization: Bearer` on all GM proxy calls |
 
 ### `packages/server` (`.env.local`)
@@ -443,7 +443,7 @@ offer_type:   item | denarius | skill_point | spell
 |----------|----------|---------|
 | `ANTHROPIC_API_KEY` | Dev/server only | Claude API key. Optional when all users supply BYOK keys via `X-Anthropic-Key` header |
 | `SUPABASE_URL` | Yes | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (bypasses RLS) |
+| `SUPABASE_SECRET_KEY` | Yes | Supabase secret key (bypasses RLS) |
 | `GM_API_KEY` | Yes | Shared secret validated on all `/gm/*` requests |
 | `WEB_APP_ORIGIN` | No | CORS allowed origin (default: `*`) |
 | `GM_PORT` | No | Server port (default: 3001) |

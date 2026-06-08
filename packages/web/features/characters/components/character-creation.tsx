@@ -167,6 +167,7 @@ export function CharacterCreation({ userId, inviteMemberId, startingLevel }: Cha
               value={formData.name}
               onChange={handleChange}
               required
+              maxLength={100}
               placeholder="Enter character name"
               className="bg-input border-border text-foreground placeholder:text-muted-foreground font-serif text-lg"
             />
@@ -295,6 +296,7 @@ export function CharacterCreation({ userId, inviteMemberId, startingLevel }: Cha
                   name="background_primary"
                   value={formData.background_primary}
                   onChange={handleChange}
+                  maxLength={300}
                   placeholder="e.g. Soldier, Scholar, Merchant"
                   className="bg-input border-border text-foreground placeholder:text-muted-foreground"
                 />
@@ -312,6 +314,7 @@ export function CharacterCreation({ userId, inviteMemberId, startingLevel }: Cha
               value={formData.physical_description}
               onChange={handleChange}
               rows={3}
+              maxLength={500}
               placeholder="Describe your character's appearance..."
               className="w-full px-3 py-2 bg-input border border-border text-foreground placeholder:text-muted-foreground resize-none font-serif"
             />
@@ -327,6 +330,7 @@ export function CharacterCreation({ userId, inviteMemberId, startingLevel }: Cha
               value={formData.backstory}
               onChange={handleChange}
               rows={6}
+              maxLength={1500}
               placeholder="Tell the tale of who your character was before the adventure began..."
               className="w-full px-3 py-2 bg-input border border-border text-foreground placeholder:text-muted-foreground resize-none font-serif"
             />

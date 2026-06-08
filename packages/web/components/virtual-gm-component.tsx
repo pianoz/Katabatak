@@ -549,6 +549,7 @@ export default function ChatGMComponent({
           <input
             type="text"
             value={inputValue}
+            maxLength={500}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !pendingCheck && handleSend()}
             placeholder={

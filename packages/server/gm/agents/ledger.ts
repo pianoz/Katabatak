@@ -1,10 +1,20 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { z } from 'zod'
+import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { LedgerOutput, LocationContext } from '../types.js'
 import { LedgerOutputSchema } from '../types.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { synLog, synLogVerbose } from '../logger.js'
 import { createClaudeClient } from '../claude-client.js'
 import { recordTokenUsage } from '../record-token-usage.js'
+
+const WrappedLedgerSchema = z.object({ actions: LedgerOutputSchema.array() })
+
+const ledgerTool: Anthropic.Tool = {
+  name: 'output',
+  description: 'Array of permanent world-state changes extracted from the GM narrative',
+  input_schema: zodToJsonSchema(WrappedLedgerSchema) as Anthropic.Tool['input_schema'],
+}
 
 const FALLBACK_SYSTEM = `You are the Ledger, a world-state auditor for the Katabatak RPG. You read completed GM narrative and determine whether permanent world state has changed.
 
@@ -70,7 +80,7 @@ Examples:
 
 /**
  * Audits the completed GM narrative and extracts permanent world-state changes.
- * Returns an empty array if nothing changed or if the model returns unparseable JSON.
+ * Uses Anthropic tool forcing for structured output; returns an empty array if nothing changed or schema validation fails.
  */
 export async function runLedger({
   narrativeText,
@@ -115,6 +125,8 @@ export async function runLedger({
     temperature: 0,
     system: [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }],
     messages: [{ role: 'user', content: userContent }],
+    tools: [ledgerTool],
+    tool_choice: { type: 'tool' as const, name: 'output' },
   })
 
   if (userId) {
@@ -128,20 +140,11 @@ export async function runLedger({
     })
   }
 
-  const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? ''
-  synLogVerbose('LEDGER', '← raw response:', text, requestId)
-  const cleaned = text.replace(/^```(?:json)?[ \t]*\n?/, '').replace(/\n?```[ \t]*$/, '').trim()
-  let rawParsed: unknown
-  try {
-    rawParsed = JSON.parse(cleaned)
-  } catch {
-    synLog('LEDGER', '⚠ JSON parse failed — full raw response:', text, requestId)
-    return []
-  }
-  if (!Array.isArray(rawParsed)) {
-    synLog('LEDGER', '⚠ result not an array — returning []', undefined, requestId)
-    return []
-  }
+  const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+  const rawInput: unknown = toolBlock?.input ?? {}
+  synLogVerbose('LEDGER', '← raw response:', rawInput, requestId)
+  const wrapped = WrappedLedgerSchema.safeParse(rawInput)
+  const rawParsed = wrapped.success ? wrapped.data.actions : []
   const result = LedgerOutputSchema.array().safeParse(rawParsed)
   if (!result.success) {
     synLog('LEDGER', '⚠ schema validation failed — returning []', result.error.issues, requestId)

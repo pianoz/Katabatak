@@ -31,7 +31,6 @@ jobs:
       - name: Run tests
         run: pnpm test
         env:
-          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          SUPABASE_SECRET_KEY: ${{ secrets.TEST_SUPABASE_SECRET_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_TEST_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_TEST_SECRET_KEY: ${{ secrets.TEST_SUPABASE_SECRET_KEY }}
+          SUPABASE_TEST_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}

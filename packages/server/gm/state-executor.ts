@@ -1,5 +1,6 @@
 import supabase from './tools/db.js'
 import { updateCharacter, getCharacter } from '../services/character-service.js'
+import { advanceLongRestTime } from '../services/syngem-game-service.js'
 import { updateNpcMutations } from '../services/world-service.js'
 import { synLog, synLogVerbose } from './logger.js'
 import type { Database, Json } from '@db-types'
@@ -255,6 +256,12 @@ async function applyLongRest(characterId: string): Promise<void> {
     current_power:   calc(char.current_power   ?? 0, char.power_max   ?? 0, 'power'),
     current_will:    calc(char.current_will    ?? 0, char.will_max    ?? 0, 'will'),
   })
+
+  if (char.condition === 'Exhausted') {
+    await updateCharacter(characterId, { condition: null })
+  }
+
+  await advanceLongRestTime(characterId)
 }
 
 /**

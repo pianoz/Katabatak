@@ -5,6 +5,7 @@ import type { Json } from '@db-types'
 import supabase from '../tools/db.js'
 import { getSyngemGame, updateSyngemSummary } from '../../services/syngem-game-service.js'
 import type { ConversationTurn } from '../types.js'
+import { normalizeScribeRaw } from '../bumper-lanes.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { synLog } from '../logger.js'
 import { createClaudeClient } from '../claude-client.js'
@@ -49,7 +50,7 @@ Rules for key_entity_ids:
 export interface QuestObjectiveScribe {
   id: string
   title: string
-  status: string
+  status: 'active' | 'completed' | 'failed'
   description: string
   current_stage?: string | null
   grants_applied?: string[]
@@ -68,7 +69,7 @@ export interface ScribeOutput {
 const QuestObjectiveScribeSchema = z.object({
   id: z.string(),
   title: z.string(),
-  status: z.string(),
+  status: z.enum(['active', 'completed', 'failed']),
   description: z.string(),
   current_stage: z.string().nullable().optional(),
   grants_applied: z.array(z.string()).optional(),
@@ -158,7 +159,7 @@ export async function runScribe(
   }
 
   const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
-  const result = ScribeOutputSchema.safeParse(toolBlock?.input ?? {})
+  const result = ScribeOutputSchema.safeParse(normalizeScribeRaw(toolBlock?.input ?? {}))
   if (!result.success) {
     synLog('SCRIBE', '⚠ schema validation failed', result.error.issues, requestId)
     return { completedQuestIds: [] }

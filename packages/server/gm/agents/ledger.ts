@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { LedgerOutput, LocationContext } from '../types.js'
 import { LedgerOutputSchema } from '../types.js'
+import { normalizeLedgerAction } from '../bumper-lanes.js'
 import { loadSystemPrompt } from '../../services/prompt-service.js'
 import { synLog, synLogVerbose } from '../logger.js'
 import { createClaudeClient } from '../claude-client.js'
@@ -143,9 +144,9 @@ export async function runLedger({
   const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
   const rawInput: unknown = toolBlock?.input ?? {}
   synLogVerbose('LEDGER', '← raw response:', rawInput, requestId)
-  const wrapped = WrappedLedgerSchema.safeParse(rawInput)
-  const rawParsed = wrapped.success ? wrapped.data.actions : []
-  const result = LedgerOutputSchema.array().safeParse(rawParsed)
+  const looseWrapped = z.object({ actions: z.array(z.record(z.unknown())) }).safeParse(rawInput)
+  const normalizedActions = (looseWrapped.success ? looseWrapped.data.actions : []).map(normalizeLedgerAction)
+  const result = LedgerOutputSchema.array().safeParse(normalizedActions)
   if (!result.success) {
     synLog('LEDGER', '⚠ schema validation failed — returning []', result.error.issues, requestId)
     return []

@@ -5,6 +5,7 @@ import { contextBlock } from '../auto-hydrator.js'
 import { synLog, synLogVerbose } from '../logger.js'
 import type { ContextBlock, ConversationTurn, LoreEngineOutput } from '../types.js'
 import { LoreEngineOutputSchema } from '../types.js'
+import { normalizeLoreEngineRaw } from '../bumper-lanes.js'
 import { createClaudeClient } from '../claude-client.js'
 import { recordTokenUsage } from '../record-token-usage.js'
 
@@ -131,7 +132,7 @@ export async function runLoreEngine({
   const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
   const rawParsed: unknown = toolBlock?.input ?? {}
   synLogVerbose('LORE-ENGINE', '← raw response:', rawParsed, requestId)
-  const validation = LoreEngineOutputSchema.safeParse(rawParsed)
+  const validation = LoreEngineOutputSchema.safeParse(normalizeLoreEngineRaw(rawParsed))
   if (!validation.success) {
     synLog('LORE-ENGINE', '⚠ schema validation failed — using fallback', validation.error.issues, requestId)
     return { action_type: 'task', requires_check: false }

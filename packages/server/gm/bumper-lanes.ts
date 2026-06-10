@@ -136,6 +136,16 @@ export const ITEM_TYPES: Record<string, string> = {
   key: 'misc',
   tool: 'misc',
   trinket: 'misc',
+
+  currency: 'currency',
+  gold: 'currency',
+  silver: 'currency',
+  money: 'currency',
+  dollars: 'currency',
+  coin: 'currency',
+  coins: 'currency',
+  denarius: 'currency',
+  denarii: 'currency',
 }
 
 // ─── Normalizer functions ──────────────────────────────────────────────────────

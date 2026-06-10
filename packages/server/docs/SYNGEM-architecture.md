@@ -654,6 +654,24 @@ The server loads the highest version for that slug, cached for 60 seconds. To fo
 2. Update the Ledger's system prompt in `prompt_versions` (slug: `"ledger"`) to know about the new action.
 3. Add the handler function and a new `case` in `executeStateChanges()` in `gm/state-executor.ts`.
 
+### Teaching the bumper lanes (`gm/bumper-lanes.ts`)
+Bumper lanes are pre-Zod normalization tables that catch slightly misaligned LLM output and redirect it to the canonical value. `collapse()` strips whitespace and lowercases before lookup, so `"GOLD"`, `"Gold"`, and `" gold "` all match the same entry.
+
+| Table | Used by | Maps to |
+| ----- | ------- | ------- |
+| `LEDGER_ACTIONS` | `normalizeLedgerAction` | Canonical Ledger action names (e.g. `moveto` → `move_character`) |
+| `ITEM_TYPES` | `normalizeLedgerAction` (on `grant_item`) | Canonical item types: `weapon`, `armor`, `consumable`, `misc`, `currency` |
+| `LORE_ACTION_TYPES` | `normalizeLoreEngineRaw` | `info`, `task`, `attack` |
+| `LORE_POOLS` | `normalizeLoreEngineRaw` | `Power`, `Essence`, `Will` |
+| `QUEST_STATUSES` | `normalizeScribeRaw` | `active`, `completed`, `failed` |
+
+**Currency aliases** — the game uses `denarius` as its currency unit. Both normalizers cover common LLM drift:
+
+- `ITEM_TYPES` maps `gold`, `silver`, `money`, `dollars`, `coin`, `coins`, `denarius`, `denarii`, `currency` → `currency` (used when the LLM emits `grant_item` with a currency-type item)
+- `normalizeStatName` in `gm/tools/index.ts` maps the same set → `denarius` column (used when the LLM calls `update_stat` with a currency stat)
+
+To add a new alias: add a lowercase entry to the relevant table and its canonical target. No other changes needed.
+
 ### Extending NPC state
 New NPC fields that don't require DB schema changes go into `personality_profile` JSON (update `NpcPersonalityProfile` in `gm/types.ts`, extend `NpcMutations` if the Ledger should write them, and handle in `updateNpcMutations()` in `world-service.ts`). New typed columns (like `following_character_id`) require a migration + `database.types.ts` update.
 
@@ -682,6 +700,7 @@ packages/server/
 │   ├── budget-guard.ts               # BYOK: checkBudget(userId) — reads cap + aggregate
 │   ├── auto-hydrator.ts              # Layer 1: ContextBlock builder
 │   ├── style-modulator.ts            # Layer 3: Style file picker
+│   ├── bumper-lanes.ts               # Pre-Zod normalization tables for LLM output (action names, item types, pools, quest statuses, currency aliases)
 │   ├── state-executor.ts             # Layer 5b: DB write executor
 │   ├── content/
 │   │   ├── style_1.txt               # Restrained / observational

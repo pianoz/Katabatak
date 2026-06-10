@@ -290,7 +290,7 @@ id, character_id, game_id, role ('player'|'assistant'), content, turn_number, cr
 The handler fetches turns directly from DB — the client sends no conversation history. This means:
 - History survives page refreshes
 - Multiple browser tabs don't diverge
-- The Lore-Engine always gets the true last 2 turns; the Architect gets the true last 4
+- The Lore-Engine always gets the true last 2 turns; the Architect gets the true last 4. The Agent Grader hydrates a `recent_history` block (last 4 turns) via `POST /gm/hydrate` for display and test runs
 
 **Prompt service (`services/prompt-service.ts`):** Fetches the latest version of any sub-agent's system prompt from `prompt_versions` by slug. Results are cached in memory for 60 seconds. If no DB version exists, the agent falls back to a hardcoded `FALLBACK_SYSTEM` constant. All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their prompts through this service.
 
@@ -418,7 +418,7 @@ RLS: authenticated users SELECT (all rows; filtered by character_id in applicati
 |--------|------|-------|
 | `id` | uuid | PK |
 | `name` | text | Human-readable label |
-| `slug` | text | Agent identifier (`lore-engine`, `architect`, `ledger`, `scribe`) |
+| `slug` | text | Agent identifier. System prompt slugs: `lore-engine`, `architect1`, `ledger`, `scribe`, `character-builder`. Evaluator slugs: `lore-engine-evaluator`, `architect1-evaluator`, `ledger-evaluator`, `scribe-evaluator`, `character-builder-evaluator` |
 | `version` | integer | Auto-incremented per slug per user |
 | `prompt` | jsonb | `{ blocks: [{kind, label, content}], model, maxTokens, temperature }` |
 | `description` | text? | Optional description of what this version does |
@@ -640,13 +640,15 @@ Drop a new `style_N.txt` in `gm/content/`. Update `STYLE_COUNT` in `gm/style-mod
 ### Updating an agent's system prompt
 Use the prompt builder at `/dev/prompt-builder`. Save with the agent's slug:
 
-| Agent | Slug(s) |
-| ----- | ------- |
-| Lore-Engine | `lore-engine` |
-| Architect | `architect1` |
-| Ledger | `ledger` |
-| Scribe | `scribe` |
-| Character Creator | `character-builder` |
+| Agent | System prompt slug | Evaluator prompt slug |
+| ----- | ------------------ | --------------------- |
+| Lore-Engine | `lore-engine` | `lore-engine-evaluator` |
+| Architect | `architect1` | `architect1-evaluator` |
+| Ledger | `ledger` | `ledger-evaluator` |
+| Scribe | `scribe` | `scribe-evaluator` |
+| Character Creator | `character-builder` | `character-builder-evaluator` |
+
+Evaluator prompts are versioned the same way — edit them in `/dev/prompt-builder` using the evaluator slug. The Agent Grader auto-loads the latest version when you select an agent.
 
 The server loads the highest version for that slug, cached for 60 seconds. To force an immediate reload (e.g. during testing), call `invalidatePromptCache(slug)` from `services/prompt-service.ts`.
 
@@ -654,8 +656,15 @@ The server loads the highest version for that slug, cached for 60 seconds. To fo
 Use the **Agent Grader** at `/dev/prompt-eval`.
 
 **How it works:**
-1. Select an agent slug + version. The grader knows each agent's pipeline block sequence — system prompt, context blocks, history placeholder, and user input — and shows them in order in Column 1.
-2. Select a character. Context blocks are hydrated via `POST /api/gm/hydrate` with the tables each agent actually uses. Blocks that return empty are flagged red; optional blocks (e.g. scribe summary) are flagged as placeholders.
+1. Select an agent slug + version. The grader shows each agent's block sequence in pipeline order in Column 1 (system / context / history / user-input). Click any LOADED block to inspect its full hydrated content in a modal.
+2. Select a SYNGEM character (`ai_game = true`). Each block with `hydrateTables` is fetched via `POST /api/gm/hydrate`:
+   - `system` blocks: content from the loaded `prompt_versions` row
+   - `recent_history`: last 4 turns from `conversation_turns`
+   - `summary`: `syngem_game.summary`
+   - `quest_objectives`: active entries from `characters.quest_objectives`
+   - `quest_notes`: `activeQuestNotes` (from `quest_templates.description_gm`)
+   - Standard context tables: `character`, `inventory`, `location`, `npcs`, `encounter`, `syngem_game`
+   - Blocks that return empty are flagged red; optional blocks are flagged as placeholder.
 3. Add test cases in Column 2. For agents that produce JSON, set expected output fields:
    - **Lore-Engine:** expected `action_type`, `requires_check`, `pool`
    - **Ledger:** list of expected actions (e.g. `long_rest`, `grant_item + weapon`)
@@ -665,7 +674,7 @@ Use the **Agent Grader** at `/dev/prompt-eval`.
 4. Click **Run All Tests**. Each test case runs through:
    - **Agent eval** — prompt sent to `POST /api/gm/eval` with the agent's production model/tokens/temp locked
    - **Code grade** — `x/y` fields correct. Bumper-lane aliases count as passing (e.g. `rest` → `long_rest` = pass)
-   - **Model grade** — mandatory Haiku 4.5 grader (max 200 tokens, temp 0) returns `score/100` + one-line review
+   - **Model grade** — Haiku 4.5 grader (max 200 tokens, temp 0) uses the versioned evaluator prompt for that agent (slug: `<agent>-evaluator`, latest version auto-loaded). Falls back to hardcoded `GRADER_PROMPTS` if no DB version exists. Returns `score/100` + one-line review.
 
 The Run Log in Column 3 appends each run's results with the prompt version used, character name, and per-test grades.
 

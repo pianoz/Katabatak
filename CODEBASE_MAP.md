@@ -53,7 +53,7 @@ katabatak/
 | `/dev/users` | `app/dev/users/page.tsx` | User management |
 | `/syngem/intro` | `app/syngem/intro/page.tsx` | Atmospheric character creation intro — typewriter Q&A flow, calls `/api/character-creator`, creates SYNGEM character |
 | `/dev/prompt-builder` | `app/dev/prompt-builder/page.tsx` | Drag-and-drop prompt block editor — save/load/test agent prompts against live GM server. Auto-Hydrator block fetches context by `characterId` only (no multiplayer game picker); `syngem_game` table included in hydration output |
-| `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | **Agent Grader** — 3-column dev harness for evaluating SYNGEM agent prompts. Col 1: agent slug + version selector, character dropdown, live block sequence viewer (system/context/history/user-input blocks in pipeline order, with LOADED/EMPTY/OPTIONAL status badges). Col 2: test cases with per-agent expected output editors (action_type + pool for Lore-Engine; expected action list for Ledger; checkboxes for Scribe; field presence for Character Creator). Col 3: run log with code grade `x/y` (bumper-lane aliases count as pass) + model grade `score/100` from a mandatory Haiku grader (200 tokens). Character context hydrated via `/api/gm/hydrate`; all model calls locked to each agent's production config |
+| `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | **Agent Grader** — 3-column dev harness for evaluating SYNGEM agent prompts. Col 1: agent slug + version selector; character dropdown (SYNGEM characters only, `ai_game = true`); drag-resizable column; live block sequence viewer with LOADED/EMPTY/PLACEHOLDER badges — clicking a LOADED block opens a full-content modal. Col 2: test cases with per-agent expected output editors. Col 3: run log with code grade `x/y` + model grade `score/100` from a versioned Haiku evaluator prompt (slug: `<agent>-evaluator`; falls back to hardcoded). Character blocks hydrated via `/api/gm/hydrate`: `system` blocks from `prompt_versions`, `recent_history` from `conversation_turns` (last 4 turns), `summary` from `syngem_game.summary`, `quest_objectives` from `characters.quest_objectives`, `quest_notes` from `activeQuestNotes`. All model calls locked to production config |
 | `/dev/combat` | `app/dev/combat/page.tsx` | Combat system test harness — pick any character + up to 5 creatures (duplicates of the same type allowed) + game session, start/abort combat without SYNGEM |
 | `/about` | `app/about/page.tsx` | About page |
 | `/auth/error` | `app/auth/error/page.tsx` | Auth error |
@@ -67,7 +67,7 @@ katabatak/
 | `GET /api/token-usage` | `app/api/token-usage/route.ts` | BYOK: returns last 500 token usage rows for the authenticated user (RLS-scoped) |
 | `PUT /api/token-budget` | `app/api/token-budget/route.ts` | BYOK: sets or clears `profiles.token_budget` for the authenticated user. Min 1,000 or null |
 | `POST /api/gm/eval` | `app/api/gm/eval/route.ts` | Single-shot Claude eval proxy (used by prompt builder and agent grader) |
-| `POST /api/gm/hydrate` | `app/api/gm/hydrate/route.ts` | Context block hydration proxy — accepts `{ characterId, tables[] }`, forwards to GM server `POST /gm/hydrate`, returns `{ text }`. Used by grader to populate system/context blocks before a test run |
+| `POST /api/gm/hydrate` | `app/api/gm/hydrate/route.ts` | Context block hydration proxy — accepts `{ characterId, tables[] }`, forwards to GM server `POST /gm/hydrate`, returns `{ text }`. Supported table keys: `character`, `inventory`, `location`, `npcs`, `encounter`, `syngem_game`, `summary`, `quest_objectives`, `quest_notes`, `recent_history` (last 4 turns from `conversation_turns`). Used by grader to populate blocks before a test run |
 | `GET /api/gm/health` | `app/api/gm/health/route.ts` | GM server liveness check |
 | `POST /api/gm/save` | `app/api/gm/save/route.ts` | Persist game save state |
 | `POST /api/gm/summarize` | `app/api/gm/summarize/route.ts` | Legacy session history summarization |
@@ -176,7 +176,7 @@ Game session view with combat, encounters, and GM tools.
 | `components/ui/` | shadcn/ui component wrappers (button, card, dialog, form, table, etc.) |
 | `components/dev/grader/AgentSelector.tsx` | Slug + version dropdowns; shows agent display name + locked model/token config |
 | `components/dev/grader/CharacterSelector.tsx` | Character dropdown; triggers context block hydration on select |
-| `components/dev/grader/BlockSequenceViewer.tsx` | Numbered block cards in pipeline order; LOADED (green) / EMPTY (red) / OPTIONAL / PLACEHOLDER badges; shows content preview for each block |
+| `components/dev/grader/BlockSequenceViewer.tsx` | Numbered block cards in pipeline order; LOADED (green) / EMPTY (red) / OPTIONAL / PLACEHOLDER badges; shows content preview for each block. Clicking any LOADED block opens a fixed modal with full content (`<pre>` scroll, ESC/backdrop to close) |
 | `components/dev/grader/ExpectedOutputEditor.tsx` | Agent-aware expected output fields: action_type+pool dropdowns (Lore-Engine), action list with item_type (Ledger), checkboxes (Scribe), read-only field list (Character Creator), hidden for Architect |
 | `components/dev/grader/GradeResultCard.tsx` | Code grade `x/y` with per-field pass/fail rows + model grade `score/100` with review text |
 | `components/dev/grader/TestCaseEditor.tsx` | Add/remove test cases; each case has user input textarea, `ExpectedOutputEditor`, and inline `GradeResultCard` after run |
@@ -220,8 +220,8 @@ All database access goes through typed service functions. No raw Supabase calls 
 | `roll-service.ts` | Dice roll events — record and replay |
 | `save-game-service.ts` | Persist and load game save state |
 | `admin-service.ts` | Admin-only user and game management operations |
-| `prompt-service.ts` | CRUD for `prompt_versions` — `getLatestPrompt`, `savePrompt`, `getPromptVersions`, `getPromptSlugs` |
-| `grader-service.ts` | Agent grader API wrappers — `hydrateBlock` (calls `/api/gm/hydrate`), `runAgentEval` (calls `/api/gm/eval` with agent-locked config), `runModelGrader` (Haiku 4.5, 200 tokens, returns `{ score, review, usage }`). `GRADER_PROMPTS`: per-agent system prompts that tell the Haiku grader what to evaluate (intent classification for Lore-Engine; narrative quality for Architect; state-change accuracy for Ledger; summarization accuracy for Scribe; field completeness for Character Creator) |
+| `prompt-service.ts` | CRUD for `prompt_versions` — `getLatestPrompt`, `savePrompt`, `getPromptVersions`, `getPromptSlugs`, `getLatestEvaluatorPrompt(supabase, agentSlug)` (fetches `<slug>-evaluator` system block content, returns null if none) |
+| `grader-service.ts` | Agent grader API wrappers — `hydrateBlock` (calls `/api/gm/hydrate`), `runAgentEval` (calls `/api/gm/eval` with agent-locked config), `runModelGrader(agentSlug, userInput, response, evaluatorPrompt?)` (Haiku 4.5, 200 tokens — uses DB evaluator prompt when provided, falls back to `GRADER_PROMPTS` hardcoded constants). Fallbacks describe all three stat pools: Power (strength/conviction), Essence (magic/perception), Will (social/dex/endurance) |
 | `test-helpers.ts` | Shared mock utilities for all service tests |
 
 All services have co-located `.test.ts` files. Tests use Vitest.
@@ -234,7 +234,7 @@ Logic layer for the `/dev/prompt-eval` agent grader. No React; pure TS.
 
 | File | Purpose |
 |------|---------|
-| `agent-config.ts` | Static config for all 5 SYNGEM agents: ordered `BlockDef[]` (system/context/history/user-input), production model/tokens/temp locked from server source, `ExpectedOutputKind` for each agent. `AGENT_CONFIGS` keyed by `AgentSlug` |
+| `agent-config.ts` | Static config for all 5 SYNGEM agents: ordered `BlockDef[]` (system/context/history/user-input), production model/tokens/temp locked, `ExpectedOutputKind`. Each `BlockDef` may carry `hydrateTables: string[]` specifying which context keys to fetch from `/api/gm/hydrate`. Table keys: `character`, `inventory`, `location`, `npcs`, `encounter`, `syngem_game`, `summary` (syngem_game.summary), `quest_objectives` (characters.quest_objectives), `quest_notes` (activeQuestNotes), `recent_history` (last 4 conversation_turns). System blocks without `hydrateTables` are populated from the loaded `prompt_versions` row |
 | `code-grader.ts` | `gradeOutput(rawResponse, expected, agentSlug)` — parses JSON (strips markdown fences), applies bumper-lane normalization, checks expected fields. Returns `{ passed, total, details[] }`. Agent-specific logic for: Lore-Engine (action_type, requires_check, pool), Ledger (action array, item_type), Scribe (summary + arrays present + objective statuses), Character Creator (5 required fields) |
 | `bumper-lanes.ts` | Client-side copy of the 5 normalization maps from `packages/server/gm/bumper-lanes.ts` (LEDGER_ACTIONS, LORE_ACTION_TYPES, LORE_POOLS, QUEST_STATUSES, ITEM_TYPES). Keep in sync with server when adding new aliases |
 
@@ -441,6 +441,7 @@ offer_type:   item | denarius | skill_point | spell
 | `20260529230000_add_combat_fields.sql` | Adds `ascii_art text` to `creatures`; adds `combat_phase text` (CHECK: player_attack\|player_defend) to `games`; adds `strong_cost integer` and `strong_defence integer` to `encounter_creatures` |
 | `20260601000000_add_improvised_entities.sql` | `improvised_entities` table — character-scoped entities from Architect improvisations. Composite PK `(character_id, id)`. `parent_id → world_entities`. Index on `(character_id, parent_id)`. Authenticated SELECT policy |
 | `20260606000000_add_tracked_to_character_inventory.sql` | `tracked BOOLEAN NOT NULL DEFAULT FALSE` on `character_inventory` — marks items the SYNGEM AI should always load (quest/special items, set at grant time) |
+| `20260610000000_seed_evaluator_prompts.sql` | Seeds v1 evaluator prompts into `prompt_versions` for all 5 agents (slugs: `lore-engine-evaluator`, `architect1-evaluator`, `ledger-evaluator`, `scribe-evaluator`, `character-builder-evaluator`). DO block looks up dev user by email; skips gracefully if not found |
 
 ---
 

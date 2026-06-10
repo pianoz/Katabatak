@@ -28,6 +28,8 @@ describe("spell-service", () => {
     bob = await clientAs(BOB, PASS)
     aliceCharId = await seedCharacter(aliceId, { name: "Alice Spellcaster" })
     catalogSpellId = await seedSpell({ name: "Catalog Fireball" })
+    // spells INSERT requires is_dev=true (migration 20260523100000)
+    await admin.from("profiles").update({ is_dev: true }).eq("id", aliceId)
   })
 
   afterAll(async () => {

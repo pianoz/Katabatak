@@ -646,8 +646,41 @@ Use the prompt builder at `/dev/prompt-builder`. Save with the agent's slug:
 | Architect | `architect1` |
 | Ledger | `ledger` |
 | Scribe | `scribe` |
+| Character Creator | `character-builder` |
 
 The server loads the highest version for that slug, cached for 60 seconds. To force an immediate reload (e.g. during testing), call `invalidatePromptCache(slug)` from `services/prompt-service.ts`.
+
+### Grading an agent's prompt
+Use the **Agent Grader** at `/dev/prompt-eval`.
+
+**How it works:**
+1. Select an agent slug + version. The grader knows each agent's pipeline block sequence — system prompt, context blocks, history placeholder, and user input — and shows them in order in Column 1.
+2. Select a character. Context blocks are hydrated via `POST /api/gm/hydrate` with the tables each agent actually uses. Blocks that return empty are flagged red; optional blocks (e.g. scribe summary) are flagged as placeholders.
+3. Add test cases in Column 2. For agents that produce JSON, set expected output fields:
+   - **Lore-Engine:** expected `action_type`, `requires_check`, `pool`
+   - **Ledger:** list of expected actions (e.g. `long_rest`, `grant_item + weapon`)
+   - **Scribe:** checkboxes for `summary`, `objectives` array, `completed_quest_ids` array
+   - **Character Creator:** all 5 required fields checked automatically
+   - **Architect:** no code grade (prose output)
+4. Click **Run All Tests**. Each test case runs through:
+   - **Agent eval** — prompt sent to `POST /api/gm/eval` with the agent's production model/tokens/temp locked
+   - **Code grade** — `x/y` fields correct. Bumper-lane aliases count as passing (e.g. `rest` → `long_rest` = pass)
+   - **Model grade** — mandatory Haiku 4.5 grader (max 200 tokens, temp 0) returns `score/100` + one-line review
+
+The Run Log in Column 3 appends each run's results with the prompt version used, character name, and per-test grades.
+
+**Grader model configs (locked to production values):**
+
+| Agent | Graded model | Tokens | Temp |
+|-------|-------------|--------|------|
+| Lore-Engine | `claude-haiku-4-5-20251001` | 300 | 0.0 |
+| Architect | `claude-sonnet-4-6` | 1024 | 0.5 |
+| Ledger | `claude-sonnet-4-6` | 500 | 0.0 |
+| Scribe | `claude-haiku-4-5-20251001` | 1500 | 0.5 |
+| Character Creator | `claude-sonnet-4-6` | 2000 | 0.9 |
+| Grader (all agents) | `claude-haiku-4-5-20251001` | 200 | 0.0 |
+
+**Client-side bumper lanes** (`packages/web/lib/graders/bumper-lanes.ts`) — a copy of the server-side normalization maps used by the code grader. When the agent output uses an alias that the server would normalize (e.g. `moveto` instead of `move_character`), the code grader still marks it as a pass. Keep this file in sync with `packages/server/gm/bumper-lanes.ts` when adding new aliases.
 
 ### Adding a new State Executor action
 1. Add to the `LedgerOutput` union type in `gm/types.ts`.

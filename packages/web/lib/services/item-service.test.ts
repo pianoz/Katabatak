@@ -108,7 +108,7 @@ describe("item-service", () => {
 
   describe("createItem", () => {
     it("creates a new item and returns it", async () => {
-      const { data, error } = await createItem(alice, {
+      const { data, error } = await createItem(admin, {
         name: "Flame Dagger",
         type: "weapon",
       })
@@ -121,7 +121,7 @@ describe("item-service", () => {
   describe("updateItem", () => {
     it("updates an item field and returns the updated row", async () => {
       const id = await seedItem({ name: "Old Name", type: "armor" })
-      const { data, error } = await updateItem(alice, id, { name: "New Name" })
+      const { data, error } = await updateItem(admin, id, { name: "New Name" })
       expect(error).toBeNull()
       expect((data as { name: string }).name).toBe("New Name")
       await admin.from("items").delete().eq("id", id)
@@ -132,7 +132,7 @@ describe("item-service", () => {
     it("deletes multiple items by id", async () => {
       const id1 = await seedItem({ name: "Del1" })
       const id2 = await seedItem({ name: "Del2" })
-      await deleteItems(alice, [id1, id2])
+      await deleteItems(admin, [id1, id2])
 
       const { data } = await admin
         .from("items")

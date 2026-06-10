@@ -105,6 +105,20 @@ export async function getPromptByVersion(
   return data as PromptVersionRow | null
 }
 
+/**
+ * Returns the system prompt content from the latest evaluator version for a given agent slug.
+ * Fetches `<agentSlug>-evaluator` from prompt_versions. Returns null if none exists.
+ */
+export async function getLatestEvaluatorPrompt(
+  supabase: SupabaseClient,
+  agentSlug: string
+): Promise<string | null> {
+  const row = await getLatestPrompt(supabase, `${agentSlug}-evaluator`)
+  if (!row) return null
+  const systemBlock = row.prompt.blocks.find((b) => b.kind === 'system')
+  return systemBlock?.content?.trim() || null
+}
+
 /** Inserts a new version row (auto-increments version per slug per user). */
 export async function savePrompt(
   supabase: SupabaseClient,

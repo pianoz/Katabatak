@@ -1,102 +1,130 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, Play, Plus, X, Loader2 } from "lucide-react"
-import ReactMarkdown from "react-markdown"
+import { ChevronLeft, Play, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { createClient } from "@/lib/supabase/client"
-import type { Character, Item, Spell } from "@/components/types/types"
 import {
-  parsePlaceholders,
-  extractUsedTypes,
-  PLACEHOLDER_REGISTRY,
-} from "@/lib/prompt-placeholders"
+  AGENT_CONFIGS,
+  AGENT_SLUGS,
+  type AgentSlug,
+  type BlockDef,
+} from "@/lib/graders/agent-config"
 import {
-  getPromptSlugs,
+  gradeOutput,
+  type ExpectedOutput,
+  type CodeGradeResult,
+} from "@/lib/graders/code-grader"
+import {
+  hydrateBlock,
+  runAgentEval,
+  runModelGrader,
+  type ModelGradeResult,
+} from "@/lib/services/grader-service"
+import {
   getPromptVersions,
   getPromptByVersion,
+  getLatestEvaluatorPrompt,
+  type VersionMetaRow,
+  type PromptVersionRow,
+  type SavedPromptBlock,
 } from "@/lib/services/prompt-service"
-import type { PromptVersionRow, VersionMetaRow, SavedPromptBlock } from "@/lib/services/prompt-service"
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { AgentSelector } from "@/components/dev/grader/AgentSelector"
+import { CharacterSelector } from "@/components/dev/grader/CharacterSelector"
+import {
+  BlockSequenceViewer,
+  type HydratedBlock,
+  type BlockStatus,
+} from "@/components/dev/grader/BlockSequenceViewer"
+import {
+  TestCaseEditor,
+  type TestCase,
+  type TestCaseResult,
+  type TestCaseStatus,
+} from "@/components/dev/grader/TestCaseEditor"
 
-interface SkillRow {
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
+interface CharacterOption {
   id: string
   name: string
-  skill_text?: string | null
 }
 
-interface UserInputBlock {
-  id: string
-  content: string
+interface RunLogEntry {
+  timestamp: string
+  agentSlug: string
+  agentVersion: number | null
+  characterName: string
+  cases: Array<{
+    index: number
+    codeGrade: CodeGradeResult | null
+    modelScore: number | null
+    modelReview: string | null
+    agentTokens: { input_tokens: number; output_tokens: number } | null
+    graderTokens: { input_tokens: number; output_tokens: number } | null
+  }>
 }
 
-interface BlockResult {
-  blockId: string
-  status: "idle" | "running-model" | "running-grader" | "done" | "error"
-  modelResponse: string | null
-  graderOutput: string | null
-  modelUsage?: { input_tokens: number; output_tokens: number }
-  graderUsage?: { input_tokens: number; output_tokens: number }
-  error?: string
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function makeDefaultExpected(slug: AgentSlug | ""): ExpectedOutput {
+  if (!slug) return { kind: "none" }
+  const kind = AGENT_CONFIGS[slug as AgentSlug]?.expectedOutputKind ?? "none"
+  if (kind === "lore-engine") return { kind: "lore-engine", value: {} }
+  if (kind === "ledger") return { kind: "ledger", value: { actions: [] } }
+  if (kind === "scribe") return {
+    kind: "scribe",
+    value: { has_summary: true, has_objectives_array: true, has_completed_ids_array: true },
+  }
+  if (kind === "character-creator") return { kind: "character-creator" }
+  return { kind: "none" }
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+function makeTestCase(slug: AgentSlug | ""): TestCase {
+  return { id: crypto.randomUUID(), userInput: "", expectedOutput: makeDefaultExpected(slug) }
+}
 
-const MODELS = [
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { value: "claude-opus-4-7", label: "Opus 4.7" },
-  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-]
+function formatTimestamp(): string {
+  return new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+}
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function PromptEvalPage() {
   const router = useRouter()
   const supabase = createClient()
 
-  // DB data for instance pickers
-  const [characters, setCharacters] = useState<Character[]>([])
-  const [items, setItems] = useState<Item[]>([])
-  const [spells, setSpells] = useState<Spell[]>([])
-  const [skills, setSkills] = useState<SkillRow[]>([])
+  // Auth / data
+  const [characters, setCharacters] = useState<CharacterOption[]>([])
   const [dataLoading, setDataLoading] = useState(true)
+  const [dbSlugs, setDbSlugs] = useState<string[]>([])
+  const [serverStatus, setServerStatus] = useState<"unknown" | "online" | "offline">("unknown")
 
-  // Col 1 — slug / version
-  const [slugs, setSlugs] = useState<string[]>([])
-  const [selectedSlug, setSelectedSlug] = useState("")
+  // Col 1 — agent / version / character / blocks
+  const [selectedSlug, setSelectedSlug] = useState<AgentSlug | "">("")
   const [versions, setVersions] = useState<VersionMetaRow[]>([])
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [loadedPrompt, setLoadedPrompt] = useState<PromptVersionRow | null>(null)
-  const [usedTypes, setUsedTypes] = useState<string[]>([])
-  const [testInstances, setTestInstances] = useState<Record<string, Record<string, unknown>>>({})
+  const [evaluatorPrompt, setEvaluatorPrompt] = useState<string | null>(null)
+  const [selectedCharacterId, setSelectedCharacterId] = useState("")
+  const [hydratedBlocks, setHydratedBlocks] = useState<HydratedBlock[]>([])
 
-  // Col 2 — user input blocks
-  const [inputBlocks, setInputBlocks] = useState<UserInputBlock[]>([
-    { id: crypto.randomUUID(), content: "" },
-  ])
+  // Col 2 — test cases
+  const [testCases, setTestCases] = useState<TestCase[]>([makeTestCase("")])
 
-  // Col 3 — grader prompt
-  const [graderPrompt, setGraderPrompt] = useState("")
-
-  // Col 4 — config + results
-  const [model, setModel] = useState("claude-sonnet-4-6")
-  const [maxTokens, setMaxTokens] = useState(1024)
-  const [temperature, setTemperature] = useState(0.7)
-  const [results, setResults] = useState<BlockResult[]>([])
+  // Col 3 — results + run log
+  const [results, setResults] = useState<TestCaseResult[]>([])
   const [running, setRunning] = useState(false)
-  const [serverStatus, setServerStatus] = useState<"unknown" | "online" | "offline">("unknown")
   const [sessionTokens, setSessionTokens] = useState({ input: 0, output: 0 })
+  const [runLog, setRunLog] = useState<RunLogEntry[]>([])
+
+  // Col resize
+  const [col1Width, setCol1Width] = useState(336)
+  const [col3Width, setCol3Width] = useState(368)
+  const dragRef = useRef<{ col: 1 | 3; startX: number; startW: number } | null>(null)
 
   // ─── Init ──────────────────────────────────────────────────────────────────
 
@@ -108,25 +136,41 @@ export default function PromptEvalPage() {
         .from("profiles").select("is_dev").eq("id", user.id).single()
       if (!profile?.is_dev) { router.push("/dashboard"); return }
 
-      const [{ data: chars }, { data: itemData }, { data: spellData }, { data: skillData }] =
-        await Promise.all([
-          supabase.from("characters").select("*").eq("user_id", user.id).order("name"),
-          supabase.from("items").select("*").order("name"),
-          supabase.from("spells").select("*").order("name"),
-          supabase.from("skills").select("id, name, skill_text").order("name"),
-        ])
-      setCharacters((chars as Character[]) ?? [])
-      setItems((itemData as Item[]) ?? [])
-      setSpells((spellData as Spell[]) ?? [])
-      setSkills((skillData as SkillRow[]) ?? [])
+      const { data: chars } = await supabase
+        .from("characters").select("id, name").eq("user_id", user.id).eq("ai_game", true).order("name")
+      setCharacters((chars ?? []) as CharacterOption[])
 
-      const slugList = await getPromptSlugs(supabase)
-      setSlugs(slugList)
+      // Fetch DB slugs to surface any prompt not in static list
+      const { data: slugRows } = await supabase
+        .from("prompt_versions").select("slug").order("slug")
+      const seen = new Set<string>()
+      const slugList: string[] = []
+      for (const r of (slugRows ?? [])) {
+        if (!seen.has(r.slug)) { seen.add(r.slug); slugList.push(r.slug) }
+      }
+      setDbSlugs(slugList)
       setDataLoading(false)
     }
     init().catch(console.error)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!dragRef.current) return
+      const delta = e.clientX - dragRef.current.startX
+      const next = Math.max(180, Math.min(700, dragRef.current.startW + (dragRef.current.col === 1 ? delta : -delta)))
+      if (dragRef.current.col === 1) setCol1Width(next)
+      else setCol3Width(next)
+    }
+    function onMouseUp() { dragRef.current = null }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [])
 
   useEffect(() => {
     fetch("/api/gm/health")
@@ -135,203 +179,270 @@ export default function PromptEvalPage() {
       .catch(() => setServerStatus("offline"))
   }, [])
 
-  // ─── Slug / version loading ────────────────────────────────────────────────
+  // ─── Agent / version selection ─────────────────────────────────────────────
 
-  async function handleSlugSelect(slug: string) {
+  async function handleSlugChange(slug: AgentSlug) {
     setSelectedSlug(slug)
     setLoadedPrompt(null)
-    setUsedTypes([])
-    setTestInstances({})
+    setEvaluatorPrompt(null)
+    setHydratedBlocks([])
     setResults([])
+    setTestCases([makeTestCase(slug)])
 
-    const vers = await getPromptVersions(supabase, slug)
+    const [vers, evalPrompt] = await Promise.all([
+      getPromptVersions(supabase, slug),
+      getLatestEvaluatorPrompt(supabase, slug),
+    ])
     setVersions(vers)
+    setEvaluatorPrompt(evalPrompt)
 
+    let row: PromptVersionRow | null = null
     if (vers.length > 0) {
-      // vers is sorted descending — first entry is latest
-      const latest = vers[0]
-      setSelectedVersion(latest.version)
-      await loadVersion(slug, latest.version)
+      setSelectedVersion(vers[0].version)
+      row = await getPromptByVersion(supabase, slug, vers[0].version)
+      setLoadedPrompt(row)
+    } else {
+      setSelectedVersion(null)
+    }
+
+    // Re-hydrate context blocks if character is already selected
+    if (selectedCharacterId) {
+      await hydrateContextBlocks(slug, selectedCharacterId, row)
     }
   }
 
-  async function handleVersionSelect(versionStr: string) {
-    const version = Number(versionStr)
+  async function handleVersionChange(version: number) {
     setSelectedVersion(version)
     setResults([])
-    await loadVersion(selectedSlug, version)
-  }
-
-  async function loadVersion(slug: string, version: number) {
-    const row = await getPromptByVersion(supabase, slug, version)
-    if (!row) return
+    const row = await getPromptByVersion(supabase, selectedSlug as string, version)
     setLoadedPrompt(row)
-    setUsedTypes(extractUsedTypes(row.prompt.blocks))
-    setTestInstances({})
-  }
-
-  // ─── Test instance pickers ─────────────────────────────────────────────────
-
-  function instanceOptions(type: string): Array<{ id: string; label: string }> {
-    if (type === "character") return characters.map((c) => ({ id: c.id, label: c.name }))
-    if (type === "item") return items.map((i) => ({ id: i.id, label: i.name }))
-    if (type === "spell") return spells.filter((s) => s.name).map((s) => ({ id: String(s.id), label: s.name! }))
-    if (type === "skill") return skills.map((s) => ({ id: s.id, label: s.name }))
-    return []
-  }
-
-  function setTestInstance(type: string, instanceId: string) {
-    if (!instanceId) {
-      setTestInstances((prev) => { const next = { ...prev }; delete next[type]; return next })
-      return
+    if (selectedSlug && selectedCharacterId) {
+      await hydrateContextBlocks(selectedSlug, selectedCharacterId, row)
     }
-    let row: Record<string, unknown> | undefined
-    if (type === "character") row = characters.find((c) => c.id === instanceId) as Record<string, unknown>
-    else if (type === "item") row = items.find((i) => i.id === instanceId) as Record<string, unknown>
-    else if (type === "spell") row = spells.find((s) => String(s.id) === instanceId) as Record<string, unknown>
-    else if (type === "skill") row = skills.find((s) => s.id === instanceId) as unknown as Record<string, unknown>
-    if (row) setTestInstances((prev) => ({ ...prev, [type]: row! }))
   }
 
-  // ─── Input block ops ───────────────────────────────────────────────────────
+  // ─── Context hydration ─────────────────────────────────────────────────────
 
-  function addInputBlock() {
-    setInputBlocks((prev) => [...prev, { id: crypto.randomUUID(), content: "" }])
+  const hydrateContextBlocks = useCallback(async (slug: AgentSlug | "", characterId: string, promptRow?: PromptVersionRow | null) => {
+    if (!slug || !characterId) return
+    const config = AGENT_CONFIGS[slug as AgentSlug]
+    if (!config) return
+
+    // Any block with hydrateTables needs a character fetch; system blocks without hydrateTables get content from the loaded prompt
+    const blocksNeedingFetch = config.blocks.filter((b: BlockDef) => b.hydrateTables && b.hydrateTables.length > 0)
+    const systemPromptBlocks = config.blocks.filter((b: BlockDef) => b.kind === "system" && (!b.hydrateTables || b.hydrateTables.length === 0))
+
+    // Seed system prompt blocks from loadedPrompt immediately (no fetch needed)
+    const systemEntries: HydratedBlock[] = systemPromptBlocks.map((b) => {
+      const savedBlocks = (promptRow?.prompt.blocks ?? []).filter((pb: SavedPromptBlock) => pb.kind === "system")
+      const content = savedBlocks.map((pb: SavedPromptBlock) => pb.content).join("\n\n").trim() || null
+      return { blockId: b.id, status: (content ? "loaded" : "empty") as BlockStatus, content }
+    })
+
+    // Set fetchable blocks to loading
+    setHydratedBlocks([
+      ...systemEntries,
+      ...blocksNeedingFetch.map((b) => ({ blockId: b.id, status: "loading" as BlockStatus, content: null })),
+    ])
+
+    const fetchedEntries: HydratedBlock[] = await Promise.all(
+      blocksNeedingFetch.map(async (block) => {
+        const tables = block.hydrateTables ?? []
+        const text = await hydrateBlock(characterId, tables)
+        return {
+          blockId: block.id,
+          status: (text ? "loaded" : block.optional ? "placeholder" : "empty") as BlockStatus,
+          content: text,
+        }
+      })
+    )
+
+    setHydratedBlocks([...systemEntries, ...fetchedEntries])
+  }, [])
+
+  async function handleCharacterSelect(characterId: string) {
+    setSelectedCharacterId(characterId)
+    setResults([])
+    if (selectedSlug) {
+      await hydrateContextBlocks(selectedSlug, characterId, loadedPrompt)
+    }
   }
 
-  function removeInputBlock(id: string) {
-    setInputBlocks((prev) => prev.filter((b) => b.id !== id))
-    setResults((prev) => prev.filter((r) => r.blockId !== id))
+  // ─── Test case ops ─────────────────────────────────────────────────────────
+
+  function addCase() {
+    setTestCases((prev) => [...prev, makeTestCase(selectedSlug)])
   }
 
-  function updateInputBlock(id: string, content: string) {
-    setInputBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, content } : b)))
+  function removeCase(id: string) {
+    setTestCases((prev) => prev.filter((c) => c.id !== id))
+    setResults((prev) => prev.filter((r) => r.caseId !== id))
+  }
+
+  function updateInput(id: string, value: string) {
+    setTestCases((prev) => prev.map((c) => (c.id === id ? { ...c, userInput: value } : c)))
+  }
+
+  function updateExpected(id: string, value: ExpectedOutput) {
+    setTestCases((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, expectedOutput: value } : c))
+    )
+  }
+
+  function setResultField(caseId: string, patch: Partial<TestCaseResult>) {
+    setResults((prev) =>
+      prev.map((r) => (r.caseId === caseId ? { ...r, ...patch } : r))
+    )
   }
 
   // ─── Run ──────────────────────────────────────────────────────────────────
 
   async function handleRun() {
-    if (!loadedPrompt) return
-    const activeBlocks = inputBlocks.filter((b) => b.content.trim())
-    if (activeBlocks.length === 0) return
+    if (!selectedSlug) return
+    const config = AGENT_CONFIGS[selectedSlug as AgentSlug]
+    if (!config) return
 
-    const { blocks } = loadedPrompt.prompt
-    const systemParts = blocks
-      .filter((b: SavedPromptBlock) => b.kind === "system")
-      .map((b: SavedPromptBlock) => parsePlaceholders(b.content, testInstances))
-    const system = systemParts.join("\n\n") || undefined
+    const activeCases = testCases.filter((c) => c.userInput.trim())
+    if (activeCases.length === 0) return
 
-    const contextMessages = blocks
-      .filter((b: SavedPromptBlock) => b.kind !== "system")
-      .map((b: SavedPromptBlock) => ({
-        role: b.kind as "user" | "assistant",
-        content: parsePlaceholders(b.content, testInstances),
+    // Build system prompt from loaded blocks
+    const systemBlocks: SavedPromptBlock[] = (loadedPrompt?.prompt.blocks ?? []).filter(
+      (b: SavedPromptBlock) => b.kind === "system"
+    )
+    const system = systemBlocks.map((b: SavedPromptBlock) => b.content).join("\n\n")
+
+    // Build context message from hydrated context blocks
+    const contextContent = hydratedBlocks
+      .filter((h) => h.status === "loaded" && h.content)
+      .map((h) => h.content!)
+      .join("\n\n")
+
+    // Reset results
+    setResults(
+      activeCases.map((c) => ({
+        caseId: c.id,
+        status: "idle" as TestCaseStatus,
+        modelResponse: null,
+        codeGrade: null,
+        modelGrade: null,
       }))
-
-    setResults(activeBlocks.map((b) => ({
-      blockId: b.id,
-      status: "idle",
-      modelResponse: null,
-      graderOutput: null,
-    })))
+    )
     setRunning(true)
 
-    for (const block of activeBlocks) {
-      // Run the loaded prompt + this user input through the main model
-      setResults((prev) => prev.map((r) =>
-        r.blockId === block.id ? { ...r, status: "running-model" } : r
-      ))
+    const logEntry: RunLogEntry = {
+      timestamp: formatTimestamp(),
+      agentSlug: selectedSlug,
+      agentVersion: selectedVersion,
+      characterName: characters.find((c) => c.id === selectedCharacterId)?.name ?? "(no character)",
+      cases: [],
+    }
+
+    for (const tc of activeCases) {
+      setResultField(tc.id, { status: "running-agent" })
 
       try {
-        const messages = [...contextMessages, { role: "user", content: block.content }]
-        const evalRes = await fetch("/api/gm/eval", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages, system, model, maxTokens, temperature }),
+        // Assemble messages: context block + history placeholder + user input
+        const messages = [
+          ...(contextContent
+            ? [{ role: "user" as const, content: contextContent }]
+            : []),
+          {
+            role: "user" as const,
+            content: [
+              contextContent ? "" : null,
+              "=== RECENT HISTORY ===",
+              "(no prior turns)",
+              "",
+              `=== ${config.userInputLabel.toUpperCase()} ===`,
+              tc.userInput,
+            ]
+              .filter((l) => l !== null)
+              .join("\n"),
+          },
+        ].filter((m) => m.content.trim())
+
+        // If no context, just send user input directly
+        const evalMessages =
+          contextContent
+            ? [
+                { role: "user" as const, content: contextContent },
+                {
+                  role: "user" as const,
+                  content: `=== RECENT HISTORY ===\n(no prior turns)\n\n=== ${config.userInputLabel.toUpperCase()} ===\n${tc.userInput}`,
+                },
+              ]
+            : [{ role: "user" as const, content: tc.userInput }]
+
+        const agentResult = await runAgentEval(system, evalMessages, config)
+
+        addTokens(agentResult.usage)
+        setResultField(tc.id, {
+          modelResponse: agentResult.text,
+          agentUsage: agentResult.usage,
+          status: "running-grader",
         })
-        const evalData = (await evalRes.json()) as { text?: string; usage?: { input_tokens: number; output_tokens: number }; error?: string }
 
-        if (!evalRes.ok) {
-          setResults((prev) => prev.map((r) =>
-            r.blockId === block.id ? { ...r, status: "error", error: evalData.error ?? "Model call failed" } : r
-          ))
-          continue
-        }
+        // Code grading
+        const codeGrade =
+          config.producesJson
+            ? gradeOutput(agentResult.text, tc.expectedOutput, selectedSlug as AgentSlug)
+            : null
 
-        const modelResponse = evalData.text ?? ""
-        setResults((prev) => prev.map((r) =>
-          r.blockId === block.id ? { ...r, modelResponse, modelUsage: evalData.usage } : r
-        ))
-        if (evalData.usage) {
-          setSessionTokens((prev) => ({
-            input: prev.input + evalData.usage!.input_tokens,
-            output: prev.output + evalData.usage!.output_tokens,
-          }))
-        }
+        // Model grading (mandatory, all agents)
+        const modelGrade = await runModelGrader(selectedSlug, tc.userInput, agentResult.text, evaluatorPrompt)
+        addTokens(modelGrade.usage)
 
-        if (!graderPrompt.trim()) {
-          setResults((prev) => prev.map((r) =>
-            r.blockId === block.id ? { ...r, status: "done" } : r
-          ))
-          continue
-        }
-
-        // Run grader: receives the user input + model response
-        setResults((prev) => prev.map((r) =>
-          r.blockId === block.id ? { ...r, status: "running-grader" } : r
-        ))
-
-        const graderMessages = [{
-          role: "user" as const,
-          content: `<user_input>\n${block.content}\n</user_input>\n\n<model_response>\n${modelResponse}\n</model_response>`,
-        }]
-        const graderRes = await fetch("/api/gm/eval", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: graderMessages,
-            system: graderPrompt,
-            model,
-            maxTokens,
-            temperature,
-          }),
+        setResultField(tc.id, {
+          codeGrade,
+          modelGrade,
+          status: "done",
         })
-        const graderData = (await graderRes.json()) as { text?: string; usage?: { input_tokens: number; output_tokens: number }; error?: string }
 
-        setResults((prev) => prev.map((r) =>
-          r.blockId === block.id
-            ? {
-                ...r,
-                status: graderRes.ok ? "done" : "error",
-                graderOutput: graderData.text ?? null,
-                graderUsage: graderData.usage,
-                error: graderRes.ok ? undefined : (graderData.error ?? "Grader call failed"),
-              }
-            : r
-        ))
-        if (graderRes.ok && graderData.usage) {
-          setSessionTokens((prev) => ({
-            input: prev.input + graderData.usage!.input_tokens,
-            output: prev.output + graderData.usage!.output_tokens,
-          }))
-        }
-      } catch {
-        setResults((prev) => prev.map((r) =>
-          r.blockId === block.id ? { ...r, status: "error", error: "Network error" } : r
-        ))
+        logEntry.cases.push({
+          index: activeCases.indexOf(tc) + 1,
+          codeGrade,
+          modelScore: modelGrade.score,
+          modelReview: modelGrade.review,
+          agentTokens: agentResult.usage,
+          graderTokens: modelGrade.usage,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setResultField(tc.id, { status: "error", error: msg })
+        logEntry.cases.push({
+          index: activeCases.indexOf(tc) + 1,
+          codeGrade: null,
+          modelScore: null,
+          modelReview: null,
+          agentTokens: null,
+          graderTokens: null,
+        })
       }
     }
 
+    setRunLog((prev) => [logEntry, ...prev])
     setRunning(false)
+  }
+
+  function addTokens(usage: { input_tokens: number; output_tokens: number }) {
+    setSessionTokens((prev) => ({
+      input: prev.input + usage.input_tokens,
+      output: prev.output + usage.output_tokens,
+    }))
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
 
+  const config = selectedSlug ? AGENT_CONFIGS[selectedSlug as AgentSlug] : null
+
+  const hasEmptyRequired = hydratedBlocks.some((h) => h.status === "empty")
+
   const canRun =
     !running &&
     serverStatus !== "offline" &&
-    !!loadedPrompt &&
-    inputBlocks.some((b) => b.content.trim())
+    !!selectedSlug &&
+    !hasEmptyRequired &&
+    testCases.some((c) => c.userInput.trim())
 
   // ─── Loading ──────────────────────────────────────────────────────────────
 
@@ -360,7 +471,7 @@ export default function PromptEvalPage() {
             </Link>
             <div className="h-5 w-px bg-border" />
             <h1 className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
-              Prompt Evaluator
+              Agent Grader
             </h1>
           </div>
           <div className="flex items-center gap-3">
@@ -388,262 +499,115 @@ export default function PromptEvalPage() {
         </div>
       </header>
 
-      {/* 4-column body */}
+      {/* 3-column body */}
       <div className="flex flex-1 overflow-hidden min-h-0">
 
-        {/* ── COL 1: Slug / version / data pickers ─────────────────────── */}
-        <aside className="w-56 shrink-0 border-r border-border overflow-y-auto bg-card/30 p-4 space-y-5">
+        {/* ── COL 1: Agent + blocks ─────────────────────────────────────── */}
+        <aside style={{ width: col1Width }} className="shrink-0 overflow-y-auto bg-card/30 p-4 space-y-5">
+          <AgentSelector
+            selectedSlug={selectedSlug}
+            onSlugChange={handleSlugChange}
+            versions={versions}
+            selectedVersion={selectedVersion}
+            onVersionChange={handleVersionChange}
+            dbSlugs={dbSlugs}
+          />
 
-          {/* Slug selector */}
-          <div className="space-y-3">
-            <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50">
-              Prompt
-            </p>
-            <div className="space-y-1.5">
-              <label className="block font-sans text-[0.55rem] uppercase tracking-widest text-muted-foreground/60">
-                Slug
-              </label>
-              <Select value={selectedSlug} onValueChange={handleSlugSelect}>
-                <SelectTrigger className="w-full border-border bg-background text-xs">
-                  <SelectValue placeholder="Select slug…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {slugs.length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-muted-foreground italic">
-                      No saved prompts
-                    </div>
-                  ) : (
-                    slugs.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+          {selectedSlug && (
+            <div className="border-t border-border/40 pt-4 space-y-3">
+              <CharacterSelector
+                characters={characters}
+                selectedId={selectedCharacterId}
+                onSelect={handleCharacterSelect}
+              />
+
+              {hasEmptyRequired && (
+                <div className="border border-red-700/40 bg-red-950/20 px-2.5 py-2">
+                  <p className="font-sans text-[0.5rem] uppercase tracking-widest text-red-400">
+                    Required context block returned empty
+                  </p>
+                </div>
+              )}
             </div>
+          )}
 
-            {/* Version selector — only shown after slug is picked */}
-            {versions.length > 0 && selectedVersion !== null && (
-              <div className="space-y-1.5">
-                <label className="block font-sans text-[0.55rem] uppercase tracking-widest text-muted-foreground/60">
-                  Version
-                </label>
-                <Select value={String(selectedVersion)} onValueChange={handleVersionSelect}>
-                  <SelectTrigger className="w-full border-border bg-background text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {versions.map((v) => (
-                      <SelectItem key={v.version} value={String(v.version)}>
-                        v{v.version} — {v.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Loaded prompt summary */}
-            {loadedPrompt && (
-              <div className="border border-border/40 px-3 py-2 bg-background/40 space-y-0.5">
-                <p className="font-sans text-[0.45rem] uppercase tracking-[0.3em] text-muted-foreground/40">
-                  Loaded
-                </p>
-                <p className="font-mono text-[0.65rem] text-foreground/70 truncate">
-                  {loadedPrompt.name}
-                </p>
-                <p className="font-sans text-[0.45rem] uppercase tracking-widest text-muted-foreground/40">
-                  {loadedPrompt.prompt.blocks.length} blocks
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Data type pickers — shown when prompt uses placeholder types */}
-          {usedTypes.length > 0 && (
-            <div className="space-y-3 border-t border-border/40 pt-4">
-              <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50">
-                Test Data
-              </p>
-              {usedTypes.map((type) => {
-                const opts = instanceOptions(type)
-                const selectedId = testInstances[type]
-                  ? String((testInstances[type] as Record<string, unknown>).id)
-                  : ""
-                return (
-                  <div key={type} className="space-y-1.5">
-                    <label className="block font-sans text-[0.55rem] uppercase tracking-widest text-muted-foreground/60">
-                      {PLACEHOLDER_REGISTRY[type]?.label ?? type}
-                    </label>
-                    <Select value={selectedId} onValueChange={(id) => setTestInstance(type, id)}>
-                      <SelectTrigger className="w-full border-border bg-background text-xs">
-                        <SelectValue placeholder="Select…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {opts.map((o) => (
-                          <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )
-              })}
+          {selectedSlug && config && (
+            <div className="border-t border-border/40 pt-4">
+              <BlockSequenceViewer
+                blocks={config.blocks}
+                hydratedBlocks={hydratedBlocks}
+              />
             </div>
           )}
         </aside>
 
-        {/* ── COL 2: User input blocks ──────────────────────────────────── */}
-        <main className="flex-1 flex flex-col overflow-hidden min-w-0 border-r border-border">
-          <div className="shrink-0 border-b border-border px-4 py-2 flex items-center justify-between bg-background/95 backdrop-blur">
-            <span className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50">
-              User Inputs
-            </span>
-            <button
-              onClick={addInputBlock}
-              className="flex items-center gap-1 border border-border px-2 py-1 font-sans text-[0.55rem] uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
-            >
-              <Plus className="w-2.5 h-2.5" />
-              Add Block
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {inputBlocks.map((block, idx) => {
-              const result = results.find((r) => r.blockId === block.id)
-              return (
-                <div key={block.id} className="border border-border bg-background">
-                  <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-                    <span className="font-sans text-[0.55rem] uppercase tracking-widest text-muted-foreground/60 flex-1">
-                      Input {idx + 1}
-                    </span>
-                    {result?.status === "running-model" && (
-                      <span className="flex items-center gap-1 font-sans text-[0.5rem] uppercase tracking-widest text-amber-400">
-                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                        Model
-                      </span>
-                    )}
-                    {result?.status === "running-grader" && (
-                      <span className="flex items-center gap-1 font-sans text-[0.5rem] uppercase tracking-widest text-cyan-400">
-                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                        Grading
-                      </span>
-                    )}
-                    {result?.status === "done" && (
-                      <span className="font-sans text-[0.5rem] uppercase tracking-widest text-green-500">
-                        Done
-                      </span>
-                    )}
-                    {result?.status === "error" && (
-                      <span className="font-sans text-[0.5rem] uppercase tracking-widest text-red-400">
-                        Error
-                      </span>
-                    )}
-                    {inputBlocks.length > 1 && (
-                      <button
-                        onClick={() => removeInputBlock(block.id)}
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="p-3">
-                    <Textarea
-                      value={block.content}
-                      onChange={(e) => updateInputBlock(block.id, e.target.value)}
-                      placeholder="Enter user input for this test case…"
-                      className="min-h-24 resize-y font-mono text-xs border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/40"
-                    />
-                  </div>
-                  {/* Model response preview under the input */}
-                  {result?.modelResponse && (
-                    <div className="border-t border-border/40 px-3 py-2 bg-cyan-950/10">
-                      <p className="font-sans text-[0.45rem] uppercase tracking-[0.3em] text-cyan-400/60 mb-1">
-                        Model Response
-                      </p>
-                      <p className="font-mono text-[0.6rem] text-foreground/70 line-clamp-4 whitespace-pre-wrap">
-                        {result.modelResponse}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+        {/* drag handle col1 */}
+        <div
+          className="w-1 shrink-0 cursor-col-resize bg-border/50 hover:bg-cyan-500/50 transition-colors"
+          onMouseDown={(e) => { e.preventDefault(); dragRef.current = { col: 1, startX: e.clientX, startW: col1Width } }}
+        />
+
+        {/* ── COL 2: Test cases ─────────────────────────────────────────── */}
+        <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {selectedSlug && config ? (
+            <TestCaseEditor
+              cases={testCases}
+              results={results}
+              expectedOutputKind={config.expectedOutputKind}
+              agentProducesJson={config.producesJson}
+              userInputLabel={config.userInputLabel}
+              userInputPlaceholder={config.userInputPlaceholder}
+              onAdd={addCase}
+              onRemove={removeCase}
+              onUpdateInput={updateInput}
+              onUpdateExpected={updateExpected}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="font-serif text-muted-foreground/40 italic text-sm">
+                Select an agent to begin
+              </p>
+            </div>
+          )}
         </main>
 
-        {/* ── COL 3: Grader prompt ──────────────────────────────────────── */}
-        <aside className="w-64 shrink-0 border-r border-border flex flex-col bg-card/20 p-4">
-          <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50 mb-2 shrink-0">
-            Grader Prompt
-          </p>
-          <p className="font-sans text-[0.5rem] italic text-muted-foreground/40 leading-relaxed mb-3 shrink-0">
-            System prompt for the grader model. Receives each user input + model response as context.
-          </p>
-          <Textarea
-            value={graderPrompt}
-            onChange={(e) => setGraderPrompt(e.target.value)}
-            placeholder="You are an expert evaluator. Given the user input and model response, rate the response and explain your reasoning…"
-            className="flex-1 resize-none font-mono text-xs border-border bg-background"
-          />
-        </aside>
+        {/* drag handle col3 */}
+        <div
+          className="w-1 shrink-0 cursor-col-resize bg-border/50 hover:bg-cyan-500/50 transition-colors"
+          onMouseDown={(e) => { e.preventDefault(); dragRef.current = { col: 3, startX: e.clientX, startW: col3Width } }}
+        />
 
-        {/* ── COL 4: Config + Run + Results ────────────────────────────── */}
-        <aside className="w-72 shrink-0 overflow-y-auto bg-card/20 p-4 space-y-5">
+        {/* ── COL 3: Run + Log ──────────────────────────────────────────── */}
+        <aside style={{ width: col3Width }} className="shrink-0 overflow-y-auto bg-card/20 p-4 space-y-5">
 
-          {/* Config */}
-          <section className="space-y-3">
-            <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50">
-              Config
-            </p>
-            <Select value={model} onValueChange={setModel}>
-              <SelectTrigger className="w-full border-border bg-background text-xs uppercase tracking-wider">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MODELS.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div>
-              <label className="block font-sans text-[0.5rem] uppercase tracking-widest text-muted-foreground/50 mb-1">
-                Max Tokens
-              </label>
-              <input
-                type="number"
-                min={64}
-                max={8192}
-                step={64}
-                value={maxTokens}
-                onChange={(e) => setMaxTokens(Math.max(64, Math.min(8192, Number(e.target.value))))}
-                className="w-full border border-border bg-background px-2 py-1.5 text-xs font-sans text-foreground focus:outline-none focus:border-foreground/40"
-              />
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="font-sans text-[0.5rem] uppercase tracking-widest text-muted-foreground/50">
-                  Temperature
-                </span>
-                <span className="font-mono text-[0.6rem] text-muted-foreground">
-                  {temperature.toFixed(2)}
-                </span>
+          {/* Agent config (read-only) */}
+          {config && (
+            <section className="space-y-2">
+              <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50">
+                Agent Config
+              </p>
+              <div className="border border-border/30 px-3 py-2 bg-background/30 space-y-1">
+                <p className="font-mono text-[0.6rem] text-foreground/60">{config.model}</p>
+                <p className="font-mono text-[0.55rem] text-muted-foreground/50">
+                  {config.maxTokens} max tokens · t={config.temperature}
+                </p>
+                <p className="font-sans text-[0.5rem] uppercase tracking-widest text-muted-foreground/40">
+                  Grader: Haiku 4.5 · 200 tokens
+                </p>
               </div>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={temperature}
-                onChange={(e) => setTemperature(Number(e.target.value))}
-                className="w-full accent-cyan-500"
-              />
-            </div>
-          </section>
+            </section>
+          )}
 
           {/* Run */}
           <section className="border-t border-border/50 pt-4 space-y-2">
-            {!loadedPrompt && (
+            {!selectedSlug && (
               <p className="font-sans text-[0.55rem] uppercase tracking-widest text-muted-foreground/40">
-                Load a prompt slug first
+                Select an agent first
+              </p>
+            )}
+            {hasEmptyRequired && (
+              <p className="font-sans text-[0.55rem] uppercase tracking-widest text-red-400/70">
+                Fix empty context blocks
               </p>
             )}
             <Button
@@ -654,76 +618,80 @@ export default function PromptEvalPage() {
               {running ? (
                 <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Running</>
               ) : (
-                <><Play className="w-3.5 h-3.5 mr-2" /> Run Eval</>
+                <><Play className="w-3.5 h-3.5 mr-2" /> Run All Tests</>
               )}
             </Button>
             {serverStatus === "offline" && (
               <p className="font-sans text-[0.6rem] uppercase tracking-widest text-red-400/70 text-center">
-                Server offline
+                GM Server offline
               </p>
             )}
           </section>
 
-          {/* Grader output per block */}
-          {results.length > 0 && (
-            <section className="border-t border-border/50 pt-4 space-y-5">
+          {/* Run log */}
+          {runLog.length > 0 && (
+            <section className="border-t border-border/50 pt-4 space-y-4">
               <p className="font-sans text-[0.5rem] uppercase tracking-[0.3em] text-muted-foreground/50">
-                Grader Output
+                Run Log
               </p>
-              {results.map((result, idx) => (
-                <div key={result.blockId} className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-sans text-[0.5rem] uppercase tracking-widest text-muted-foreground/50">
-                      Input {idx + 1}
-                    </span>
-                    {(result.modelUsage ?? result.graderUsage) && (
-                      <span className="font-sans text-[0.45rem] uppercase tracking-widest text-muted-foreground/30">
-                        {result.modelUsage && `${result.modelUsage.input_tokens}↑${result.modelUsage.output_tokens}↓`}
-                        {result.graderUsage && ` · ${result.graderUsage.input_tokens}↑${result.graderUsage.output_tokens}↓`}
+              {runLog.map((entry, entryIdx) => (
+                <div key={entryIdx} className="border border-border/30 bg-background/20 p-3 space-y-2">
+                  {/* Entry header */}
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[0.5rem] text-muted-foreground/40">
+                        {entry.timestamp}
                       </span>
-                    )}
+                    </div>
+                    <p className="font-sans text-[0.55rem] uppercase tracking-widest text-foreground/70">
+                      {entry.agentSlug}
+                      {entry.agentVersion !== null && (
+                        <span className="text-muted-foreground/40 ml-1">v{entry.agentVersion}</span>
+                      )}
+                    </p>
+                    <p className="font-serif text-[0.6rem] text-muted-foreground/50 italic">
+                      {entry.characterName}
+                    </p>
                   </div>
 
-                  {(result.status === "idle" || result.status === "running-model") && (
-                    <div className="border border-border/30 px-3 py-2">
-                      <p className="font-sans text-[0.55rem] uppercase tracking-widest text-muted-foreground/30 italic">
-                        {result.status === "running-model" ? "Running model…" : "Pending"}
+                  {/* Per-case summary */}
+                  {entry.cases.map((c) => (
+                    <div key={c.index} className="border-t border-border/20 pt-2 space-y-1">
+                      <p className="font-sans text-[0.5rem] uppercase tracking-widest text-muted-foreground/50">
+                        Test {c.index}
                       </p>
-                    </div>
-                  )}
 
-                  {result.status === "running-grader" && (
-                    <div className="border border-border/30 px-3 py-2">
-                      <p className="flex items-center gap-1 font-sans text-[0.55rem] uppercase tracking-widest text-cyan-400/70">
-                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                        Grading…
-                      </p>
-                    </div>
-                  )}
+                      <div className="flex items-center gap-3">
+                        {c.codeGrade && c.codeGrade.total > 0 && (
+                          <span className={`font-mono text-[0.6rem] ${
+                            c.codeGrade.passed === c.codeGrade.total ? "text-green-400" : "text-amber-400"
+                          }`}>
+                            Code {c.codeGrade.passed}/{c.codeGrade.total}
+                          </span>
+                        )}
+                        {c.modelScore !== null && (
+                          <span className={`font-mono text-[0.6rem] ${
+                            c.modelScore >= 80 ? "text-green-400" :
+                            c.modelScore >= 60 ? "text-amber-400" : "text-red-400"
+                          }`}>
+                            Model {c.modelScore}/100
+                          </span>
+                        )}
+                        {c.agentTokens && (
+                          <span className="font-mono text-[0.45rem] text-muted-foreground/30">
+                            {c.agentTokens.input_tokens + (c.graderTokens?.input_tokens ?? 0)}↑
+                            {c.agentTokens.output_tokens + (c.graderTokens?.output_tokens ?? 0)}↓
+                          </span>
+                        )}
+                      </div>
 
-                  {result.status === "error" && (
-                    <div className="border border-red-700/40 bg-red-950/20 px-3 py-2">
-                      <p className="font-mono text-xs text-red-300/80">{result.error}</p>
+                      {c.modelReview && (
+                        <p className="font-serif text-[0.55rem] text-foreground/60 leading-relaxed line-clamp-2">
+                          {c.modelReview}
+                        </p>
+                      )}
                     </div>
-                  )}
-
-                  {result.status === "done" && result.graderOutput && (
-                    <div className="border border-border bg-card px-3 py-2 prose prose-sm prose-invert max-w-none
-                      prose-p:font-serif prose-p:text-foreground/90 prose-p:leading-relaxed prose-p:text-xs
-                      prose-headings:font-sans prose-headings:uppercase prose-headings:tracking-widest prose-headings:text-[0.6rem] prose-headings:text-muted-foreground
-                      prose-strong:text-foreground prose-code:text-cyan-400 prose-code:text-xs
-                      prose-li:font-serif prose-li:text-foreground/90 prose-li:text-xs">
-                      <ReactMarkdown>{result.graderOutput}</ReactMarkdown>
-                    </div>
-                  )}
-
-                  {result.status === "done" && !result.graderOutput && (
-                    <div className="border border-border/30 px-3 py-2">
-                      <p className="font-sans text-[0.55rem] uppercase tracking-widest text-muted-foreground/40 italic">
-                        No grader prompt — see model response in block
-                      </p>
-                    </div>
-                  )}
+                  ))}
                 </div>
               ))}
             </section>

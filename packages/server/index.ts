@@ -4,8 +4,8 @@ import { randomUUID } from 'crypto'
 import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
-import { handleGMMessage, runScribe, getRecentTurns, setLedgerNeutered } from './gm/handler.js'
-import { clearConversationHistory } from './services/conversation-service.js'
+import { handleGMMessage, runScribe, setLedgerNeutered } from './gm/handler.js'
+import { clearConversationHistory, getRecentTurns } from './services/conversation-service.js'
 import { summarizeHistory } from './gm/agents/summary.js'
 import { runCharacterCreator } from './gm/agents/character-creator.js'
 import { applyQuestStartGrants } from './services/quest-engine.js'
@@ -263,8 +263,8 @@ app.post('/gm/scribe', async (req, res) => {
   }
 })
 
-function formatHydration(ctx: ContextBlock, tables: string[]): string {
-  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, encounterData, npcs, inventoryWeight, syngemGame } = ctx
+async function formatHydration(ctx: ContextBlock, tables: string[], characterId: string): Promise<string> {
+  const { character: { character, inventory, skills, spells }, healthText, essenceText, powerText, willText, locationEntities, encounterData, npcs, inventoryWeight, syngemGame, activeQuestNotes } = ctx
   const sections: string[] = []
 
   if (tables.includes('character')) {
@@ -334,6 +334,34 @@ function formatHydration(ctx: ContextBlock, tables: string[]): string {
     sections.push(lines.join('\n'))
   }
 
+  if (tables.includes('summary') && syngemGame?.summary) {
+    sections.push(`=== STORY SO FAR ===\n${syngemGame.summary}`)
+  }
+
+  if (tables.includes('quest_objectives')) {
+    const objectives = ((character as Record<string, unknown>)['quest_objectives'] as Array<{ id: string; title: string; status: string; description: string }> | null) ?? []
+    const active = objectives.filter((q) => q.status === 'active')
+    if (active.length) {
+      const lines = ['=== QUEST OBJECTIVES ===']
+      for (const q of active) lines.push(`[${q.id}] ${q.title}: ${q.description}`)
+      sections.push(lines.join('\n'))
+    }
+  }
+
+  if (tables.includes('quest_notes') && activeQuestNotes.length) {
+    const lines = ['=== ACTIVE QUEST CONTEXT (GM ONLY — do not reveal to player) ===']
+    for (const note of activeQuestNotes) lines.push(`Quest: ${note.questId}\n${note.gmNotes}`)
+    sections.push(lines.join('\n'))
+  }
+
+  if (tables.includes('recent_history')) {
+    const turns = await getRecentTurns(characterId, 4)
+    const historyText = turns.length
+      ? turns.map((t) => `[${t.role === 'player' ? 'PLAYER' : 'GM'}]: ${t.content}`).join('\n\n')
+      : '(no prior turns)'
+    sections.push(`=== RECENT HISTORY ===\n${historyText}`)
+  }
+
   return sections.join('\n\n')
 }
 
@@ -354,7 +382,7 @@ app.post('/gm/hydrate', async (req, res) => {
       return
     }
     const selectedTables = tables ?? ['character', 'inventory', 'location', 'npcs', 'encounter', 'game']
-    res.json({ text: formatHydration(ctx, selectedTables) })
+    res.json({ text: await formatHydration(ctx, selectedTables, characterId) })
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
   }

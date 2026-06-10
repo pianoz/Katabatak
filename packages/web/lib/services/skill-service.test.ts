@@ -96,7 +96,7 @@ describe("skill-service", () => {
 
   describe("addSkill", () => {
     it("creates a new skill and returns the row", async () => {
-      const { data, error } = await addSkill(alice, {
+      const { data, error } = await addSkill(admin, {
         name: "New Ability",
         is_passive: false,
         in_development: false,
@@ -109,7 +109,7 @@ describe("skill-service", () => {
     })
 
     it("defaults in_development to false when omitted", async () => {
-      const { data } = await addSkill(alice, { name: "Default Dev Skill" })
+      const { data } = await addSkill(admin, { name: "Default Dev Skill" })
       expect((data as { in_development: boolean }).in_development).toBe(false)
       await admin.from("skills").delete().eq("id", (data as { id: string }).id)
     })
@@ -118,7 +118,7 @@ describe("skill-service", () => {
   describe("updateSkill", () => {
     it("updates skill fields", async () => {
       const id = await seedSkill({ name: "Before Update" })
-      await updateSkill(alice, id, { name: "After Update", is_passive: true })
+      await updateSkill(admin, id, { name: "After Update", is_passive: true })
 
       const { data } = await admin.from("skills").select("name, is_passive").eq("id", id).single()
       expect((data as { name: string }).name).toBe("After Update")
@@ -137,7 +137,7 @@ describe("skill-service", () => {
         edge_type: "unlock",
       })
 
-      await deleteSkill(alice, parentId)
+      await deleteSkill(admin, parentId)
 
       const { data: edges } = await admin
         .from("skill_edges")
@@ -161,7 +161,7 @@ describe("skill-service", () => {
       const parent = await seedSkill({ name: "Edge Parent" })
       const child = await seedSkill({ name: "Edge Child" })
 
-      await addSkillEdge(alice, parent, child, "unlock")
+      await addSkillEdge(admin, parent, child, "unlock")
       const { data: edge } = await admin
         .from("skill_edges")
         .select("id")
@@ -169,7 +169,7 @@ describe("skill-service", () => {
         .eq("child_skill_id", child)
       expect(edge!.length).toBeGreaterThan(0)
 
-      await deleteSkillEdge(alice, parent, child)
+      await deleteSkillEdge(admin, parent, child)
       const { data: gone } = await admin
         .from("skill_edges")
         .select("id")
@@ -383,7 +383,7 @@ describe("skill-service", () => {
       const id1 = await seedSkill({ name: "Batch Dev 1", in_development: false })
       const id2 = await seedSkill({ name: "Batch Dev 2", in_development: false })
 
-      await batchSetDev(alice, [id1, id2], true)
+      await batchSetDev(admin, [id1, id2], true)
 
       const { data } = await admin
         .from("skills")
@@ -405,7 +405,7 @@ describe("skill-service", () => {
       const c = await seedSkill({ name: "BatchDel Child" })
       await admin.from("skill_edges").insert({ parent_skill_id: p, child_skill_id: c, edge_type: "unlock" })
 
-      await batchDeleteSkills(alice, [p, c])
+      await batchDeleteSkills(admin, [p, c])
 
       const { data: skills } = await admin.from("skills").select("id").in("id", [p, c])
       expect(skills).toHaveLength(0)

@@ -79,6 +79,7 @@ function useLineShow(text: string) {
   const [index, setIndex] = useState(0)
   const [visible, setVisible] = useState(false)
   const [skipped, setSkipped] = useState(false)
+  const [resetKey, setResetKey] = useState(0)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
 
   const clearTimers = () => {
@@ -86,12 +87,15 @@ function useLineShow(text: string) {
     timers.current = []
   }
 
-  // Reset when text changes (phase/question transition)
+  // Reset when text changes (phase/question transition).
+  // resetKey increments so the animation effect always re-fires even when
+  // index and skipped happen to already be at their reset values (0 / false).
   useEffect(() => {
     clearTimers()
     setIndex(0)
     setVisible(false)
     setSkipped(false)
+    setResetKey(k => k + 1)
   }, [lines])
 
   useEffect(() => {
@@ -112,7 +116,7 @@ function useLineShow(text: string) {
     }
 
     return clearTimers
-  }, [index, skipped])
+  }, [index, skipped, resetKey])
 
   const skip = () => {
     clearTimers()
@@ -193,11 +197,19 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
     setErrorMessage(null)
 
     try {
-      const res = await fetch("/api/character-creator", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questions: QUESTIONS, answers: allAnswers }),
-      })
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 50_000)
+      let res: Response
+      try {
+        res = await fetch("/api/character-creator", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questions: QUESTIONS, answers: allAnswers }),
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string }
         throw new Error(body.error ?? `Server error ${res.status}`)
@@ -245,7 +257,11 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
       setCharacterId(newChar.id)
       setPhase("reveal")
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Something went wrong. Try again.")
+      const msg =
+        err instanceof Error && err.name === "AbortError"
+          ? "This is taking longer than expected. Please try again."
+          : (err instanceof Error ? err.message : "Something went wrong. Try again.")
+      setErrorMessage(msg)
       setPhase("error")
     }
   }

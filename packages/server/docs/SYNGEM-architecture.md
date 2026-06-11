@@ -201,7 +201,7 @@ To update style content, edit the `.txt` files directly or use the prompt builde
 
 Sonnet. Streamed. **No tools.** Pure narrative generation.
 
-**Slug:** `architect1` — loaded via `loadArchitectPrompt()` in `services/prompt-service.ts`. Fetches the latest version of that slug (cached 60 s). Falls back to the style file from `style-modulator.ts` if no DB entry exists for `architect1`.
+**Slug:** `architect` — loaded via `loadArchitectPrompt()` in `services/prompt-service.ts`. Fetches the latest version of that slug (cached 60 s). Falls back to the style file from `style-modulator.ts` if no DB entry exists for `architect`.
 
 **GM quest notes:** If `contextBlock.activeQuestNotes` is non-empty, the auto-hydrator has fetched `quest_templates.description_gm` for each active quest. These are injected as a system block labeled `=== ACTIVE QUEST CONTEXT (GM ONLY — do not reveal to player) ===`. This gives the Architect the full narrative scope of a quest (what the waystone actually points to, antagonist motivations, hidden truths) without those facts appearing in player-visible quest text.
 
@@ -418,7 +418,7 @@ RLS: authenticated users SELECT (all rows; filtered by character_id in applicati
 |--------|------|-------|
 | `id` | uuid | PK |
 | `name` | text | Human-readable label |
-| `slug` | text | Agent identifier. System prompt slugs: `lore-engine`, `architect1`, `ledger`, `scribe`, `character-builder`. Evaluator slugs: `lore-engine-evaluator`, `architect1-evaluator`, `ledger-evaluator`, `scribe-evaluator`, `character-builder-evaluator` |
+| `slug` | text | Agent identifier. System prompt slugs: `lore-engine`, `architect`, `ledger`, `scribe`, `character-builder`. Evaluator slugs: `lore-engine-evaluator`, `architect-evaluator`, `ledger-evaluator`, `scribe-evaluator`, `character-builder-evaluator` |
 | `version` | integer | Auto-incremented per slug per user |
 | `prompt` | jsonb | `{ blocks: [{kind, label, content}], model, maxTokens, temperature }` |
 | `description` | text? | Optional description of what this version does |
@@ -498,7 +498,7 @@ The chosen level is stored in the express process's memory — restarting the se
 - **Ledger returns bad JSON or empty** — `runLedger()` returns `[]`. State Executor is never called. The full raw model response is written to the log file. Narrative is unaffected.
 - **State Executor action fails** — each action is wrapped in try/catch. Failures are written to the log file. One failing action (e.g., entity not found) doesn't block others.
 - **Scribe / GameTime / Ledger async errors** — all `.catch` handlers write to the log file via `synLog`. Characters retain their previous scribe data until the next successful Scribe run.
-- **`prompt_versions` has no entry for a slug** — agents fall back to their hardcoded `FALLBACK_SYSTEM` (Architect falls back to the style-modulator text). Add the slug via the prompt builder to override. For the Architect, the `architect1` slug must have at least one version to avoid style-text fallback.
+- **`prompt_versions` has no entry for a slug** — agents fall back to their hardcoded `FALLBACK_SYSTEM` (Architect falls back to the style-modulator text). Add the slug via the prompt builder to override. For the Architect, the `architect` slug must have at least one version to avoid style-text fallback.
 
 ---
 
@@ -643,7 +643,7 @@ Use the prompt builder at `/dev/prompt-builder`. Save with the agent's slug:
 | Agent | System prompt slug | Evaluator prompt slug |
 | ----- | ------------------ | --------------------- |
 | Lore-Engine | `lore-engine` | `lore-engine-evaluator` |
-| Architect | `architect1` | `architect1-evaluator` |
+| Architect | `architect` | `architect-evaluator` |
 | Ledger | `ledger` | `ledger-evaluator` |
 | Scribe | `scribe` | `scribe-evaluator` |
 | Character Creator | `character-builder` | `character-builder-evaluator` |

@@ -1,4 +1,4 @@
-export type AgentSlug = 'lore-engine' | 'architect1' | 'ledger' | 'scribe' | 'character-builder'
+export type AgentSlug = 'lore-engine' | 'architect' | 'ledger' | 'scribe' | 'character-builder'
 
 export type BlockKind = 'system' | 'context' | 'history' | 'user-input'
 
@@ -73,8 +73,8 @@ export const AGENT_CONFIGS: Record<AgentSlug, AgentConfig> = {
     ],
   },
 
-  architect1: {
-    slug: 'architect1',
+  architect: {
+    slug: 'architect',
     displayName: 'Architect',
     model: 'claude-sonnet-4-6',
     maxTokens: 1024,
@@ -88,7 +88,7 @@ export const AGENT_CONFIGS: Record<AgentSlug, AgentConfig> = {
         id: 'system-base',
         label: 'Base System Prompt',
         kind: 'system',
-        description: 'Loaded from prompt_versions slug=architect1, or style file fallback.',
+        description: 'Loaded from prompt_versions slug=architect, or style file fallback.',
       },
       {
         id: 'system-summary',

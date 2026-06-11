@@ -38,7 +38,7 @@ export async function loadSystemPrompt(slug: string): Promise<string | null> {
 }
 
 export async function loadArchitectPrompt(): Promise<string | null> {
-  return loadSystemPrompt('architect1')
+  return loadSystemPrompt('architect')
 }
 
 /** Clears the prompt cache for a specific slug (or all slugs if omitted). */

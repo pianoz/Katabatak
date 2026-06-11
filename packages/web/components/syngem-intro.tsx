@@ -1,7 +1,6 @@
-// @ts-nocheck
 "use client"
 
-import { useState, useEffect, useLayoutEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import ReactMarkdown from "react-markdown"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
@@ -23,13 +22,13 @@ const INTRO_TEXT =
 
   You would play there when you were younger. You would pretend to be one of those people from the stories.
 
-  It was the place where you could pretend to be heroes, to act out those stories you heard in so many songs.
+  It was the place where you could pretend to be heroes, to act out those tales you heard in so many songs.
 
   "Gather round," the bard would say, her eyes shining in the evening dark. "and let me tell you of the Days of Rain."
 
-  You still remember the sound of her voice, the whispers, the lute transforming with every strum. It was a window's howl then it was an warchant.
-  It was swords on swords on swords. Steel. Men reaching for men, eyes glittering with violence, and above it all a violet sun and the hum of something other,
-  something beyond and something lost.
+  You still remember the sound of her voice, the whispers, the lute transforming with every strum. It was a window's howl, and then it was a warchant.
+  It was swords on swords on swords. Steel. Men reaching for other men, their eyes glittering with violence, and above it all a violet sun and the hum of something other,
+  Something beyond. Something lost.
 
 
   Magic.
@@ -37,7 +36,7 @@ const INTRO_TEXT =
 
   The essence of the world.
 
-  And then you would all hurry home.
+  And then you would hurry home.
 
 
   Because those are all stories, and we left them behind with the cloak of childhood.
@@ -51,8 +50,8 @@ const INTRO_TEXT =
 
   Because there is always a turning, and the days of sun were never going to stay forever.
 
-  And now there are pale things in these late days. sinewy, old things from the old places and the high places. They coalese like dew, shadows, dripping from the lintels of ruins,
-  collecting, turning into something with shape, curiosity, and cruelty. 
+  And now there are pale things in these late days. sinewy, old things from the old places and the high places. They coalesce like dew, shadows, dripping from the lintels of ruins,
+  collecting, turning into something with shape, curiosity, and cruelty.
 
   Or at least, that is what they say...
   `
@@ -68,39 +67,63 @@ const QUESTIONS = [
   "What caused you to leave your previous life?"
 ]
 
-// ─── Typewriter hook ──────────────────────────────────────────────────────────
+// ─── Line show hook ───────────────────────────────────────────────────────────
+// Shows one line at a time: fades in, holds, fades out, advances.
+// Skip jumps to showing all lines at once.
 
-function useTypewriter(text: string, speed = 18) {
-  const [displayed, setDisplayed] = useState("")
-  const [done, setDone] = useState(false)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+function useLineShow(text: string) {
+  const lines = useMemo(
+    () => text.split('\n').map(l => l.trim()).filter(Boolean),
+    [text]
+  )
+  const [index, setIndex] = useState(0)
+  const [visible, setVisible] = useState(false)
+  const [skipped, setSkipped] = useState(false)
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  useEffect(() => {
-    setDisplayed("")
-    setDone(false)
-    if (!text) return
-
-    let i = 0
-    intervalRef.current = setInterval(() => {
-      i++
-      setDisplayed(text.slice(0, i))
-      if (i >= text.length) {
-        clearInterval(intervalRef.current!)
-        setDone(true)
-      }
-    }, speed)
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [text, speed])
-
-  const skip = () => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
-    setDisplayed(text)
-    setDone(true)
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout)
+    timers.current = []
   }
 
-  return { displayed, done, skip }
+  // Reset when text changes (phase/question transition)
+  useEffect(() => {
+    clearTimers()
+    setIndex(0)
+    setVisible(false)
+    setSkipped(false)
+  }, [lines])
+
+  useEffect(() => {
+    if (skipped || !lines.length || index >= lines.length) return
+    clearTimers()
+
+    // Fade in current line
+    const t1 = setTimeout(() => setVisible(true), 50)
+    timers.current.push(t1)
+
+    // If not the last line: fade out and advance
+    if (index < lines.length - 1) {
+      const holdMs = Math.min(Math.max(900, lines[index].length * 40), 5000)
+      const t2 = setTimeout(() => setVisible(false), holdMs + 50)
+      timers.current.push(t2)
+      const t3 = setTimeout(() => setIndex(i => i + 1), holdMs + 650)
+      timers.current.push(t3)
+    }
+
+    return clearTimers
+  }, [index, skipped])
+
+  const skip = () => {
+    clearTimers()
+    setSkipped(true)
+    setVisible(false)
+  }
+
+  // done = last line is showing, or skip was pressed
+  const done = skipped || (index >= lines.length - 1 && visible)
+
+  return { lines, currentLine: lines[index] ?? '', visible, skipped, done, skip }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -119,15 +142,10 @@ interface CreatorResult {
   initial_quest: { id: string; title: string; status: string; description: string }
 }
 
-const SCROLLBAR_CLASSES =
-  "overflow-y-auto [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-thumb]:rounded-full"
-
 export function SyngemIntro({ userId }: SyngemIntroProps) {
   const router = useRouter()
   const supabase = createClient()
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const [topSpacerHeight, setTopSpacerHeight] = useState(0)
 
   const [phase, setPhase] = useState<Phase>("intro")
   const [questionIndex, setQuestionIndex] = useState(0)
@@ -137,59 +155,32 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
   const [creatorResult, setCreatorResult] = useState<CreatorResult | null>(null)
   const [characterId, setCharacterId] = useState<string | null>(null)
 
-  // What text to typewrite depends on phase and question index
   const activeText =
     phase === "intro"
       ? INTRO_TEXT
       : phase === "questions"
       ? QUESTIONS[questionIndex]
       : phase === "reveal"
-      ? (creatorResult?.story_hook || creatorResult?.backstory || "")
+      ? (creatorResult?.story_hook ?? creatorResult?.backstory ?? "")
       : ""
 
-  const { displayed, done: typewritingDone, skip } = useTypewriter(
-    activeText,
-    phase === "intro" ? 18 : 28
-  )
+  const { lines, currentLine, visible, skipped, done: typewritingDone, skip } = useLineShow(activeText)
 
-  // Focus input once question finishes typewriting
+  // Focus input once question is done fading in
   useEffect(() => {
     if (typewritingDone && phase === "questions") {
       inputRef.current?.focus()
     }
   }, [typewritingDone, phase, questionIndex])
 
-  // Measure scroll container and set spacer: top = 2/3 height, bottom = 1/3 height
-  // useLayoutEffect prevents flash on first render
-  useLayoutEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const measure = () => setTopSpacerHeight(el.clientHeight * (2 / 3))
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [phase])
-
-  // Auto-scroll to bottom so the latest text sits at 1/3 from the bottom
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [displayed, topSpacerHeight])
-
-  const handleIntroAdvance = () => {
-    setPhase("questions")
-  }
+  const handleIntroAdvance = () => setPhase("questions")
 
   const handleAnswerSubmit = () => {
     const trimmed = inputValue.trim()
     if (!trimmed) return
-
     const newAnswers = [...answers, trimmed]
     setAnswers(newAnswers)
     setInputValue("")
-
     if (questionIndex < QUESTIONS.length - 1) {
       setQuestionIndex((prev) => prev + 1)
     } else {
@@ -244,7 +235,6 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
 
       await createSyngemGame(supabase, newChar.id, userId)
 
-      // Fire quest start grants (Brin NPC + starter items) — non-blocking, failure is non-fatal
       fetch("/api/gm/quest/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -284,22 +274,26 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
         {/* ── Intro phase ────────────────────────────────────────────── */}
         {phase === "intro" && (
           <div className="flex flex-col flex-1 min-h-0">
-            <div
-              ref={scrollContainerRef}
-              className={`flex-1 min-h-0 ${SCROLLBAR_CLASSES}`}
-              style={{ scrollbarWidth: "thin", scrollbarColor: "#3f3f46 transparent" }}
-            >
-              {/* Top spacer: pushes text to 2/3 down on first render */}
-              <div style={{ height: topSpacerHeight }} aria-hidden="true" />
-              {/* Bottom padding: keeps cursor at 1/3 from bottom when scrolled to end */}
-              <div className="border-l-2 border-cyan-900/40 pl-6" style={{ paddingBottom: topSpacerHeight / 2 }}>
-                <p className="font-serif text-zinc-300 text-base leading-loose whitespace-pre-line">
-                  {displayed}
-                  {!typewritingDone && (
-                    <span className="inline-block w-0.5 h-4 bg-cyan-500/60 animate-pulse ml-0.5 align-middle" />
-                  )}
+            <div className="flex-1 flex items-center justify-center min-h-0 overflow-hidden">
+              {skipped ? (
+                <div
+                  className="overflow-y-auto max-h-full w-full animate-in fade-in duration-500"
+                  style={{ scrollbarWidth: 'thin', scrollbarColor: '#3f3f46 transparent' }}
+                >
+                  {lines.map((line, i) => (
+                    <p key={i} className="font-serif text-zinc-300 text-base leading-loose mb-4 text-center">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p
+                  className="font-serif text-zinc-300 text-base leading-loose text-center px-4 transition-opacity duration-500"
+                  style={{ opacity: visible ? 1 : 0 }}
+                >
+                  {currentLine}
                 </p>
-              </div>
+              )}
             </div>
             <div className="h-12 flex items-center shrink-0 mt-4">
               {!typewritingDone ? (
@@ -339,11 +333,11 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
 
               {/* Current question */}
               <div className="space-y-4">
-                <p className="font-serif text-zinc-200 text-lg leading-relaxed">
-                  {displayed}
-                  {!typewritingDone && (
-                    <span className="inline-block w-0.5 h-5 bg-cyan-500/60 animate-pulse ml-0.5 align-middle" />
-                  )}
+                <p
+                  className="font-serif text-zinc-200 text-lg leading-relaxed transition-opacity duration-500"
+                  style={{ opacity: visible ? 1 : 0 }}
+                >
+                  {lines[0] ?? ""}
                 </p>
 
                 {typewritingDone && (
@@ -397,37 +391,75 @@ export function SyngemIntro({ userId }: SyngemIntroProps) {
                 <p className="text-[9px] uppercase tracking-[0.4em] text-zinc-600 font-mono mb-1">Character</p>
                 <p className="font-serif text-zinc-100 text-2xl leading-snug">{answers[0]}</p>
               </div>
-
               <div className="space-y-1">
                 <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-600 font-mono">Origin</p>
                 <p className="font-serif text-zinc-400 text-sm leading-relaxed">{creatorResult.background_primary}</p>
               </div>
-
               <div className="space-y-1">
                 <p className="text-[9px] uppercase tracking-[0.3em] text-zinc-600 font-mono">Appearance</p>
                 <p className="font-serif text-zinc-400 text-sm leading-relaxed">{creatorResult.physical_description}</p>
               </div>
             </div>
 
-            {/* Right panel — scrollable story hook */}
+            {/* Right panel — story hook */}
             <div className="flex-1 flex flex-col min-h-0">
-              <div
-                ref={scrollContainerRef}
-                className={`flex-1 min-h-0 ${SCROLLBAR_CLASSES}`}
-                style={{ scrollbarWidth: "thin", scrollbarColor: "#3f3f46 transparent" }}
-              >
-                <div style={{ height: topSpacerHeight }} aria-hidden="true" />
-                <div className="border-l-2 border-cyan-900/40 pl-6" style={{ paddingBottom: topSpacerHeight / 2 }}>
-                  <div className="prose prose-invert max-w-none prose-p:font-serif prose-p:text-zinc-300 prose-p:leading-loose prose-headings:font-sans prose-headings:uppercase prose-headings:tracking-widest prose-headings:text-[0.65rem] prose-headings:text-zinc-500 prose-headings:mb-4 prose-strong:text-zinc-100 prose-p:mt-0 prose-p:mb-4">
-                    <ReactMarkdown>{displayed}</ReactMarkdown>
-                    {!typewritingDone && (
-                      <span className="inline-block w-0.5 h-4 bg-cyan-500/60 animate-pulse ml-0.5 align-middle" />
-                    )}
+              <div className="flex-1 flex items-center justify-center min-h-0 overflow-hidden">
+                {skipped ? (
+                  <div
+                    className="overflow-y-auto max-h-full w-full animate-in fade-in duration-500"
+                    style={{ scrollbarWidth: 'thin', scrollbarColor: '#3f3f46 transparent' }}
+                  >
+                    {lines.map((line, i) => (
+                      <ReactMarkdown
+                        key={i}
+                        components={{
+                          p: ({ children }) => (
+                            <p className="font-serif text-zinc-300 leading-loose mb-4">{children}</p>
+                          ),
+                          h1: ({ children }) => (
+                            <h1 className="font-sans uppercase tracking-widest text-[0.65rem] text-zinc-500 mb-4">{children}</h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="font-sans uppercase tracking-widest text-[0.65rem] text-zinc-500 mb-4">{children}</h2>
+                          ),
+                        }}
+                      >
+                        {line}
+                      </ReactMarkdown>
+                    ))}
                   </div>
-                </div>
+                ) : (
+                  <div
+                    className="w-full text-center px-4 transition-opacity duration-500"
+                    style={{ opacity: visible ? 1 : 0 }}
+                  >
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => (
+                          <p className="font-serif text-zinc-300 leading-loose">{children}</p>
+                        ),
+                        h1: ({ children }) => (
+                          <h1 className="font-sans uppercase tracking-widest text-[0.65rem] text-zinc-500 mb-2">{children}</h1>
+                        ),
+                        h2: ({ children }) => (
+                          <h2 className="font-sans uppercase tracking-widest text-[0.65rem] text-zinc-500 mb-2">{children}</h2>
+                        ),
+                      }}
+                    >
+                      {currentLine}
+                    </ReactMarkdown>
+                  </div>
+                )}
               </div>
               <div className="h-12 flex items-center pl-6 shrink-0 mt-4">
-                {typewritingDone && (
+                {!typewritingDone ? (
+                  <button
+                    onClick={skip}
+                    className="ml-auto text-[9px] uppercase tracking-[0.4em] text-zinc-700 hover:text-zinc-400 transition-colors font-mono"
+                  >
+                    Skip
+                  </button>
+                ) : (
                   <div className="animate-in fade-in duration-700">
                     <button
                       onClick={handleRevealAdvance}

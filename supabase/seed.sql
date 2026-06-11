@@ -490,7 +490,7 @@ WHERE NOT EXISTS (SELECT 1 FROM public.prompt_versions WHERE slug = 'lore-engine
 
 INSERT INTO public.prompt_versions (name, slug, version, prompt, description, created_by)
 SELECT
-  'Architect Evaluator v1', 'architect1-evaluator', 1,
+  'Architect Evaluator v1', 'architect-evaluator', 1,
   jsonb_build_object(
     'model', 'claude-haiku-4-5-20251001',
     'maxTokens', 200,
@@ -513,7 +513,7 @@ Respond with ONLY: a score (0–100) on the first line, then one or two sentence
   ),
   'Default evaluator prompt for the Architect agent.',
   'a0000000-0000-0000-0000-000000000001'
-WHERE NOT EXISTS (SELECT 1 FROM public.prompt_versions WHERE slug = 'architect1-evaluator');
+WHERE NOT EXISTS (SELECT 1 FROM public.prompt_versions WHERE slug = 'architect-evaluator');
 
 INSERT INTO public.prompt_versions (name, slug, version, prompt, description, created_by)
 SELECT

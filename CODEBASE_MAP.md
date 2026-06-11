@@ -441,7 +441,7 @@ offer_type:   item | denarius | skill_point | spell
 | `20260529230000_add_combat_fields.sql` | Adds `ascii_art text` to `creatures`; adds `combat_phase text` (CHECK: player_attack\|player_defend) to `games`; adds `strong_cost integer` and `strong_defence integer` to `encounter_creatures` |
 | `20260601000000_add_improvised_entities.sql` | `improvised_entities` table — character-scoped entities from Architect improvisations. Composite PK `(character_id, id)`. `parent_id → world_entities`. Index on `(character_id, parent_id)`. Authenticated SELECT policy |
 | `20260606000000_add_tracked_to_character_inventory.sql` | `tracked BOOLEAN NOT NULL DEFAULT FALSE` on `character_inventory` — marks items the SYNGEM AI should always load (quest/special items, set at grant time) |
-| `20260610000000_seed_evaluator_prompts.sql` | Seeds v1 evaluator prompts into `prompt_versions` for all 5 agents (slugs: `lore-engine-evaluator`, `architect1-evaluator`, `ledger-evaluator`, `scribe-evaluator`, `character-builder-evaluator`). DO block looks up dev user by email; skips gracefully if not found |
+| `20260610000000_seed_evaluator_prompts.sql` | Seeds v1 evaluator prompts into `prompt_versions` for all 5 agents (slugs: `lore-engine-evaluator`, `architect-evaluator`, `ledger-evaluator`, `scribe-evaluator`, `character-builder-evaluator`). DO block looks up dev user by email; skips gracefully if not found |
 
 ---
 

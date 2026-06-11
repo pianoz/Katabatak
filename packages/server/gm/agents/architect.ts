@@ -135,7 +135,7 @@ function serializeLoreResult(lore: LoreEngineOutput, resolution?: CheckResolutio
 
 /**
  * Streams the GM narrative response chunk by chunk (claude-sonnet-4-6).
- * Loads the `architect1` prompt from the DB; falls back to the style text if none exists.
+ * Loads the `architect` prompt from the DB; falls back to the style text if none exists.
  */
 export async function* streamArchitect({
   styleText,

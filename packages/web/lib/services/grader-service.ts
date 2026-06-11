@@ -29,7 +29,7 @@ Grade on: correct action_type, accurate check requirement, correct pool selectio
 
 Respond with ONLY: a score (0–100) on the first line, then one or two sentences of review. Nothing else.`,
 
-  architect1: `You are grading the Architect, the narrative GM for the Katabatak dark fantasy RPG. It produces atmospheric prose that responds to player actions, respects character state, and drives the story forward.
+  architect: `You are grading the Architect, the narrative GM for the Katabatak dark fantasy RPG. It produces atmospheric prose that responds to player actions, respects character state, and drives the story forward.
 
 The three stat pools shaping character capability: Power (strength/conviction), Essence (magic/perception), Will (social/dex/endurance).
 

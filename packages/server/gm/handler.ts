@@ -1,5 +1,4 @@
 import { autoHydrate } from './auto-hydrator.js'
-import { pickStyleText } from './style-modulator.js'
 import { runLoreEngine } from './agents/lore-engine.js'
 import { streamArchitect } from './agents/architect.js'
 import { runLedger } from './agents/ledger.js'
@@ -136,10 +135,7 @@ export async function* handleGMMessage({
     if (filtered.length) searchResults = filtered.join('\n\n')
   }
 
-  // 7. Pick style text
-  const styleText = pickStyleText()
-
-  // 8. Fetch scribe data — summary lives on syngem_game, quest objectives on characters
+  // 7. Fetch scribe data — summary lives on syngem_game, quest objectives on characters
   const { character: { character } } = contextBlock
   const scribeSummary = contextBlock.syngemGame?.summary ?? null
   const questObjectives = (character as Record<string, unknown>)['quest_objectives'] ?? null
@@ -152,7 +148,6 @@ export async function* handleGMMessage({
   const t2 = Date.now()
   let fullResponse = ''
   for await (const chunk of streamArchitect({
-    styleText,
     contextBlock,
     scribeSummary,
     questObjectives,

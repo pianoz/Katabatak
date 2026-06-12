@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, Play, Loader2 } from "lucide-react"
+import { ChevronLeft, Play, Loader2, Database, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import {
@@ -120,6 +120,11 @@ export default function PromptEvalPage() {
   const [running, setRunning] = useState(false)
   const [sessionTokens, setSessionTokens] = useState({ input: 0, output: 0 })
   const [runLog, setRunLog] = useState<RunLogEntry[]>([])
+
+  // Defaults actions
+  const [loadingDefaults, setLoadingDefaults] = useState(false)
+  const [savingDefaults, setSavingDefaults] = useState(false)
+  const [defaultsMsg, setDefaultsMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null)
 
   // Col resize
   const [col1Width, setCol1Width] = useState(336)
@@ -431,6 +436,89 @@ export default function PromptEvalPage() {
     }))
   }
 
+  // ─── Default test cases ───────────────────────────────────────────────────
+
+  async function handleLoadDefaults() {
+    if (!selectedSlug) return
+    setLoadingDefaults(true)
+    setDefaultsMsg(null)
+    try {
+      const res = await fetch(`/api/dev/test-cases?slug=${selectedSlug}&default=true`)
+      const rows = (await res.json()) as Array<{
+        id: string
+        slug_version: number
+        blocks: HydratedBlock[]
+        player_input: string
+        expected_output: ExpectedOutput | null
+        label: string
+      }>
+      if (!res.ok || !rows.length) {
+        setDefaultsMsg({ kind: "err", text: "No default tests found for this agent." })
+        return
+      }
+      // Restore blocks from the snapshot (same across all records for the same refresh)
+      setHydratedBlocks(rows[0].blocks.map((b) => ({ ...b, status: b.status as BlockStatus })))
+      // Load the prompt version that was active when these were saved
+      const version = rows[0].slug_version
+      if (version && version !== selectedVersion) {
+        setSelectedVersion(version)
+        const row = await getPromptByVersion(supabase, selectedSlug, version)
+        setLoadedPrompt(row)
+      }
+      // Restore test cases
+      setTestCases(rows.map((r) => ({
+        id: crypto.randomUUID(),
+        userInput: r.player_input,
+        expectedOutput: (r.expected_output as ExpectedOutput) ?? makeDefaultExpected(selectedSlug),
+      })))
+      setResults([])
+      setDefaultsMsg({ kind: "ok", text: `Loaded ${rows.length} default test${rows.length !== 1 ? "s" : ""}` })
+    } catch {
+      setDefaultsMsg({ kind: "err", text: "Failed to load defaults." })
+    } finally {
+      setLoadingDefaults(false)
+    }
+  }
+
+  async function handleSaveAsDefault() {
+    if (!selectedSlug || selectedVersion === null) return
+    const filledCases = testCases.filter((c) => c.userInput.trim())
+    if (!filledCases.length) {
+      setDefaultsMsg({ kind: "err", text: "Add at least one test case with input before saving." })
+      return
+    }
+    setSavingDefaults(true)
+    setDefaultsMsg(null)
+    try {
+      const body = {
+        slug: selectedSlug,
+        slugVersion: selectedVersion,
+        blocks: hydratedBlocks,
+        testCases: filledCases.map((tc, i) => ({
+          label: `Default ${i + 1}`,
+          playerInput: tc.userInput,
+          expectedOutput: tc.expectedOutput,
+          testType: "static" as const,
+        })),
+      }
+      const res = await fetch("/api/dev/test-cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = (await res.json()) as unknown[] | { error?: string }
+      if (!res.ok) {
+        setDefaultsMsg({ kind: "err", text: (data as { error?: string }).error ?? "Save failed." })
+        return
+      }
+      setDefaultsMsg({ kind: "ok", text: `Saved ${filledCases.length} default test${filledCases.length !== 1 ? "s" : ""}` })
+    } catch {
+      setDefaultsMsg({ kind: "err", text: "Failed to save defaults." })
+    } finally {
+      setSavingDefaults(false)
+    }
+  }
+
   // ─── Derived ──────────────────────────────────────────────────────────────
 
   const config = selectedSlug ? AGENT_CONFIGS[selectedSlug as AgentSlug] : null
@@ -550,18 +638,46 @@ export default function PromptEvalPage() {
         {/* ── COL 2: Test cases ─────────────────────────────────────────── */}
         <main className="flex-1 flex flex-col overflow-hidden min-w-0">
           {selectedSlug && config ? (
-            <TestCaseEditor
-              cases={testCases}
-              results={results}
-              expectedOutputKind={config.expectedOutputKind}
-              agentProducesJson={config.producesJson}
-              userInputLabel={config.userInputLabel}
-              userInputPlaceholder={config.userInputPlaceholder}
-              onAdd={addCase}
-              onRemove={removeCase}
-              onUpdateInput={updateInput}
-              onUpdateExpected={updateExpected}
-            />
+            <>
+              {/* Defaults toolbar */}
+              <div className="shrink-0 border-b border-border/30 px-3 py-1.5 flex items-center gap-2 bg-background/70">
+                <button
+                  onClick={handleLoadDefaults}
+                  disabled={loadingDefaults || savingDefaults}
+                  className="flex items-center gap-1 font-sans text-[0.55rem] uppercase tracking-widest border border-border/50 text-muted-foreground/60 px-2 py-1 hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
+                >
+                  {loadingDefaults ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Database className="w-2.5 h-2.5" />}
+                  Load Defaults
+                </button>
+                <button
+                  onClick={handleSaveAsDefault}
+                  disabled={loadingDefaults || savingDefaults || !hydratedBlocks.some((h) => h.status === "loaded")}
+                  className="flex items-center gap-1 font-sans text-[0.55rem] uppercase tracking-widest border border-border/50 text-muted-foreground/60 px-2 py-1 hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
+                >
+                  {savingDefaults ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Save className="w-2.5 h-2.5" />}
+                  Save as Default
+                </button>
+                {defaultsMsg && (
+                  <span className={`font-sans text-[0.5rem] uppercase tracking-widest ${defaultsMsg.kind === "ok" ? "text-green-500" : "text-red-400"}`}>
+                    {defaultsMsg.text}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <TestCaseEditor
+                  cases={testCases}
+                  results={results}
+                  expectedOutputKind={config.expectedOutputKind}
+                  agentProducesJson={config.producesJson}
+                  userInputLabel={config.userInputLabel}
+                  userInputPlaceholder={config.userInputPlaceholder}
+                  onAdd={addCase}
+                  onRemove={removeCase}
+                  onUpdateInput={updateInput}
+                  onUpdateExpected={updateExpected}
+                />
+              </div>
+            </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <p className="font-serif text-muted-foreground/40 italic text-sm">

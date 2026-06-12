@@ -1552,6 +1552,48 @@ export type Database = {
         }
         Relationships: []
       }
+      prompt_test_cases: {
+        Row: {
+          id: string
+          slug: string
+          slug_version: number
+          test_type: string
+          label: string
+          blocks: Json
+          player_input: string
+          expected_output: Json | null
+          is_default: boolean
+          generated_at: string
+          generated_by: string | null
+        }
+        Insert: {
+          id?: string
+          slug: string
+          slug_version: number
+          test_type: string
+          label: string
+          blocks?: Json
+          player_input?: string
+          expected_output?: Json | null
+          is_default?: boolean
+          generated_at?: string
+          generated_by?: string | null
+        }
+        Update: {
+          id?: string
+          slug?: string
+          slug_version?: number
+          test_type?: string
+          label?: string
+          blocks?: Json
+          player_input?: string
+          expected_output?: Json | null
+          is_default?: boolean
+          generated_at?: string
+          generated_by?: string | null
+        }
+        Relationships: []
+      }
       player_entity_mutations: {
         Row: {
           id: number

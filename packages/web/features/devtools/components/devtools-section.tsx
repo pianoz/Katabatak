@@ -69,6 +69,14 @@ export function DevToolsSection() {
             Prompt Builder
           </Button>
         </Link>
+        <Link href="/dev/test-manager">
+          <Button
+            variant="outline"
+            className="border-cyan-700/50 text-cyan-400 hover:bg-cyan-950/20 uppercase tracking-widest text-xs"
+          >
+            Test Suite
+          </Button>
+        </Link>
         <Link href="/dev/logs">
           <Button
             variant="outline"

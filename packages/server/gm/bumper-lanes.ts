@@ -148,6 +148,18 @@ export const ITEM_TYPES: Record<string, string> = {
   denarii: 'currency',
 }
 
+// ─── NPC mutation field names ─────────────────────────────────────────────────
+
+export const NPC_MUTATION_FIELDS: Record<string, string> = {
+  knowledgeappend: 'knowledge_append',
+  addknowledge: 'knowledge_append',
+  appendknowledge: 'knowledge_append',
+  knowledgeadd: 'knowledge_append',
+  knownfactsappend: 'known_facts_append',
+  addfact: 'known_facts_append',
+  appendfact: 'known_facts_append',
+}
+
 // ─── Normalizer functions ──────────────────────────────────────────────────────
 
 /** Normalizes a single raw Ledger action object before Zod parsing. */
@@ -156,6 +168,15 @@ export function normalizeLedgerAction(raw: Record<string, unknown>): Record<stri
   const result: Record<string, unknown> = { ...raw, action }
   if (action === 'grant_item' && 'item_type' in result) {
     result['item_type'] = applyBumperLane(result['item_type'], ITEM_TYPES)
+  }
+  if (action === 'update_npc' && result['mutations'] && typeof result['mutations'] === 'object') {
+    const rawMutations = result['mutations'] as Record<string, unknown>
+    const normalized: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(rawMutations)) {
+      const canonicalKey = NPC_MUTATION_FIELDS[collapse(key)] ?? key
+      normalized[canonicalKey] = value
+    }
+    result['mutations'] = normalized
   }
   return result
 }

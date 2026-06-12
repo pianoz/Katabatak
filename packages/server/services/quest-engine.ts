@@ -76,6 +76,7 @@ async function createNpcFromTemplate(
     disposition_to_players: template.disposition_to_players,
     personality_profile: template.personality_profile as unknown as Json,
     following_character_id: characterId,
+    character_id: characterId,
     current_location_id: locationId ?? 'loc_karkill',
     is_alive: true,
     game_id: null,

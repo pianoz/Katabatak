@@ -1,10 +1,10 @@
-import { autoHydrate } from './auto-hydrator.js'
+import { autoHydrate, hydrateNpcs } from './auto-hydrator.js'
 import { runLoreEngine } from './agents/lore-engine.js'
 import { streamArchitect } from './agents/architect.js'
 import { runLedger } from './agents/ledger.js'
 import { executeStateChanges } from './state-executor.js'
 import { runScribe } from './agents/summary.js'
-import { searchWorldEntities, gatherInfoLore } from '../services/world-service.js'
+import { searchWorldEntities, gatherInfoLore, decrementNpcBuffers, applyParticipantBuffers } from '../services/world-service.js'
 import {
   saveTurn,
   getRecentTurns,
@@ -63,6 +63,11 @@ export async function* handleGMMessage({
   const { turnNumber } = await saveTurn(characterId, gameId, 'player', message)
   synLog('HANDLER', `✓ turn saved — #${turnNumber}`, undefined, requestId)
 
+  // 3b. Decrement NPC buffers before hydration so knowledge tiers are correct this turn
+  await decrementNpcBuffers(gameId, characterId).catch((err) =>
+    synLog('HANDLER', `✗ [NpcBuffers] decrement error: ${err instanceof Error ? err.message : String(err)}`, undefined, requestId),
+  )
+
   // 4. Build context block
   const t0 = Date.now()
   const contextBlock = await autoHydrate(characterId, gameId, requestId)
@@ -81,6 +86,28 @@ export async function* handleGMMessage({
     ? { action_type: 'task' as const, requires_check: false }
     : await runLoreEngine({ lastTwoTurns, contextBlock, playerInput: message, client, userId, characterId, requestId })
   const loreMs = Date.now() - t1
+
+  // 4b. Apply participant buffers: resolve NL referents → find/spawn instances → set buffer_count = 5
+  if (loreResult.participant_buffers?.length) {
+    const locationId = (contextBlock.character.character as Record<string, unknown>)['location_place'] as string | null ?? null
+    synLog('HANDLER', `→ participant buffers: [${loreResult.participant_buffers.join(', ')}]`, undefined, requestId)
+    const bufferedIds = await applyParticipantBuffers(loreResult.participant_buffers, contextBlock.npcs, gameId).catch(
+      (err) => {
+        synLog('HANDLER', `✗ [ParticipantBuffers] error: ${err instanceof Error ? err.message : String(err)}`, undefined, requestId)
+        return [] as string[]
+      },
+    )
+    if (bufferedIds.length) {
+      synLog('HANDLER', `✓ participant buffers applied — ${bufferedIds.length} instance(s) buffered`, undefined, requestId)
+      // Re-hydrate NPCs so newly-buffered knowledge appears in this turn's Architect context
+      contextBlock.npcs = await hydrateNpcs(
+        characterId,
+        gameId,
+        locationId,
+        contextBlock.syngemGame?.game_time_minutes ?? 720,
+      )
+    }
+  }
 
   // 5. If check required and not yet resolved, halt and return the check prompt
   if (loreResult.requires_check && !checkResolution) {
@@ -185,7 +212,7 @@ export async function* handleGMMessage({
     runLedger({ narrativeText: fullResponse, characterId, locationContext, client, userId, requestId })
       .then((ledgerOutputs) => {
         if (ledgerOutputs.length) {
-          return executeStateChanges(characterId, ledgerOutputs, locationContext, requestId)
+          return executeStateChanges(characterId, ledgerOutputs, locationContext, requestId, gameId)
         }
       })
       .catch((err) => synLog('HANDLER', `✗ [Ledger/StateExecutor] async error: ${err instanceof Error ? err.message : String(err)}`, undefined, requestId))

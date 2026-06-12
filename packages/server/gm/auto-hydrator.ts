@@ -2,7 +2,7 @@ import { getFullCharacter } from '../services/character-service.js'
 import type { InventoryItem } from '../services/character-service.js'
 import { getGameWithMembers, getActiveEncounter } from '../services/game-service.js'
 import { getSyngemGame } from '../services/syngem-game-service.js'
-import { getNpcsForGame, getNpcsForCharacter, computeNpcRoutineLocation } from '../services/world-service.js'
+import { getNpcsForGame, getNpcsForCharacter, getNpcByWorldEntityId, computeNpcRoutineLocation } from '../services/world-service.js'
 import type { NpcRow } from '../services/world-service.js'
 import supabase from './tools/db.js'
 import { synLog, synLogVerbose } from './logger.js'
@@ -12,6 +12,7 @@ import type {
   LocationEntityFull,
   EnrichedNpc,
   NpcPersonalityProfile,
+  NpcData,
   ActiveQuestNote,
 } from './types.js'
 import type { GameWithMembers, EncounterWithCreatures } from '../services/game-service.js'
@@ -94,9 +95,9 @@ export async function resolveLocationEntities(
 
   const entityIds = chain.map((e) => e.id)
   const { data: mutations } = await supabase
-    .from('player_entity_mutations')
+    .from('character_entity_mutations')
     .select('entity_id, mutations')
-    .eq('player_id', characterId)
+    .eq('character_id', characterId)
     .in('entity_id', entityIds)
 
   const mutationMap = new Map(
@@ -168,7 +169,13 @@ function enrichAndFilterNpcs(
     }
 
     const profile = (npc.personality_profile ?? {}) as NpcPersonalityProfile
+    const npcData = (npc.data ?? {}) as NpcData
     const disposition = npc.disposition_to_players ?? 0
+
+    // data.long_description is preferred; fall back to personality_profile.personality
+    const longDescription = npcData.long_description || profile.personality || null
+    // data.short_description is preferred; fall back to small_summary column
+    const shortDescription = npcData.short_description || npc.small_summary || null
 
     enriched.push({
       id: npc.id,
@@ -180,8 +187,9 @@ function enrichAndFilterNpcs(
       isFollowing,
       lastEncounterSummary: profile.memory?.last_encounter_summary ?? null,
       currentTask: profile.current_task ?? null,
-      personality: isFollowing ? (profile.personality ?? null) : null,
-      smallSummary: isFollowing ? null : (npc.small_summary ?? null),
+      personality: isFollowing ? longDescription : null,
+      smallSummary: isFollowing ? null : shortDescription,
+      knowledge: (npc.buffer_count ?? 0) > 0 ? (npcData.knowledge ?? []) : [],
     })
   }
 
@@ -252,7 +260,7 @@ export async function hydrateGame(
   return { syngemGame, game, encounterData }
 }
 
-/** Fetches and filters NPCs visible at the player's location. */
+/** Fetches, filters, and tiers NPCs visible at the player's location. */
 export async function hydrateNpcs(
   characterId: string,
   gameId: string | undefined,
@@ -263,7 +271,63 @@ export async function hydrateNpcs(
     gameId ? getNpcsForGame(gameId) : Promise.resolve([]),
     getNpcsForCharacter(characterId),
   ])
+
+  // Seed the map from known npcs table rows (these always win on dedup)
   const npcMap = new Map([...gameNpcs, ...companionNpcs].map((n) => [n.id, n]))
+
+  // Also pull world_entity NPCs at the character's location and merge in any that
+  // don't already have an npcs instance for this game
+  if (locationPlace) {
+    const { data: worldNpcs } = await supabase
+      .from('world_entities')
+      .select('id, name, data, parent_id')
+      .eq('parent_id', locationPlace)
+      .eq('type', 'npc')
+
+    if (worldNpcs?.length) {
+      const instanceChecks = worldNpcs.map((we) => getNpcByWorldEntityId(we.id, gameId))
+      const instances = await Promise.all(instanceChecks)
+
+      for (let i = 0; i < worldNpcs.length; i++) {
+        const we = worldNpcs[i]
+        const instance = instances[i]
+
+        if (instance) {
+          // Instance exists — use it (keyed by its UUID so no conflict with world_entity ID)
+          if (!npcMap.has(instance.id)) npcMap.set(instance.id, instance)
+        } else {
+          // No instance yet — synthesize a minimal NpcRow-shaped object for display
+          // (spawning only happens on actual interaction via updateNpcMutations)
+          if (!npcMap.has(we.id)) {
+            const weData = (we.data ?? {}) as Record<string, unknown>
+            const virtualNpc: NpcRow = {
+              id: we.id,
+              name: we.name,
+              title: null,
+              faction: null,
+              game_id: gameId ?? null,
+              following_character_id: null,
+              current_location_id: we.parent_id ?? 'none',
+              disposition_to_players: 0,
+              is_alive: true,
+              last_seen_tick: null,
+              small_summary: null,
+              world_entity_id: we.id,
+              data: we.data,
+              // Build personality_profile so fallback logic in enrichAndFilterNpcs works
+              // if data.long_description is missing
+              personality_profile: {
+                personality: (weData['long_description'] as string | undefined) ?? (weData['long_desc'] as string | undefined) ?? null,
+              },
+              attribute_modifiers: {},
+            }
+            npcMap.set(we.id, virtualNpc)
+          }
+        }
+      }
+    }
+  }
+
   return enrichAndFilterNpcs(Array.from(npcMap.values()), characterId, locationPlace, gameTimeMinutes)
 }
 
@@ -306,9 +370,9 @@ export async function hydrateLocation(
   const mutationMap = new Map<string, Record<string, unknown>>()
   if (entityAtIds.length) {
     const { data: mutRows } = await supabase
-      .from('player_entity_mutations')
+      .from('character_entity_mutations')
       .select('entity_id, mutations')
-      .eq('player_id', characterId)
+      .eq('character_id', characterId)
       .in('entity_id', entityAtIds)
     for (const m of mutRows ?? []) {
       if (m.entity_id) mutationMap.set(m.entity_id, m.mutations as Record<string, unknown>)

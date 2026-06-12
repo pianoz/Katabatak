@@ -128,7 +128,7 @@ The Ledger emits `update_entity` when the narrative changes an object's state pe
 
 `update_entity` merges the `mutations` object into the existing `data` JSONB — fields not mentioned are preserved.
 
-For player-specific state (e.g. a door the player opened that other players haven't), use `delete_entity` with a `replacement_description` — this writes to `player_entity_mutations` rather than the canonical entity:
+For player-specific state (e.g. a door the player opened that other players haven't), use `delete_entity` with a `replacement_description` — this writes to `character_entity_mutations` rather than the canonical entity:
 
 ```json
 {
@@ -140,16 +140,17 @@ For player-specific state (e.g. a door the player opened that other players have
 
 ---
 
-## `player_entity_mutations` — Per-Player Overrides
+## `character_entity_mutations` — Per-Character Overrides
 
-`player_entity_mutations` stores per-character deltas on top of `world_entities`. The Auto-Hydrator merges these when building location context for the Architect.
+`character_entity_mutations` stores per-character deltas on top of `world_entities`. The Auto-Hydrator merges these when building location context for the Architect. `character_id` FK → `characters(id) ON DELETE CASCADE` — rows are automatically deleted when a character is deleted.
 
 Fields:
+- `character_id` — the character whose view of the world differs from the canonical entity
 - `mutations` — JSONB patch applied on top of `data`; override any field
 - `travel_progress` — 0.0–1.0 position along a linear path (e.g. an item dropped on a road)
 - `spatial_relation` — text description of precise position ("in the ditch on the left")
 
-The GM server writes to this table; players never write directly.
+The GM server writes to this table via `delete_entity` actions; players never write directly.
 
 ---
 

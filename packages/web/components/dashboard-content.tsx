@@ -513,14 +513,15 @@ function CharactersList({ characters }: { characters: Character[] }) {
   const handleDelete = async (characterId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setDeleting(true)
-    const { error } = await deleteCharacter(createClient(), characterId)
-    setDeleting(false)
-    if (error) {
-      console.error("Delete failed:", error.message)
-      return
+    try {
+      await deleteCharacter(characterId)
+      setConfirmingId(null)
+      router.refresh()
+    } catch (err) {
+      console.error("Delete failed:", err)
+    } finally {
+      setDeleting(false)
     }
-    setConfirmingId(null)
-    router.refresh()
   }
 
   return (

@@ -53,7 +53,8 @@ katabatak/
 | `/dev/users` | `app/dev/users/page.tsx` | User management |
 | `/syngem/intro` | `app/syngem/intro/page.tsx` | Atmospheric character creation intro — typewriter Q&A flow, calls `/api/character-creator`, creates SYNGEM character |
 | `/dev/prompt-builder` | `app/dev/prompt-builder/page.tsx` | Drag-and-drop prompt block editor — save/load/test agent prompts against live GM server. Auto-Hydrator block fetches context by `characterId` only (no multiplayer game picker); `syngem_game` table included in hydration output |
-| `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | **Agent Grader** — 3-column dev harness for evaluating SYNGEM agent prompts. Col 1: agent slug + version selector; character dropdown (SYNGEM characters only, `ai_game = true`); drag-resizable column; live block sequence viewer with LOADED/EMPTY/PLACEHOLDER badges — clicking a LOADED block opens a full-content modal. Col 2: test cases with per-agent expected output editors. Col 3: run log with code grade `x/y` + model grade `score/100` from a versioned Haiku evaluator prompt (slug: `<agent>-evaluator`; falls back to hardcoded). Character blocks hydrated via `/api/gm/hydrate`: `system` blocks from `prompt_versions`, `recent_history` from `conversation_turns` (last 4 turns), `summary` from `syngem_game.summary`, `quest_objectives` from `characters.quest_objectives`, `quest_notes` from `activeQuestNotes`. All model calls locked to production config |
+| `/dev/prompt-eval` | `app/dev/prompt-eval/page.tsx` | **Agent Grader** — 3-column dev harness for evaluating SYNGEM agent prompts. Col 1: agent slug + version selector; character dropdown (SYNGEM characters only, `ai_game = true`); drag-resizable column; live block sequence viewer with LOADED/EMPTY/PLACEHOLDER badges — clicking a LOADED block opens a full-content modal. Col 2: test cases with per-agent expected output editors; **Load Defaults** icon button fetches `is_default` records from `prompt_test_cases` and restores blocks + test cases; **Save as Default** icon button persists current blocks + cases. Col 3: run log with code grade `x/y` + model grade `score/100` from a versioned Haiku evaluator prompt (slug: `<agent>-evaluator`; falls back to hardcoded). Character blocks hydrated via `/api/gm/hydrate`: `system` blocks from `prompt_versions`, `recent_history` from `conversation_turns` (last 4 turns), `summary` from `syngem_game.summary`, `quest_objectives` from `characters.quest_objectives`, `quest_notes` from `activeQuestNotes`. All model calls locked to production config |
+| `/dev/test-manager` | `app/dev/test-manager/page.tsx` | **Test Suite** — stale-detection dashboard for the 5 SYNGEM agent prompts. One card per agent shows current prompt version, last static snapshot version (`slug_version` from `prompt_test_cases`), generation timestamp, and a STALE/CURRENT badge. Refresh button opens a cost-warning confirmation modal, then calls `POST /api/dev/test-cases/refresh` to re-hydrate context blocks using `TEST_CHARACTER_ID` |
 | `/dev/combat` | `app/dev/combat/page.tsx` | Combat system test harness — pick any character + up to 5 creatures (duplicates of the same type allowed) + game session, start/abort combat without SYNGEM |
 | `/about` | `app/about/page.tsx` | About page |
 | `/auth/error` | `app/auth/error/page.tsx` | Auth error |
@@ -80,6 +81,10 @@ katabatak/
 | `GET /api/dev/users` | `app/api/dev/users/route.ts` | Admin user list (dev flag required) |
 | `POST /api/dev/log-level` | `app/api/dev/log-level/route.ts` | Proxies to GM server `POST /dev/log-level`. Sets pipeline log level at runtime (dev only) |
 | `DELETE /api/dev/conversation-history` | `app/api/dev/conversation-history/route.ts` | Validates `is_dev`, proxies to GM server `DELETE /gm/conversation/:characterId` — wipes all `conversation_turns` for a character |
+| `GET /api/dev/test-cases` | `app/api/dev/test-cases/route.ts` | Returns `prompt_test_cases` rows for a slug. `?default=true` filters to `is_default = true` only. Dev-gated |
+| `POST /api/dev/test-cases` | `app/api/dev/test-cases/route.ts` | Replaces all `is_default = true` rows for a slug with the provided blocks + test cases. Dev-gated |
+| `POST /api/dev/test-cases/refresh` | `app/api/dev/test-cases/refresh/route.ts` | Re-hydrates context blocks for all default test cases of a slug using `TEST_CHARACTER_ID`. Updates `blocks`, `slug_version`, `generated_at`. Requires `TEST_CHARACTER_ID` env var and existing defaults. Dev-gated |
+| `POST /api/dev/chain-test-run` | `app/api/dev/chain-test-run/route.ts` | Runs the full upstream agent chain for a slug (e.g. lore-engine → architect for `architect`) and returns final output + chain intermediates. Results not stored. Falls back to `TEST_CHARACTER_ID`. Dev-gated |
 | `DELETE /api/auth/delete-account` | `app/api/auth/delete-account/route.ts` | Delete account |
 | `GET /api/auth/callback` | `app/api/auth/callback/route.ts` | Supabase magic-link callback |
 
@@ -318,15 +323,10 @@ server/
     ├── record-token-usage.ts      # BYOK: fire-and-forget token count writes to token_usage
     ├── budget-guard.ts            # BYOK: checkBudget(userId) — reads cap + aggregate, returns allowed bool
     ├── auto-hydrator.ts           # Layer 1: builds ContextBlock by composing 5 exported module functions. Exported modules: `hydrateCharacter` (stats, pool texts, quest notes), `hydrateInventory` (tracked+equipped items only, carry weight), `hydrateGame` (syngemGame, multiplayer game, encounter), `hydrateNpcs` (enriched+filtered NPC list), `hydrateLocation` (chain walk-up + entities physically at current place + connected sibling locations + improvised entities). `autoHydrate` composes all 5 in two parallel batches. `contextBlock()` and `resolveLocationEntities()` remain exported for lore-engine
-    ├── style-modulator.ts         # Layer 3: picks a random style file from gm/content/
     ├── state-executor.ts          # Layer 5b: validates and applies Ledger output to DB. create_entity deduplicates against world_entities then improvised_entities; grant_item writes to character_inventory and sets `tracked=true` for quest-type or special/rare/epic/legendary rarity items. All internal helpers accept requestId for trace logging
-    ├── content/
-    │   ├── style_1.txt            # Restrained / observational
-    │   ├── style_2.txt            # Lyrical / elegiac
-    │   └── style_3.txt            # Terse / consequential
     ├── agents/
     │   ├── lore-engine.ts         # Layer 2: intent + mechanics (Haiku, slug: lore-engine). Validates LLM JSON against LoreEngineOutputSchema (safeParse); logs Zod issues on failure and returns no-check task fallback. Accepts requestId for trace logging
-    │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect). `serializeContextBlock` uses `trackedInventory` (not full inventory) for Equipped/Carrying sections; adds `=== LOCATION ENTITIES ===` (world_entities at current place) and `=== CONNECTED LOCATIONS ===` (sibling places) blocks. Accepts requestId for trace logging
+    │   ├── architect.ts           # Layer 4: narrator (Sonnet, streamed, slug: architect). Loads prompt from DB (slug: 'architect') via loadArchitectPrompt(); falls back to hardcoded FALLBACK_STYLE if no DB prompt exists. `serializeContextBlock` uses `trackedInventory` (not full inventory) for Equipped/Carrying sections; adds `=== LOCATION ENTITIES ===` (world_entities at current place) and `=== CONNECTED LOCATIONS ===` (sibling places) blocks. Accepts requestId for trace logging
     │   ├── ledger.ts              # Layer 5a: world-state audit (Sonnet, async, slug: ledger). Validates parsed array against LedgerOutputSchema (safeParse); logs Zod issues on failure and returns [] — prevents malformed actions from reaching state-executor. Accepts requestId for trace logging
     │   ├── summary.ts             # Layer 6: Scribe summarizer (Haiku, async, slug: scribe). Defines ScribeOutputSchema locally; validates LLM JSON (safeParse) and logs Zod issues on failure before returning empty fallback. Accepts requestId for trace logging
     │   ├── character-creator.ts   # One-shot: builds character profile from Q&A using the Waystone story scaffold (Sonnet, temp 0.9, max 2000 tokens). Returns background_primary/secondary, physical_description, backstory, story_hook, initial_quest. Called by POST /character-creator
@@ -381,6 +381,7 @@ All four sub-agents (Lore-Engine, Architect, Ledger, Scribe) load their system p
 | `conversation_turns` | Persisted GM conversation history. `role` (`player`\|`assistant`), `turn_number` |
 | `syngem_game` | Solo AI GM session state. One row per character. `game_date_days`, `game_time_minutes`, `in_combat`, `summary`. Keyed by `character_id` (unique). Fantasy calendar: 30-day months, 12 months/year |
 | `prompt_versions` | Versioned agent system prompts. `slug`, `version`, `prompt` JSONB, `description` |
+| `prompt_test_cases` | Persistent test library for SYNGEM agent prompts. `slug`, `slug_version` (prompt version at generation time), `test_type` (`static`\|`chain`), `label`, `blocks` JSONB (`HydratedBlock[]`), `player_input`, `expected_output` JSONB, `is_default` (pinned default cases shown in the grader), `generated_at`, `generated_by`. RLS: `is_dev = true` required for all operations |
 | `character_snapshots` | Point-in-time character state for undo/history |
 | `roll_events` | Dice roll log per game session |
 | `token_usage` | BYOK token spend log — append-only. `user_id`, `character_id`, `agent`, `model`, `input_tokens`, `output_tokens`. RLS: users SELECT own rows; GM server inserts via service role |
@@ -442,6 +443,7 @@ offer_type:   item | denarius | skill_point | spell
 | `20260601000000_add_improvised_entities.sql` | `improvised_entities` table — character-scoped entities from Architect improvisations. Composite PK `(character_id, id)`. `parent_id → world_entities`. Index on `(character_id, parent_id)`. Authenticated SELECT policy |
 | `20260606000000_add_tracked_to_character_inventory.sql` | `tracked BOOLEAN NOT NULL DEFAULT FALSE` on `character_inventory` — marks items the SYNGEM AI should always load (quest/special items, set at grant time) |
 | `20260610000000_seed_evaluator_prompts.sql` | Seeds v1 evaluator prompts into `prompt_versions` for all 5 agents (slugs: `lore-engine-evaluator`, `architect-evaluator`, `ledger-evaluator`, `scribe-evaluator`, `character-builder-evaluator`). DO block looks up dev user by email; skips gracefully if not found |
+| `20260611000000_add_prompt_test_cases.sql` | Creates `prompt_test_cases` table with 4 separate RLS policies (SELECT/INSERT/UPDATE/DELETE) all gated on `profiles.is_dev = true` |
 
 ---
 
@@ -455,6 +457,8 @@ offer_type:   item | denarius | skill_point | spell
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase publishable (anon) key |
 | `SUPABASE_SECRET_KEY` | Yes | Supabase secret key (bypasses RLS, server-side only) |
 | `GM_API_KEY` | Yes | Shared secret sent as `Authorization: Bearer` on all GM proxy calls |
+| `GM_SERVER_URL` | No | GM server base URL for server-side direct calls (default: `http://localhost:3001`) — used by the test-cases refresh and chain-test-run routes |
+| `TEST_CHARACTER_ID` | Dev only | UUID of the character used for static test snapshot hydration (`/api/dev/test-cases/refresh` and `/api/dev/chain-test-run`) |
 
 ### `packages/server` (`.env.local`)
 

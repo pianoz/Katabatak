@@ -141,6 +141,7 @@ pnpm test:watch    # watch mode
 With an `is_dev` profile flag set, the app exposes:
 
 - **Prompt builder** — drag-and-drop prompt block editor with live eval against real game data
-- **Prompt eval** — run saved prompt versions against stored test inputs, compare outputs
+- **Prompt eval** — run saved prompt versions against stored test inputs, compare outputs with code + model grading. Load and save default test cases per agent
+- **Test Suite** — stale-detection dashboard for static test snapshots; one-click refresh re-hydrates context blocks using the test character. Chain test API runs full agent chains (auto-hydrator → lore-engine → architect/ledger) live
 - **Combat harness** — test combat resolution against any character + creature combination
 - **Log level control** — toggle pipeline verbosity at runtime without a server restart

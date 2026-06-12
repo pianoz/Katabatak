@@ -69,7 +69,7 @@ Ledger and Scribe are fire-and-forget. The player's SSE stream closes before eit
 
 | Layer | Tech |
 | --- | --- |
-| Frontend | Next.js 15, React 19, TypeScript, Tailwind v4, shadcn/ui |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind v4, shadcn/ui |
 | AI Server | Express 5, TypeScript, Anthropic SDK |
 | Database | Supabase (PostgreSQL 15 + Auth + RLS) |
 | AI Models | Claude Haiku, Claude Sonnet |

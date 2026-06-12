@@ -263,7 +263,7 @@ If left blank, the run skips the grading step and only shows model responses.
 
 | Control | Notes |
 |---------|-------|
-| Model picker | Sonnet 4.6 / Opus 4.7 / Haiku 4.5 — applies to both main model and grader |
+| Model picker | Sonnet 4.6 / Opus 4.8 / Haiku 4.5 — applies to both main model and grader |
 | Max tokens | Number input, clamped to [64, 8192] |
 | Temperature | Range slider 0.00–1.00 |
 | Run Eval | Disabled until a slug is loaded and at least one block has content |
@@ -365,7 +365,7 @@ Accordion-style list of data types from `PLACEHOLDER_REGISTRY`. Clicking a type 
 
 | Control | Notes |
 | ------- | ----- |
-| Model picker | Sonnet 4.6 / Opus 4.7 / Haiku 4.5 |
+| Model picker | Sonnet 4.6 / Opus 4.8 / Haiku 4.5 |
 | Max tokens | Number input, clamped to [64, 8192] |
 | Temperature | Range slider 0.00–1.00, displayed with 2 decimal places |
 

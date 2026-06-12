@@ -93,7 +93,7 @@ export async function getCharacterActiveGameId(supabase: SupabaseClient, charact
     .select("game_id")
     .eq("character_id", characterId)
     .eq("member_status", "active")
-    .single()
+    .maybeSingle()
   return data?.game_id ?? null
 }
 

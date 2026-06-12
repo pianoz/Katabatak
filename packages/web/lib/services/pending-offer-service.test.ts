@@ -74,12 +74,12 @@ describe("pending-offer-service", () => {
   })
 
   afterAll(async () => {
-    await admin.from("pending_offers").delete().eq("game_id", gameId)
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
-    await teardownUser(charlieId)
-    await admin.from("items").delete().eq("id", catalogItemId)
-    await admin.from("spells").delete().eq("id", catalogSpellId)
+    try { await admin.from("pending_offers").delete().eq("game_id", gameId) } catch {}
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
+    try { await teardownUser(charlieId) } catch {}
+    try { await admin.from("items").delete().eq("id", catalogItemId) } catch {}
+    try { await admin.from("spells").delete().eq("id", catalogSpellId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

@@ -66,15 +66,15 @@ describe("snapshot-service", () => {
   })
 
   afterAll(async () => {
-    await admin.from("character_snapshots").delete().eq("character_id", aliceCharId)
-    await admin.from("character_spells").delete().eq("character_id", aliceCharId)
-    await admin.from("character_inventory").delete().eq("character_id", aliceCharId)
-    await admin.from("character_skills").delete().eq("character_id", aliceCharId)
-    await admin.from("spells").delete().eq("id", spellId)
-    await admin.from("items").delete().eq("id", itemId)
-    await admin.from("skills").delete().eq("id", skillId)
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
+    try { await admin.from("character_snapshots").delete().eq("character_id", aliceCharId) } catch {}
+    try { await admin.from("character_spells").delete().eq("character_id", aliceCharId) } catch {}
+    try { await admin.from("character_inventory").delete().eq("character_id", aliceCharId) } catch {}
+    try { await admin.from("character_skills").delete().eq("character_id", aliceCharId) } catch {}
+    try { await admin.from("spells").delete().eq("id", spellId) } catch {}
+    try { await admin.from("items").delete().eq("id", itemId) } catch {}
+    try { await admin.from("skills").delete().eq("id", skillId) } catch {}
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

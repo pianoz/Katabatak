@@ -45,10 +45,10 @@ describe("active-skill-service", () => {
   })
 
   afterAll(async () => {
-    await admin.from("character_active_skills").delete().eq("character_id", aliceCharId)
-    await admin.from("active_skills").delete().eq("id", activeSkillId)
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
+    try { await admin.from("character_active_skills").delete().eq("character_id", aliceCharId) } catch {}
+    try { await admin.from("active_skills").delete().eq("id", activeSkillId) } catch {}
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

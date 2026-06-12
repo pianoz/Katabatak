@@ -35,9 +35,9 @@ describe("profile-service", () => {
   })
 
   afterAll(async () => {
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
-    await teardownUser(charlieId)
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
+    try { await teardownUser(charlieId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

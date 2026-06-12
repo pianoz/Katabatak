@@ -65,11 +65,11 @@ describe("encounter-service", () => {
   })
 
   afterAll(async () => {
-    await admin.from("encounter_creatures").delete().eq("game_id", gameId)
-    await admin.from("creatures").delete().eq("id", creatureId)
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
-    await teardownUser(charlieId)
+    try { await admin.from("encounter_creatures").delete().eq("game_id", gameId) } catch {}
+    try { await admin.from("creatures").delete().eq("id", creatureId) } catch {}
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
+    try { await teardownUser(charlieId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

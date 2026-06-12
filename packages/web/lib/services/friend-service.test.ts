@@ -39,16 +39,15 @@ describe("friend-service", () => {
   })
 
   afterAll(async () => {
-    // Clean up any leftover friendship rows before deleting users
-    await admin
-      .from("friends")
-      .delete()
-      .or(
-        `friend_1.eq.${aliceId},friend_2.eq.${aliceId},friend_1.eq.${bobId},friend_2.eq.${bobId},friend_1.eq.${charlieId},friend_2.eq.${charlieId}`
-      )
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
-    await teardownUser(charlieId)
+    try {
+      await admin
+        .from("friends")
+        .delete()
+        .or(`friend_1.eq.${aliceId},friend_2.eq.${aliceId},friend_1.eq.${bobId},friend_2.eq.${bobId},friend_1.eq.${charlieId},friend_2.eq.${charlieId}`)
+    } catch {}
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
+    try { await teardownUser(charlieId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

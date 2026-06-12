@@ -44,9 +44,9 @@ describe("item-service", () => {
   })
 
   afterAll(async () => {
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
-    await admin.from("items").delete().eq("id", catalogItemId)
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
+    try { await admin.from("items").delete().eq("id", catalogItemId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

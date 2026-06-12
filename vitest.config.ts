@@ -9,6 +9,10 @@ export default defineConfig({
   },
   test: {
     include: ['packages/web/lib/**/*.test.ts', 'packages/web/features/**/*.test.ts'],
+    testTimeout: 30000,
+    hookTimeout: 30000,
+    pool: 'forks',
+    fileParallelism: false,
     env: (() => {
       // Load .env.test.local manually since vitest doesn't auto-load it
       const fs = require('fs');

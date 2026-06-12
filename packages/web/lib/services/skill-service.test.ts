@@ -49,11 +49,11 @@ describe("skill-service", () => {
   })
 
   afterAll(async () => {
-    await admin.from("character_skills").delete().eq("character_id", aliceCharId)
-    await admin.from("skill_edges").delete().or(`parent_skill_id.eq.${skillId},child_skill_id.eq.${skillId}`)
-    await admin.from("skills").delete().eq("id", skillId)
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
+    try { await admin.from("character_skills").delete().eq("character_id", aliceCharId) } catch {}
+    try { await admin.from("skill_edges").delete().or(`parent_skill_id.eq.${skillId},child_skill_id.eq.${skillId}`) } catch {}
+    try { await admin.from("skills").delete().eq("id", skillId) } catch {}
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

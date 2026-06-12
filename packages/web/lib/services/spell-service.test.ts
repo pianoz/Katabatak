@@ -33,10 +33,10 @@ describe("spell-service", () => {
   })
 
   afterAll(async () => {
-    await admin.from("character_spells").delete().eq("character_id", aliceCharId)
-    await admin.from("spells").delete().eq("id", catalogSpellId)
-    await teardownUser(aliceId)
-    await teardownUser(bobId)
+    try { await admin.from("character_spells").delete().eq("character_id", aliceCharId) } catch {}
+    try { await admin.from("spells").delete().eq("id", catalogSpellId) } catch {}
+    try { await teardownUser(aliceId) } catch {}
+    try { await teardownUser(bobId) } catch {}
   })
 
   // ---------------------------------------------------------------------------

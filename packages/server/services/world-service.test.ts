@@ -35,6 +35,7 @@ function awaitableChain(data: unknown) {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     neq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
     single: vi.fn().mockResolvedValue({ data, error: null }),
   }
   // Make the chain itself thenable (resolves with { data, error: null })
@@ -100,8 +101,9 @@ describe('getNpc', () => {
 
 describe('getNpcsForGame', () => {
   it('returns all npcs for a game', async () => {
-    const chain = awaitableChain([fakeNpc])
-    mockFrom.mockReturnValue(chain)
+    mockFrom
+      .mockReturnValueOnce(awaitableChain([fakeNpc]))
+      .mockReturnValueOnce(awaitableChain([]))
     const npcs = await getNpcsForGame('g1')
     expect(npcs).toEqual([fakeNpc])
   })

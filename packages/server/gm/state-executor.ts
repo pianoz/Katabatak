@@ -1,7 +1,7 @@
 import supabase from './tools/db.js'
 import { updateCharacter, getCharacter } from '../services/character-service.js'
 import { advanceLongRestTime } from '../services/syngem-game-service.js'
-import { updateNpcMutations } from '../services/world-service.js'
+import { updateNpcMutations, clearNpcBuffers } from '../services/world-service.js'
 import { synLog, synLogVerbose } from './logger.js'
 import type { Database, Json } from '@db-types'
 import type { LedgerOutput, LocationContext } from './types.js'
@@ -136,13 +136,13 @@ async function deleteEntity(
   entityId: string,
   replacementDescription: string,
 ): Promise<void> {
-  await supabase.from('player_entity_mutations').upsert(
+  await supabase.from('character_entity_mutations').upsert(
     {
-      player_id: characterId,
+      character_id: characterId,
       entity_id: entityId,
       mutations: { hidden: true, short_description: replacementDescription },
     },
-    { onConflict: 'player_id,entity_id' },
+    { onConflict: 'character_id,entity_id' },
   )
 }
 
@@ -273,6 +273,7 @@ export async function executeStateChanges(
   outputs: LedgerOutput[],
   locationContext?: LocationContext,
   requestId?: string,
+  gameId?: string,
 ): Promise<void> {
   for (const output of outputs) {
     try {
@@ -281,6 +282,8 @@ export async function executeStateChanges(
         case 'move_character':
           synLog('STATE-EXECUTOR', `→ move_character | dest:${output.destination_entity_id}`, undefined, requestId)
           await moveCharacter(characterId, output.destination_entity_id, requestId)
+          await clearNpcBuffers(gameId, characterId)
+          synLog('STATE-EXECUTOR', '→ NPC buffers cleared on location change', undefined, requestId)
           break
         case 'update_entity':
           synLog('STATE-EXECUTOR', `→ update_entity | id:${output.entity_id} fields:[${Object.keys(output.mutations).join(',')}]`, undefined, requestId)
@@ -296,7 +299,7 @@ export async function executeStateChanges(
           break
         case 'update_npc':
           synLog('STATE-EXECUTOR', `→ update_npc | id:${output.npc_id} fields:[${Object.keys(output.mutations).join(',')}]`, undefined, requestId)
-          await updateNpcMutations(output.npc_id, output.mutations)
+          await updateNpcMutations(output.npc_id, output.mutations, gameId, characterId)
           break
         case 'long_rest':
           synLog('STATE-EXECUTOR', '→ long_rest', undefined, requestId)

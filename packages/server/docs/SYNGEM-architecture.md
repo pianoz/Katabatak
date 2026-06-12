@@ -1,7 +1,7 @@
 <!-- markdownlint-disable-file -->
 # SYNGEM — Architecture Reference
 
-> Last meaningful update: 2026-06-01 — Deterministic creature AI: `creature-ai.ts` replaces Haiku-driven creature decision-making. `resolveCreatureAction(pools)` returns `{ attackChoice, defendChoice }` based on will-vs-power comparison — no LLM calls in the combat loop. Combat UX: click-to-retarget enemy cards, floating red damage number + cyan block `[N AC]` overlay on hits (visible even on 0-damage attacks), player pool strip shows floating damage + AC popup on incoming attacks, inline error strip when GM server is unreachable. Dev harness supports multiple instances of the same creature type. Test creatures added to seed.
+> Last meaningful update: 2026-06-13 — NPC Knowledge Hydration Tier (Ticket 6): three-tier NPC context model complete. `buffer_count` column on `npcs` gates knowledge injection. Lore engine emits `participant_buffers` (NL referents) when the player speaks to an NPC; world-service resolves, find-or-spawns, and sets `buffer_count = 5`. Buffers bleed 1/turn; knowledge evicts silently when buffer reaches 0. Location change zeroes all buffers immediately. See [NPC System](#npc-system) for the full three-tier model.
 
 ---
 
@@ -25,15 +25,20 @@ Player message (POST /gm)
   │
   ├─ [1] conversation-service.saveTurn()         // persist player turn to DB
   │
+  ├─ [1b] decrementNpcBuffers(gameId, characterId) // bleed all NPC buffer_counts by 1 before hydration
+  │
   ├─ [2] auto-hydrator.autoHydrate()             // build ContextBlock
   │       ├ getFullCharacter()
   │       ├ getGameWithMembers() + getActiveEncounter()
   │       ├ getNpcsForGame() + getNpcsForCharacter() → merged, deduped
+  │       │   world_entities[type='npc', parent_id=location] → deduped via world_entity_id
   │       │   enrichAndFilterNpcs()
   │       │   ├ lazy routine placement (fire-and-forget DB update)
+  │       │   ├ desc from npc.data.long_description / short_description (fallback: personality_profile / small_summary)
+  │       │   ├ knowledge: npc.data.knowledge[] — only if buffer_count > 0 (else [])
   │       │   └ filter to player's location + following NPCs → EnrichedNpc[]
   │       ├ quest_templates.description_gm for active quests → activeQuestNotes[]
-  │       ├ world_entities + player_entity_mutations (delta resolution)
+  │       ├ world_entities + character_entity_mutations (delta resolution)
   │       ├ improvised_entities for current location (character-scoped scene objects)
   │       └ semantic pool text tags (Full/Moderate/Low/Critical)
   │
@@ -41,7 +46,15 @@ Player message (POST /gm)
   │       ├ action_type: 'info' | 'task' | 'attack'
   │       ├ requires_check → HALT, return {type:'check_required'} to client
   │       ├ search_objects → execute world entity searches
+  │       ├ participant_buffers?: string[] — NL referents of NPCs being spoken to this turn
   │       └ recordTokenUsage() (fire-and-forget if userId present)
+  │
+  ├─ [3b] applyParticipantBuffers()              // resolve referents → find/spawn → buffer_count = 5
+  │       ├ tokenize each referent; score candidates (name/title/smallSummary match)
+  │       ├ fail-closed: zero matches → no-op; top scorer wins; ≤2 ties → buffer all
+  │       ├ find existing npcs instance (UUID lookup → world_entity_id → spawn fresh)
+  │       ├ set buffer_count = 5 on matched instances
+  │       └ if any buffered → re-run hydrateNpcs() to inject knowledge into contextBlock
   │
   ├─ [4] style-modulator.pickStyleText()         // random style file
   │
@@ -63,11 +76,11 @@ Player message (POST /gm)
   ├─ [async] ledger.runLedger()                  // Sonnet, Temp 0.0, JSON
   │             → recordTokenUsage() (fire-and-forget)
   │             → state-executor.executeStateChanges()
-  │               ├ move_character
+  │               ├ move_character → updateCharacter() + clearNpcBuffers() (evict knowledge on scene change)
   │               ├ update_entity
   │               ├ update_npc → updateNpcMutations()
   │               ├ create_entity → dedup check: world_entities → improvised_entities → insert
-  │               ├ delete_entity → player_entity_mutations
+  │               ├ delete_entity → character_entity_mutations
   │               └ grant_item → items (upsert template) + character_inventory
   │
   └─ [async, every 4 turns] summary.runScribe()  // Haiku, Temp 0.5
@@ -133,7 +146,7 @@ Deterministic function. Builds a `ContextBlock` from multiple parallel DB reads.
 - `getNpcsForCharacter()` — companion NPCs (`following_character_id = characterId`); always fetched regardless of gameId. Deduped and merged with game NPCs before enrichment.
 - `quest_templates` — `description_gm` for each active quest → `activeQuestNotes[]`
 - `world_entities` — location entities matching character's current location hierarchy
-- `player_entity_mutations` — per-player overrides; mutations override base entity descriptions
+- `character_entity_mutations` — per-character overrides; mutations override base entity descriptions
 - `improvised_entities` — character-scoped scene objects at the current location (`parent_id = location_place`). Surfaced to the Architect as `=== SCENE OBJECTS ===`. See [Improvised Entities](#improvised-entities-improvised_entities-table).
 
 **NPC enrichment (`enrichAndFilterNpcs`):**
@@ -147,7 +160,7 @@ For each NPC, the Auto-Hydrator computes a routine-based placement using `comput
 | 25–50% | `Low` |
 | ≤ 25% | `Critical` |
 
-**Location entity resolution:** Queries `world_entities` using `current_location_building` → siblings at same parent → fallback to `place_context` → fallback to `region_context`. Applies `player_entity_mutations` overrides on `short_description`.
+**Location entity resolution:** Queries `world_entities` using `current_location_building` → siblings at same parent → fallback to `place_context` → fallback to `region_context`. Applies `character_entity_mutations` overrides on `short_description`.
 
 ---
 
@@ -167,10 +180,13 @@ Haiku sub-agent. Receives the last 2 turns + serialized `ContextBlock` + player 
   check_description?: string
   search_objects?: Array<{ action: string; target: string; container: string }>
   narrative_notes?: string     // hints passed to Architect
+  participant_buffers?: string[] // NL referents of NPCs being directly spoken to this turn
 }
 ```
 
 If `requires_check: true` and no `checkResolution` present → pipeline halts, returns `CheckRequired` to client.
+
+`participant_buffers` is processed immediately after the lore engine returns: each referent is resolved against the candidate NPC set (co-located + following) via token matching on name/title/smallSummary. Matched instances have their `buffer_count` set to 5; the NPC list in `contextBlock` is then re-hydrated so knowledge appears in this turn's Architect context.
 
 **Search behavior differs by action type:**
 
@@ -250,11 +266,11 @@ Deterministic. Validates and executes Ledger output against the DB.
 
 | Action | DB Operation |
 |--------|-------------|
-| `move_character` | Validates entity is a location type, calls `updateCharacter()` with new location fields |
+| `move_character` | Validates entity is a location type, calls `updateCharacter()` with new location fields; then calls `clearNpcBuffers()` to zero all NPC buffer counts — knowledge evicts immediately on scene transition |
 | `update_entity` | Merges `mutations` into existing `world_entities.data` JSON |
 | `update_npc` | Calls `updateNpcMutations()` in `world-service.ts` — merges disposition delta (clamped to [-100,100]), overwrites `personality_profile.memory.last_encounter_summary`, appends to `known_facts` (cap 8), updates task/location/alive/following |
 | `create_entity` | Three-step dedup: (1) if ID exists in `world_entities` → merge new data only; (2) if ID exists in `improvised_entities` for this character → merge data; (3) otherwise → insert into `improvised_entities` with location context backfilled from character's current position |
-| `delete_entity` | Upserts into `player_entity_mutations` with `{hidden: true, short_description: ...}` |
+| `delete_entity` | Upserts into `character_entity_mutations` with `{hidden: true, short_description: ...}` |
 | `grant_item` | Finds or creates an `items` template row by name (case-insensitive); inserts into `character_inventory` with `quantity`, `condition: 100`, `is_equipped: false` |
 
 Errors are logged and swallowed — a Ledger failure never crashes a player turn.
@@ -504,11 +520,41 @@ The chosen level is stored in the express process's memory — restarting the se
 
 ## NPC System
 
-NPCs live in the dedicated `npcs` table (not `world_entities`) because they require game-scoped state (`game_id`), per-NPC disposition, and structured metadata not suited to the hierarchical entity model.
+NPCs use a **two-tier data model** with a **three-tier context model**. Canonical base state lives in `world_entities` (type `npc`); per-character interaction state lives in `npcs` instances linked by `world_entity_id`. Context injected into the GM changes based on relationship tier:
+
+### Context tiers
+
+| Tier | Field injected | Condition | Lifetime |
+|------|---------------|-----------|----------|
+| In scene | `short_description` | Shares character's current location | While co-located |
+| Part of scene | `long_description` + memory | `following_character_id = characterId` | While following |
+| Integral to scene | `knowledge[]` | `buffer_count > 0` on npcs instance | Active conversation + decay window |
+
+Knowledge is never stored in rolling context — it is re-hydrated from DB each turn based on `buffer_count`. When the counter reaches 0, knowledge silently stops loading. No end-of-conversation signal is needed.
+
+### Data layers
+
+- **`world_entities` (base):** Canonical NPC definition shared across all characters. `parent_id` sets the NPC's home location. `data` JSONB holds `short_description`, `long_description`, and (optional) `knowledge[]`. Never modified by game events.
+- **`npcs` (instance):** Created lazily on first character interaction. Holds game-scoped state: `disposition_to_players`, `personality_profile` (memory, routine, tasks), `following_character_id`, `data.knowledge[]` (per-character things learned), and `buffer_count` (conversation proximity counter). `world_entity_id` FK links back to the base entity.
 
 ### Data model
 
-All NPC-specific state beyond the base columns is stored in `personality_profile: Json`:
+NPC display descriptions live in `data: Json` (`NpcData` interface), present on both `world_entities` and `npcs`:
+
+```json
+{
+  "short_description": "A weathered roadwarden with a crossbow slung over one shoulder.",
+  "long_description": "Tomas is gruff and suspicious of outsiders, but loyal to those who prove themselves...",
+  "knowledge": [
+    "Gave the player directions to the Needle in exchange for coin",
+    "Suspects the player is hiding something"
+  ]
+}
+```
+
+`knowledge` is per-character — things a specific character has learned about this NPC through interaction. Appended by Ledger `update_npc` mutations (`knowledge_append`). There is no cap currently.
+
+Routine, memory, and tasks still live in `personality_profile: Json` on the `npcs` instance:
 
 ```json
 {
@@ -537,22 +583,46 @@ All NPC-specific state beyond the base columns is stored in `personality_profile
 
 ### Lazy simulation (Anti-Skyrim)
 
-NPCs are not simulated in real time. Instead, the Auto-Hydrator computes a plausible location on demand:
+NPCs are not simulated in real time. The Auto-Hydrator computes a plausible location on demand:
 
 1. `game_time_minutes` maps to a time slot: `night` (0–359), `morning` (360–719), `afternoon` (720–1079), `evening` (1080–1439).
 2. The NPC's `routine[slot]` gives the expected location. Falls back to `home_location_id`, then to `current_location_id`.
 3. If the expected location matches the player's location, the NPC appears in context. A fire-and-forget DB update keeps `current_location_id` current.
 4. NPCs whose `following_character_id = characterId` appear in every location context regardless of routine.
+5. NPCs in `world_entities` with `type='npc'` and `parent_id = locationPlace` are also surfaced — as virtual display objects if no `npcs` instance exists, or as the real instance if one does (looked up via `world_entity_id`). Real instances win in deduplication.
 
 NPCs out of the player's view cease to exist in the simulation until the player encounters them again.
 
+### Lazy instance spawning
+
+`npcs` instances are **never created at hydration time**. When the Ledger emits `update_npc` with a `npc_id` that is a `world_entities` string ID (not a UUID), `updateNpcMutations()` in `world-service.ts`:
+
+1. Tries to find an existing instance via `getNpcByWorldEntityId(npcId, gameId)`.
+2. If none found, calls `spawnNpcInstanceFromWorldEntity(npcId, gameId)` — copies `name`, `data`, and location from the base entity, inserts into `npcs`, returns the new UUID.
+3. Continues applying mutations to the real instance.
+
+The base `world_entities` row is never mutated by this process.
+
 ### NPC columns
+
+**`world_entities` (base, type = `npc`)**
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | text | snake_case slug |
-| `game_id` | uuid? | FK → games. **Nullable** — companion NPCs (e.g. Brin) have `game_id = null` and are linked solely via `following_character_id` |
+| `id` | text | snake_case slug, e.g. `roadwarden_tomas` |
 | `name` | text | |
+| `type` | enum | `npc` |
+| `parent_id` | text? | Home location ID |
+| `data` | jsonb | `NpcData`: `short_description`, `long_description`, `knowledge[]` |
+
+**`npcs` (instance, per-character)**
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | Auto-generated on spawn |
+| `world_entity_id` | text? | FK → `world_entities.id`; null for NPCs that were never in `world_entities` |
+| `game_id` | uuid? | FK → games. **Nullable** — companion NPCs (e.g. Brin) have `game_id = null` |
+| `name` | text | Copied from base entity at spawn |
 | `title` | text? | |
 | `faction` | text? | |
 | `current_location_id` | text | Updated lazily by Auto-Hydrator |
@@ -560,13 +630,38 @@ NPCs out of the player's view cease to exist in the simulation until the player 
 | `disposition_to_players` | int? | [-100, 100]; updated by Ledger `update_npc` |
 | `is_alive` | bool? | |
 | `last_seen_tick` | int? | Reserved for future narrative use |
-| `personality_profile` | jsonb | See structure above |
+| `data` | jsonb | `NpcData`: `short_description`, `long_description`, `knowledge[]` (per-character) |
+| `personality_profile` | jsonb | Routine, memory, tasks — see structure above |
+| `buffer_count` | int | Conversation proximity counter. Set to 5 when lore engine detects player addressing this NPC; decremented 1/turn; knowledge injected only while > 0. Zeroed on character location change |
 | `attribute_modifiers` | jsonb | Stat overrides for combat |
+
+### Description resolution in enriched context
+
+`enrichAndFilterNpcs()` resolves display descriptions in this order:
+
+- **Long description** (following NPCs): `data.long_description` → `personality_profile.personality` → `null`
+- **Short description** (location-sharing NPCs): `data.short_description` → `small_summary` → `null`
+- **Knowledge:** `data.knowledge ?? []` — **only if `buffer_count > 0`**; otherwise always `[]`
+
+### Knowledge buffer lifecycle
+
+1. Player's turn starts → `decrementNpcBuffers()` bleeds all instances in game/character scope by 1.
+2. `autoHydrate()` builds `contextBlock.npcs` — knowledge present only where `buffer_count > 0`.
+3. Lore engine runs → may emit `participant_buffers: ["the blacksmith", "Garrett"]`.
+4. `applyParticipantBuffers()` resolves each referent against the current NPC candidate set:
+   - Tokenizes referent (drops stop words ≤ 3 chars); scores candidates by token overlap against name/title/smallSummary.
+   - Fail-closed: zero score → no-op. Top scorer wins; up to 2 tied scores all buffered.
+   - Find-or-spawns the `npcs` instance; sets `buffer_count = 5`.
+5. If any buffers were applied → `hydrateNpcs()` re-runs and updates `contextBlock.npcs` so knowledge appears for the Architect this turn.
+6. On `move_character` (async, post-stream) → `clearNpcBuffers()` zeroes all buffers; knowledge evicts immediately on scene change.
+
+Decay window: 5 turns. Tune this constant in `applyParticipantBuffers()` if knowledge lingers too long (try 3) or evicts too quickly.
 
 ### Assigning tasks and following
 
 - **Task:** Ledger emits `update_npc` with `current_task`. The Architect narrates progress when the player asks; no real simulation occurs.
 - **Following:** Ledger emits `update_npc` with `following_character_id = characterId`. Auto-Hydrator includes the NPC in every subsequent turn until cleared.
+- **Knowledge:** Ledger emits `update_npc` with `knowledge_append: string[]`. Appended to `data.knowledge` on the `npcs` instance (spawning one first if needed). Knowledge is re-hydrated each turn but only injected into context when `buffer_count > 0`.
 
 ---
 
@@ -703,6 +798,7 @@ Bumper lanes are pre-Zod normalization tables that catch slightly misaligned LLM
 | ----- | ------- | ------- |
 | `LEDGER_ACTIONS` | `normalizeLedgerAction` | Canonical Ledger action names (e.g. `moveto` → `move_character`) |
 | `ITEM_TYPES` | `normalizeLedgerAction` (on `grant_item`) | Canonical item types: `weapon`, `armor`, `consumable`, `misc`, `currency` |
+| `NPC_MUTATION_FIELDS` | `normalizeLedgerAction` (on `update_npc`) | Canonical mutation key names (e.g. `addknowledge` → `knowledge_append`) — server-side only |
 | `LORE_ACTION_TYPES` | `normalizeLoreEngineRaw` | `info`, `task`, `attack` |
 | `LORE_POOLS` | `normalizeLoreEngineRaw` | `Power`, `Essence`, `Will` |
 | `QUEST_STATUSES` | `normalizeScribeRaw` | `active`, `completed`, `failed` |
@@ -715,7 +811,11 @@ Bumper lanes are pre-Zod normalization tables that catch slightly misaligned LLM
 To add a new alias: add a lowercase entry to the relevant table and its canonical target. No other changes needed.
 
 ### Extending NPC state
-New NPC fields that don't require DB schema changes go into `personality_profile` JSON (update `NpcPersonalityProfile` in `gm/types.ts`, extend `NpcMutations` if the Ledger should write them, and handle in `updateNpcMutations()` in `world-service.ts`). New typed columns (like `following_character_id`) require a migration + `database.types.ts` update.
+- **Display fields** (`short_description`, `long_description`, new player-facing text): add to `NpcData` in `gm/types.ts`. These live in `data` JSONB on both `world_entities` and `npcs`.
+- **Interaction/memory fields** (routine, tasks, per-NPC memory): add to `NpcPersonalityProfile` in `gm/types.ts`. These live in `personality_profile` on `npcs` instances only.
+- **Ledger-writable fields**: extend `NpcMutations` + `NpcMutationsSchema` Zod + handle in `updateNpcMutations()` in `world-service.ts`. Add bumper-lane aliases to `NPC_MUTATION_FIELDS` in `bumper-lanes.ts` for any new mutation key the LLM might spell differently.
+- **New typed columns** (e.g. `buffer_count`): require a migration + `database.types.ts` update.
+- **Tuning knowledge decay**: the decay window (5 turns) is the integer passed to `buffer_count = 5` in `applyParticipantBuffers()` in `world-service.ts`. Lower it to 3 for tighter eviction; raise it if knowledge drops out mid-conversation during extended tangents.
 
 ### Testing via CLI REPL
 ```bash

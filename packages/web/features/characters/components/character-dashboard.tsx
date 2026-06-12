@@ -736,13 +736,12 @@ export function CharacterDashboard({
 
     if (confirmed) {
       setIsDeleting(true)
-      const { error } = await deleteCharacter(createClient(), character.id)
-
-      if (!error) {
+      try {
+        await deleteCharacter(character.id)
         router.push("/dashboard")
         router.refresh()
-      } else {
-        console.error("Delete error:", error)
+      } catch (err) {
+        console.error("Delete error:", err)
         alert("Failed to delete character. Please try again.")
         setIsDeleting(false)
       }

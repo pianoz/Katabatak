@@ -165,8 +165,9 @@ export async function updateCharacterStat(
     .eq("id", characterId)
 }
 
-export async function deleteCharacter(supabase: SupabaseClient, characterId: string) {
-  return supabase.from("characters").delete().eq("id", characterId)
+export async function deleteCharacter(characterId: string): Promise<void> {
+  const res = await fetch(`/api/character/${characterId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await res.text())
 }
 
 export async function updateCharacter(supabase: SupabaseClient, characterId: string, updates: Record<string, unknown>) {

@@ -36,6 +36,7 @@ Schema:
   "check_description": string (brief label, only if requires_check),
   "search_objects": [{"action": string, "target": string, "container": string}] Only for 'info' when the player is asking about something OTHER than their current location. Targets must be plain human-readable keywords (e.g. "monks", "inscription on the wall", "old lighthouse") — never entity IDs or key strings.
   "narrative_notes": string (optional hint for the Architect, e.g. "player is attempting stealth")
+  "participant_buffers": string[] (optional) — natural language identifiers of any NPCs the character is directly speaking to this turn. e.g. ["the blacksmith", "Garrett"]. Use the same name or descriptor visible in the game state. Omit entirely if the player is not conversing with an NPC.
 }
 
 Rules:
@@ -54,7 +55,9 @@ Rules:
 
 - requires_check is true only for the action when there is meaningful risk of failure. Failure is caused by it being difficult, or there being circumstances which made it difficult. All tasks over the current given stat value for the character require a check.
 
-- to presever gameplay flow, for purely conversational or low-stakes actions, requires_check is false.`
+- to presever gameplay flow, for purely conversational or low-stakes actions, requires_check is false.
+
+- participant_buffers: include whenever the player's message is a direct address or conversation with an NPC. Use the same name or brief descriptor visible in the Nearby list. Do NOT include NPCs the player is merely observing, fighting, or acting near — only NPCs being spoken to.`
 
 /**
  * Classifies player intent and determines whether a skill check is required.

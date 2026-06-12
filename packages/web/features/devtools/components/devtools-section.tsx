@@ -53,6 +53,14 @@ export function DevToolsSection() {
             Modify Users
           </Button>
         </Link>
+        <Link href="/dev/world-entities">
+          <Button
+            variant="outline"
+            className="border-border text-foreground hover:bg-card uppercase tracking-widest text-xs"
+          >
+            World Entities
+          </Button>
+        </Link>
         <Link href="/dev/prompt-eval">
           <Button
             variant="outline"

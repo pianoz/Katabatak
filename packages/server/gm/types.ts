@@ -57,6 +57,14 @@ export interface NpcCurrentTask {
   assigned_tick: number
 }
 
+/** Structure of the npcs.data and world_entities.data JSONB field for NPC entities */
+export interface NpcData {
+  short_description?: string
+  long_description?: string
+  /** Things this character has learned about the NPC through interaction */
+  knowledge?: string[]
+}
+
 /** Structure of the npcs.personality_profile JSONB column */
 export interface NpcPersonalityProfile {
   personality?: string
@@ -72,6 +80,8 @@ export interface NpcMutations {
   disposition_delta?: number
   memory_append?: string
   known_facts_append?: string[]
+  /** New things the character has learned about this NPC; appended to data.knowledge */
+  knowledge_append?: string[]
   current_task?: NpcCurrentTask | null
   current_location_id?: string
   is_alive?: boolean
@@ -93,6 +103,8 @@ export interface EnrichedNpc {
   personality: string | null
   /** One-liner for bystanders (isFollowing === false) */
   smallSummary: string | null
+  /** Things this character has learned about the NPC through interaction */
+  knowledge: string[]
 }
 
 // ─── World entities ───────────────────────────────────────────────────────────
@@ -161,6 +173,8 @@ export interface LoreEngineOutput {
   check_description?: string
   search_objects?: SearchObject[]
   narrative_notes?: string
+  /** NL referents of NPCs the player is directly addressing this turn (e.g. ["the blacksmith", "Garrett"]). */
+  participant_buffers?: string[]
 }
 
 // ─── Check flow ───────────────────────────────────────────────────────────────
@@ -210,6 +224,7 @@ const NpcMutationsSchema = z.object({
   disposition_delta: z.number().optional(),
   memory_append: z.string().optional(),
   known_facts_append: z.array(z.string()).optional(),
+  knowledge_append: z.array(z.string()).optional(),
   current_task: z
     .object({ description: z.string(), target_location_id: z.string(), assigned_tick: z.number() })
     .nullable()
@@ -245,4 +260,5 @@ export const LoreEngineOutputSchema = z.object({
   check_description: z.string().optional(),
   search_objects: z.array(SearchObjectSchema).optional(),
   narrative_notes: z.string().optional(),
+  participant_buffers: z.array(z.string()).optional(),
 })

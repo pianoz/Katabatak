@@ -983,7 +983,9 @@ export type Database = {
       npcs: {
         Row: {
           attribute_modifiers: Json
+          buffer_count: number
           current_location_id: string
+          data: Json
           disposition_to_players: number | null
           faction: string | null
           following_character_id: string | null
@@ -995,10 +997,13 @@ export type Database = {
           personality_profile: Json
           small_summary: string | null
           title: string | null
+          world_entity_id: string | null
         }
         Insert: {
           attribute_modifiers?: Json
+          buffer_count?: number | null
           current_location_id?: string
+          data?: Json
           disposition_to_players?: number | null
           faction?: string | null
           following_character_id?: string | null
@@ -1010,10 +1015,13 @@ export type Database = {
           personality_profile?: Json
           small_summary?: string | null
           title?: string | null
+          world_entity_id?: string | null
         }
         Update: {
           attribute_modifiers?: Json
+          buffer_count?: number | null
           current_location_id?: string
+          data?: Json
           disposition_to_players?: number | null
           faction?: string | null
           following_character_id?: string | null
@@ -1025,6 +1033,7 @@ export type Database = {
           personality_profile?: Json
           small_summary?: string | null
           title?: string | null
+          world_entity_id?: string | null
         }
         Relationships: [
           {
@@ -1032,6 +1041,13 @@ export type Database = {
             columns: ["game_id"]
             isOneToOne: false
             referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "npcs_world_entity_id_fkey"
+            columns: ["world_entity_id"]
+            isOneToOne: false
+            referencedRelation: "world_entities"
             referencedColumns: ["id"]
           },
         ]

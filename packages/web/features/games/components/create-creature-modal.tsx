@@ -42,6 +42,7 @@ const empty: CreatureInsert = {
   strong_defence: null,
   strong_cost: null,
   attribute_cost_name: null,
+  ascii_art: null,
   created_by: null,
 };
 

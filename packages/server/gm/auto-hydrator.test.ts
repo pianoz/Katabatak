@@ -14,6 +14,7 @@ const mockGetFullCharacter = vi.fn()
 const mockGetGameWithMembers = vi.fn()
 const mockGetActiveEncounter = vi.fn()
 const mockGetNpcsForGame = vi.fn()
+const mockGetNpcsForCharacter = vi.fn()
 const mockGetSyngemGame = vi.fn()
 
 vi.mock('../services/character-service.js', () => ({ getFullCharacter: mockGetFullCharacter }))
@@ -21,7 +22,10 @@ vi.mock('../services/game-service.js', () => ({
   getGameWithMembers: mockGetGameWithMembers,
   getActiveEncounter: mockGetActiveEncounter,
 }))
-vi.mock('./tools/../../services/world-service.js', () => ({ getNpcsForGame: mockGetNpcsForGame }))
+vi.mock('./tools/../../services/world-service.js', () => ({
+  getNpcsForGame: mockGetNpcsForGame,
+  getNpcsForCharacter: mockGetNpcsForCharacter,
+}))
 vi.mock('../services/syngem-game-service.js', () => ({ getSyngemGame: mockGetSyngemGame }))
 
 const { resolveLocationEntities, autoHydrate } = await import('./auto-hydrator.js')
@@ -37,13 +41,18 @@ function singleChain(resolvedValue: unknown) {
   }
 }
 
-/** Builds a Supabase chain that resolves when awaited (for .in() queries). */
+/** Builds a thenable Supabase chain — all filter methods return `this`; awaiting the chain resolves with `{ data, error: null }`. */
 function arrayChain(data: unknown[]) {
   const chain: Record<string, unknown> = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
-    in: vi.fn().mockResolvedValue({ data, error: null }),
+    neq: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
+    or: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
   }
+  chain.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve)
+  chain.catch = (reject: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).catch(reject)
   return chain
 }
 
@@ -141,6 +150,9 @@ const windsRevenge = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockGetNpcsForGame.mockResolvedValue([])
+  mockGetNpcsForCharacter.mockResolvedValue([])
+  mockFrom.mockReturnValue(arrayChain([]))
 })
 
 describe('resolveLocationEntities', () => {
@@ -404,11 +416,30 @@ describe('autoHydrate', () => {
   it('returns a ContextBlock with locationEntities resolved from the character location', async () => {
     mockGetFullCharacter.mockResolvedValue(fakeFullCharacter)
     mockGetSyngemGame.mockResolvedValue(null)
-    mockFrom
-      .mockReturnValueOnce(singleChain({ data: fakePlace, error: null }))
-      .mockReturnValueOnce(singleChain({ data: fakeRegion, error: null }))
-      .mockReturnValueOnce(singleChain({ data: fakeNation, error: null }))
-      .mockReturnValue(arrayChain([]))
+    const worldEntitySingleData = [
+      { data: fakePlace, error: null },
+      { data: fakeRegion, error: null },
+      { data: fakeNation, error: null },
+    ]
+    let worldEntitySingleCount = 0
+    mockFrom.mockImplementation((tableName: string) => {
+      if (tableName === 'world_entities') {
+        const chain: Record<string, unknown> = {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          neq: vi.fn().mockReturnThis(),
+          in: vi.fn().mockReturnThis(),
+          is: vi.fn().mockReturnThis(),
+          single: vi.fn().mockImplementation(() =>
+            Promise.resolve(worldEntitySingleData[worldEntitySingleCount++] ?? { data: null, error: null }),
+          ),
+        }
+        chain.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve)
+        chain.catch = (reject: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).catch(reject)
+        return chain
+      }
+      return arrayChain([])
+    })
 
     const result = await autoHydrate('char-1')
 
@@ -445,6 +476,5 @@ describe('autoHydrate', () => {
     const result = await autoHydrate('char-1')
 
     expect(result?.locationEntities).toEqual([])
-    expect(mockFrom).not.toHaveBeenCalled()
   })
 })

@@ -115,7 +115,7 @@ export async function searchWorldEntities(
 ): Promise<WorldEntityRow[]> {
   const { data, error } = await supabase.rpc('search_world_entities', {
     search_query: query,
-    filter_type: filterType ?? null,
+    filter_type: filterType,
   })
   if (error || !data) return []
   return data
@@ -412,7 +412,7 @@ export async function applyParticipantBuffers(
         if (existing) {
           instanceId = existing.id
         } else {
-          const spawned = await spawnNpcInstanceFromWorldEntity(npc.id, gameId, characterId)
+          const spawned = await spawnNpcInstanceFromWorldEntity(npc.id, gameId)
           instanceId = spawned?.id ?? null
         }
       }

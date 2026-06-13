@@ -187,6 +187,51 @@ export type Database = {
           },
         ]
       }
+      character_entity_mutations: {
+        Row: {
+          character_id: string
+          entity_id: string | null
+          id: number
+          mutations: Json
+          spatial_relation: string | null
+          travel_progress: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          character_id: string
+          entity_id?: string | null
+          id?: number
+          mutations?: Json
+          spatial_relation?: string | null
+          travel_progress?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          character_id?: string
+          entity_id?: string | null
+          id?: number
+          mutations?: Json
+          spatial_relation?: string | null
+          travel_progress?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "character_entity_mutations_character_id_fkey"
+            columns: ["character_id"]
+            isOneToOne: false
+            referencedRelation: "characters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_entity_mutations_entity_id_fkey"
+            columns: ["entity_id"]
+            isOneToOne: false
+            referencedRelation: "world_entities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       character_history: {
         Row: {
           character_id: string
@@ -226,6 +271,7 @@ export type Database = {
           is_equipped: boolean | null
           item_id: string | null
           quantity: number | null
+          tracked: boolean
         }
         Insert: {
           acquired_at?: string | null
@@ -236,6 +282,7 @@ export type Database = {
           is_equipped?: boolean | null
           item_id?: string | null
           quantity?: number | null
+          tracked?: boolean
         }
         Update: {
           acquired_at?: string | null
@@ -246,6 +293,7 @@ export type Database = {
           is_equipped?: boolean | null
           item_id?: string | null
           quantity?: number | null
+          tracked?: boolean
         }
         Relationships: [
           {
@@ -367,6 +415,7 @@ export type Database = {
       }
       characters: {
         Row: {
+          ai_game: boolean
           background_primary: string | null
           backstory: string | null
           carrying_capacity: number | null
@@ -377,34 +426,33 @@ export type Database = {
           current_carry_weight: number | null
           current_essence: number | null
           current_health: number | null
-          location_place: string | null
           current_power: number | null
           current_will: number | null
           denarius: number | null
           essence_max: number | null
+          gm_history: Json | null
           health_max: number | null
           height: number | null
           id: string
           in_game: boolean | null
           is_active: boolean | null
+          key_entity_ids: string[] | null
           level: number | null
+          location_place: string | null
           name: string
           notes: string | null
           physical_description: string | null
           power_max: number | null
-          speed: number | null
-          ai_game: boolean | null
-          gm_history: Json | null
-          key_entity_ids: string[] | null
           quest_objectives: Json | null
-          syngem_game: boolean | null
+          speed: number | null
+          syngem_game: boolean
           unused_skill_points: number
           user_id: string | null
           weight_kgs: number | null
           will_max: number | null
         }
         Insert: {
-          ai_game?: boolean | null
+          ai_game?: boolean
           background_primary?: string | null
           backstory?: string | null
           carrying_capacity?: number | null
@@ -415,7 +463,6 @@ export type Database = {
           current_carry_weight?: number | null
           current_essence?: number | null
           current_health?: number | null
-          location_place?: string | null
           current_power?: number | null
           current_will?: number | null
           denarius?: number | null
@@ -428,20 +475,21 @@ export type Database = {
           is_active?: boolean | null
           key_entity_ids?: string[] | null
           level?: number | null
+          location_place?: string | null
           name: string
           notes?: string | null
           physical_description?: string | null
           power_max?: number | null
           quest_objectives?: Json | null
           speed?: number | null
-          syngem_game?: boolean | null
+          syngem_game?: boolean
           unused_skill_points?: number
           user_id?: string | null
           weight_kgs?: number | null
           will_max?: number | null
         }
         Update: {
-          ai_game?: boolean | null
+          ai_game?: boolean
           background_primary?: string | null
           backstory?: string | null
           carrying_capacity?: number | null
@@ -452,7 +500,6 @@ export type Database = {
           current_carry_weight?: number | null
           current_essence?: number | null
           current_health?: number | null
-          location_place?: string | null
           current_power?: number | null
           current_will?: number | null
           denarius?: number | null
@@ -465,13 +512,14 @@ export type Database = {
           is_active?: boolean | null
           key_entity_ids?: string[] | null
           level?: number | null
+          location_place?: string | null
           name?: string
           notes?: string | null
           physical_description?: string | null
           power_max?: number | null
           quest_objectives?: Json | null
           speed?: number | null
-          syngem_game?: boolean | null
+          syngem_game?: boolean
           unused_skill_points?: number
           user_id?: string | null
           weight_kgs?: number | null
@@ -484,12 +532,58 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "world_entities"
             referencedColumns: ["id"]
-          }
+          },
+        ]
+      }
+      conversation_turns: {
+        Row: {
+          character_id: string
+          content: string
+          created_at: string
+          game_id: string | null
+          id: string
+          role: string
+          turn_number: number
+        }
+        Insert: {
+          character_id: string
+          content: string
+          created_at?: string
+          game_id?: string | null
+          id?: string
+          role: string
+          turn_number: number
+        }
+        Update: {
+          character_id?: string
+          content?: string
+          created_at?: string
+          game_id?: string | null
+          id?: string
+          role?: string
+          turn_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_turns_character_id_fkey"
+            columns: ["character_id"]
+            isOneToOne: false
+            referencedRelation: "characters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_turns_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
         ]
       }
       creatures: {
         Row: {
           armor_class: number | null
+          ascii_art: string | null
           attack_cost: number | null
           attack_damage: number | null
           attribute_cost_name: string | null
@@ -517,6 +611,7 @@ export type Database = {
         }
         Insert: {
           armor_class?: number | null
+          ascii_art?: string | null
           attack_cost?: number | null
           attack_damage?: number | null
           attribute_cost_name?: string | null
@@ -544,6 +639,7 @@ export type Database = {
         }
         Update: {
           armor_class?: number | null
+          ascii_art?: string | null
           attack_cost?: number | null
           attack_damage?: number | null
           attribute_cost_name?: string | null
@@ -599,6 +695,8 @@ export type Database = {
           name: string
           power_max: number | null
           strong_attack: number | null
+          strong_cost: number | null
+          strong_defence: number | null
           will_max: number | null
         }
         Insert: {
@@ -620,6 +718,8 @@ export type Database = {
           name: string
           power_max?: number | null
           strong_attack?: number | null
+          strong_cost?: number | null
+          strong_defence?: number | null
           will_max?: number | null
         }
         Update: {
@@ -641,6 +741,8 @@ export type Database = {
           name?: string
           power_max?: number | null
           strong_attack?: number | null
+          strong_cost?: number | null
+          strong_defence?: number | null
           will_max?: number | null
         }
         Relationships: [
@@ -798,6 +900,7 @@ export type Database = {
           active_turn_index: number | null
           archived: boolean
           combat_log: string[] | null
+          combat_phase: string | null
           created_at: string | null
           current_turn_order: string[] | null
           gm_id: string
@@ -815,6 +918,7 @@ export type Database = {
           active_turn_index?: number | null
           archived?: boolean
           combat_log?: string[] | null
+          combat_phase?: string | null
           created_at?: string | null
           current_turn_order?: string[] | null
           gm_id: string
@@ -832,6 +936,7 @@ export type Database = {
           active_turn_index?: number | null
           archived?: boolean
           combat_log?: string[] | null
+          combat_phase?: string | null
           created_at?: string | null
           current_turn_order?: string[] | null
           gm_id?: string
@@ -851,6 +956,60 @@ export type Database = {
             columns: ["gm_profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      improvised_entities: {
+        Row: {
+          character_id: string
+          created_at: string
+          data: Json
+          id: string
+          name: string
+          nation_context: string | null
+          parent_id: string | null
+          place_context: string | null
+          region_context: string | null
+          type: Database["public"]["Enums"]["entity_type"]
+        }
+        Insert: {
+          character_id: string
+          created_at?: string
+          data?: Json
+          id: string
+          name: string
+          nation_context?: string | null
+          parent_id?: string | null
+          place_context?: string | null
+          region_context?: string | null
+          type: Database["public"]["Enums"]["entity_type"]
+        }
+        Update: {
+          character_id?: string
+          created_at?: string
+          data?: Json
+          id?: string
+          name?: string
+          nation_context?: string | null
+          parent_id?: string | null
+          place_context?: string | null
+          region_context?: string | null
+          type?: Database["public"]["Enums"]["entity_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "improvised_entities_character_id_fkey"
+            columns: ["character_id"]
+            isOneToOne: false
+            referencedRelation: "characters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "improvised_entities_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "world_entities"
             referencedColumns: ["id"]
           },
         ]
@@ -984,6 +1143,7 @@ export type Database = {
         Row: {
           attribute_modifiers: Json
           buffer_count: number
+          character_id: string | null
           current_location_id: string
           data: Json
           disposition_to_players: number | null
@@ -1001,7 +1161,8 @@ export type Database = {
         }
         Insert: {
           attribute_modifiers?: Json
-          buffer_count?: number | null
+          buffer_count?: number
+          character_id?: string | null
           current_location_id?: string
           data?: Json
           disposition_to_players?: number | null
@@ -1019,7 +1180,8 @@ export type Database = {
         }
         Update: {
           attribute_modifiers?: Json
-          buffer_count?: number | null
+          buffer_count?: number
+          character_id?: string | null
           current_location_id?: string
           data?: Json
           disposition_to_players?: number | null
@@ -1036,6 +1198,20 @@ export type Database = {
           world_entity_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "npcs_character_id_fkey"
+            columns: ["character_id"]
+            isOneToOne: false
+            referencedRelation: "characters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "npcs_following_character_id_fkey"
+            columns: ["following_character_id"]
+            isOneToOne: false
+            referencedRelation: "characters"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "npcs_game_id_fkey"
             columns: ["game_id"]
@@ -1137,6 +1313,81 @@ export type Database = {
           token_budget?: number | null
           updated_at?: string | null
           username?: string | null
+        }
+        Relationships: []
+      }
+      prompt_test_cases: {
+        Row: {
+          blocks: Json
+          expected_output: Json | null
+          generated_at: string
+          generated_by: string | null
+          id: string
+          is_default: boolean
+          label: string
+          player_input: string
+          slug: string
+          slug_version: number
+          test_type: string
+        }
+        Insert: {
+          blocks?: Json
+          expected_output?: Json | null
+          generated_at?: string
+          generated_by?: string | null
+          id?: string
+          is_default?: boolean
+          label: string
+          player_input?: string
+          slug: string
+          slug_version: number
+          test_type: string
+        }
+        Update: {
+          blocks?: Json
+          expected_output?: Json | null
+          generated_at?: string
+          generated_by?: string | null
+          id?: string
+          is_default?: boolean
+          label?: string
+          player_input?: string
+          slug?: string
+          slug_version?: number
+          test_type?: string
+        }
+        Relationships: []
+      }
+      prompt_versions: {
+        Row: {
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          name: string
+          prompt: Json
+          slug: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          name: string
+          prompt: Json
+          slug: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          name?: string
+          prompt?: Json
+          slug?: string
+          version?: number
         }
         Relationships: []
       }
@@ -1430,248 +1681,38 @@ export type Database = {
           },
         ]
       }
-      world_lore: {
-        Row: {
-          attributes: Json | null
-          category: Database["public"]["Enums"]["lore_type"]
-          created_at: string | null
-          id: number
-          long_desc: string
-          name: string
-          search_vector: unknown
-          short_desc: string
-        }
-        Insert: {
-          attributes?: Json | null
-          category: Database["public"]["Enums"]["lore_type"]
-          created_at?: string | null
-          id?: number
-          long_desc: string
-          name: string
-          search_vector?: unknown
-          short_desc: string
-        }
-        Update: {
-          attributes?: Json | null
-          category?: Database["public"]["Enums"]["lore_type"]
-          created_at?: string | null
-          id?: number
-          long_desc?: string
-          name?: string
-          search_vector?: unknown
-          short_desc?: string
-        }
-        Relationships: []
-      }
-      conversation_turns: {
-        Row: {
-          id: string
-          character_id: string
-          game_id: string | null
-          role: string
-          content: string
-          turn_number: number
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          character_id: string
-          game_id?: string | null
-          role: string
-          content: string
-          turn_number: number
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          character_id?: string
-          game_id?: string | null
-          role?: string
-          content?: string
-          turn_number?: number
-          created_at?: string
-        }
-        Relationships: []
-      }
-      world_entities: {
-        Row: {
-          id: string
-          name: string
-          type: Database["public"]["Enums"]["entity_type"]
-          parent_id: string | null
-          nation_context: string | null
-          region_context: string | null
-          place_context: string | null
-          data: Json
-          search_vector: unknown
-          created_at: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          id: string
-          name: string
-          type: Database["public"]["Enums"]["entity_type"]
-          parent_id?: string | null
-          nation_context?: string | null
-          region_context?: string | null
-          place_context?: string | null
-          data?: Json
-          search_vector?: unknown
-          created_at?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          id?: string
-          name?: string
-          type?: Database["public"]["Enums"]["entity_type"]
-          parent_id?: string | null
-          nation_context?: string | null
-          region_context?: string | null
-          place_context?: string | null
-          data?: Json
-          search_vector?: unknown
-          created_at?: string | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
-      prompt_versions: {
-        Row: {
-          id: string
-          name: string
-          slug: string
-          version: number
-          prompt: Json
-          description: string | null
-          created_at: string | null
-          created_by: string | null
-        }
-        Insert: {
-          id?: string
-          name: string
-          slug: string
-          version?: number
-          prompt: Json
-          description?: string | null
-          created_at?: string | null
-          created_by?: string | null
-        }
-        Update: {
-          id?: string
-          name?: string
-          slug?: string
-          version?: number
-          prompt?: Json
-          description?: string | null
-          created_at?: string | null
-          created_by?: string | null
-        }
-        Relationships: []
-      }
-      prompt_test_cases: {
-        Row: {
-          id: string
-          slug: string
-          slug_version: number
-          test_type: string
-          label: string
-          blocks: Json
-          player_input: string
-          expected_output: Json | null
-          is_default: boolean
-          generated_at: string
-          generated_by: string | null
-        }
-        Insert: {
-          id?: string
-          slug: string
-          slug_version: number
-          test_type: string
-          label: string
-          blocks?: Json
-          player_input?: string
-          expected_output?: Json | null
-          is_default?: boolean
-          generated_at?: string
-          generated_by?: string | null
-        }
-        Update: {
-          id?: string
-          slug?: string
-          slug_version?: number
-          test_type?: string
-          label?: string
-          blocks?: Json
-          player_input?: string
-          expected_output?: Json | null
-          is_default?: boolean
-          generated_at?: string
-          generated_by?: string | null
-        }
-        Relationships: []
-      }
-      player_entity_mutations: {
-        Row: {
-          id: number
-          player_id: string
-          entity_id: string | null
-          travel_progress: number | null
-          spatial_relation: string | null
-          mutations: Json
-          updated_at: string | null
-        }
-        Insert: {
-          id?: number
-          player_id: string
-          entity_id?: string | null
-          travel_progress?: number | null
-          spatial_relation?: string | null
-          mutations?: Json
-          updated_at?: string | null
-        }
-        Update: {
-          id?: number
-          player_id?: string
-          entity_id?: string | null
-          travel_progress?: number | null
-          spatial_relation?: string | null
-          mutations?: Json
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
       syngem_game: {
         Row: {
-          id: string
           character_id: string
-          player_id: string
-          in_combat: boolean
+          created_at: string
           game_date_days: number
           game_time_minutes: number
+          id: string
+          in_combat: boolean
+          player_id: string
           summary: string | null
-          created_at: string
           updated_at: string
         }
         Insert: {
-          id?: string
           character_id: string
-          player_id: string
-          in_combat?: boolean
+          created_at?: string
           game_date_days?: number
           game_time_minutes?: number
+          id?: string
+          in_combat?: boolean
+          player_id: string
           summary?: string | null
-          created_at?: string
           updated_at?: string
         }
         Update: {
-          id?: string
           character_id?: string
-          player_id?: string
-          in_combat?: boolean
+          created_at?: string
           game_date_days?: number
           game_time_minutes?: number
+          id?: string
+          in_combat?: boolean
+          player_id?: string
           summary?: string | null
-          created_at?: string
           updated_at?: string
         }
         Relationships: [
@@ -1686,34 +1727,34 @@ export type Database = {
       }
       token_usage: {
         Row: {
-          id: string
-          user_id: string
-          character_id: string | null
           agent: string
-          model: string
-          input_tokens: number
-          output_tokens: number
+          character_id: string | null
           created_at: string
+          id: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          user_id: string
         }
         Insert: {
-          id?: string
-          user_id: string
-          character_id?: string | null
           agent: string
-          model: string
-          input_tokens: number
-          output_tokens: number
+          character_id?: string | null
           created_at?: string
+          id?: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          user_id: string
         }
         Update: {
-          id?: string
-          user_id?: string
-          character_id?: string | null
           agent?: string
-          model?: string
-          input_tokens?: number
-          output_tokens?: number
+          character_id?: string | null
           created_at?: string
+          id?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          user_id?: string
         }
         Relationships: [
           {
@@ -1721,6 +1762,56 @@ export type Database = {
             columns: ["character_id"]
             isOneToOne: false
             referencedRelation: "characters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      world_entities: {
+        Row: {
+          created_at: string | null
+          data: Json
+          id: string
+          name: string
+          nation_context: string | null
+          parent_id: string | null
+          place_context: string | null
+          region_context: string | null
+          search_vector: unknown
+          type: Database["public"]["Enums"]["entity_type"]
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          data?: Json
+          id: string
+          name: string
+          nation_context?: string | null
+          parent_id?: string | null
+          place_context?: string | null
+          region_context?: string | null
+          search_vector?: unknown
+          type: Database["public"]["Enums"]["entity_type"]
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          data?: Json
+          id?: string
+          name?: string
+          nation_context?: string | null
+          parent_id?: string | null
+          place_context?: string | null
+          region_context?: string | null
+          search_vector?: unknown
+          type?: Database["public"]["Enums"]["entity_type"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "world_entities_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "world_entities"
             referencedColumns: ["id"]
           },
         ]
@@ -1745,33 +1836,30 @@ export type Database = {
         Args: { p_delete_ids: string[]; p_upsert_edges: Json }
         Returns: undefined
       }
-      search_world_lore: {
-        Args: { search_query: string }
-        Returns: {
-          attributes: Json
-          category: Database["public"]["Enums"]["lore_type"]
-          id: number
-          long_desc: string
-          name: string
-          rank: number
-          short_desc: string
-        }[]
-      }
       search_world_entities: {
-        Args: { search_query: string; filter_type?: string | null }
+        Args: {
+          filter_type?: Database["public"]["Enums"]["entity_type"]
+          search_query: string
+        }
         Returns: {
+          created_at: string | null
+          data: Json
           id: string
           name: string
-          type: Database["public"]["Enums"]["entity_type"]
-          parent_id: string | null
           nation_context: string | null
-          region_context: string | null
+          parent_id: string | null
           place_context: string | null
-          data: Json
+          region_context: string | null
           search_vector: unknown
-          created_at: string | null
+          type: Database["public"]["Enums"]["entity_type"]
           updated_at: string | null
         }[]
+        SetofOptions: {
+          from: "*"
+          to: "world_entities"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       set_user_dev_status: {
         Args: { dev_status: boolean; target_user_id: string }
@@ -1779,14 +1867,6 @@ export type Database = {
       }
     }
     Enums: {
-      lore_type:
-        | "nation"
-        | "region"
-        | "polis"
-        | "location"
-        | "npc"
-        | "item"
-        | "faction"
       entity_type: "nation" | "region" | "place" | "location" | "npc" | "item"
       offer_type: "item" | "denarius" | "skill_point" | "spell"
     }
@@ -1916,15 +1996,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      lore_type: [
-        "nation",
-        "region",
-        "polis",
-        "location",
-        "npc",
-        "item",
-        "faction",
-      ],
+      entity_type: ["nation", "region", "place", "location", "npc", "item"],
       offer_type: ["item", "denarius", "skill_point", "spell"],
     },
   },

@@ -320,6 +320,8 @@ export async function hydrateNpcs(
                 personality: (weData['long_description'] as string | undefined) ?? (weData['long_desc'] as string | undefined) ?? null,
               },
               attribute_modifiers: {},
+              buffer_count: 0,
+              character_id: null,
             }
             npcMap.set(we.id, virtualNpc)
           }

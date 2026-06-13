@@ -54,6 +54,7 @@ const NULL_GAME: Game = {
   current_turn_order: [],
   active_turn_index: 0,
   combat_log: [],
+  combat_phase: null,
   is_private: false,
   starting_level: 0,
 }

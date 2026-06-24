@@ -146,9 +146,9 @@ export function SkillCheckPanel({ character, onCharacterUpdate }: SkillCheckPane
   const [selectedSkill, setSelectedSkill] = useState<{ skill: string; pool: PoolName } | null>(null)
 
   const baseFor: Record<PoolName, number> = {
-    Power:   Math.floor((character.power_max   ?? 0) / 2),
-    Will:    Math.floor((character.will_max    ?? 0) / 2),
-    Essence: Math.floor((character.essence_max ?? 0) / 2),
+    Power:   Math.ceil((character.power_max   ?? 0) / 2),
+    Will:    Math.ceil((character.will_max    ?? 0) / 2),
+    Essence: Math.ceil((character.essence_max ?? 0) / 2),
   }
 
   const handleSelectSkill = (skill: string, pool: PoolName) => {

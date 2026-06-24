@@ -137,9 +137,9 @@ export function PoolCheckPanel({ character }: PoolCheckPanelProps) {
   const [pending, setPending] = useState<PendingRoll | null>(null)
 
   const baseFor: Record<PoolName, number> = {
-    Essence: Math.floor((character.essence_max ?? 0) / 2),
-    Power:   Math.floor((character.power_max   ?? 0) / 2),
-    Will:    Math.floor((character.will_max    ?? 0) / 2),
+    Essence: Math.ceil((character.essence_max ?? 0) / 2),
+    Power:   Math.ceil((character.power_max   ?? 0) / 2),
+    Will:    Math.ceil((character.will_max    ?? 0) / 2),
   }
 
   const currentFor: Record<PoolName, number> = {

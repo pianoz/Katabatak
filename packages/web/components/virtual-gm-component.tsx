@@ -84,7 +84,8 @@ interface PendingCheck {
   pool: 'Power' | 'Essence' | 'Will';
   check_description: string;
   originalMessage: string;
-  basePoolValue: number;
+  basePoolValue: number;  // ceil(currentPool / 2) — used as check base
+  currentPool: number;    // actual pool at check time — used for deduction cap + drain
 }
 
 function poolToStoreKey(pool: 'Power' | 'Essence' | 'Will'): 'power' | 'will' | 'essence' {
@@ -231,7 +232,8 @@ export default function ChatGMComponent({
         if (data.type === 'check_required') {
           const pool = (data.pool ?? 'Power') as PendingCheck['pool'];
           const storeState = useCharacterStore.getState();
-          const basePoolValue = storeState[poolToStoreKey(pool)]?.current ?? 0;
+          const currentPool = storeState[poolToStoreKey(pool)]?.current ?? 0;
+          const basePoolValue = Math.ceil(currentPool / 2);
           setPoolContributed(0);
           setPendingCheck({
             difficulty: data.difficulty ?? 10,
@@ -239,6 +241,7 @@ export default function ChatGMComponent({
             check_description: data.check_description ?? 'Attempting a difficult task',
             originalMessage: message,
             basePoolValue,
+            currentPool,
           });
           setStreamingContent(null);
           return;
@@ -324,17 +327,17 @@ export default function ChatGMComponent({
   };
 
   const handleAddPool = () => {
-    if (!pendingCheck || poolContributed >= pendingCheck.basePoolValue) return;
+    if (!pendingCheck || poolContributed >= pendingCheck.currentPool) return;
     const next = poolContributed + 1;
     setPoolContributed(next);
-    useCharacterStore.getState().updatePool(poolToStoreKey(pendingCheck.pool), pendingCheck.basePoolValue - next);
+    useCharacterStore.getState().updatePool(poolToStoreKey(pendingCheck.pool), pendingCheck.currentPool - next);
   };
 
   const handleRemovePool = () => {
     if (!pendingCheck || poolContributed <= 0) return;
     const next = poolContributed - 1;
     setPoolContributed(next);
-    useCharacterStore.getState().updatePool(poolToStoreKey(pendingCheck.pool), pendingCheck.basePoolValue - next);
+    useCharacterStore.getState().updatePool(poolToStoreKey(pendingCheck.pool), pendingCheck.currentPool - next);
   };
 
   const resolveCheck = async (autoSucceed: boolean) => {
@@ -482,7 +485,7 @@ export default function ChatGMComponent({
       {pendingCheck && (() => {
         const totalBase = pendingCheck.basePoolValue + poolContributed;
         const autoSucceed = totalBase >= pendingCheck.difficulty;
-        const remainingPool = pendingCheck.basePoolValue - poolContributed;
+        const remainingPool = pendingCheck.currentPool - poolContributed;
         return (
           <div className="border-t border-amber-800/50 bg-zinc-900/90 px-6 py-4 shrink-0">
             <div className="flex items-start gap-3 mb-4">
@@ -521,7 +524,7 @@ export default function ChatGMComponent({
                   </span>
                   <button
                     onClick={handleAddPool}
-                    disabled={poolContributed >= pendingCheck.basePoolValue}
+                    disabled={poolContributed >= pendingCheck.currentPool}
                     className="w-6 h-6 flex items-center justify-center border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors"
                   >+</button>
                 </div>

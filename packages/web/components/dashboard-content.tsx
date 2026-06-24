@@ -5,12 +5,13 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { LogOut, Plus, Sparkles, Swords, Users } from "lucide-react"
+import { LogOut, MoreHorizontal, Plus, Sparkles, Swords, Users } from "lucide-react"
 import { DevToolsSection } from "@/features/devtools/components/devtools-section"
 import { createClient } from "@/lib/supabase/client"
 import { archiveGame, deleteGame } from "@/lib/services/game-service"
 import { deleteCharacter } from "@/lib/services/character-service"
 import { Switch } from "@/components/ui/switch"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { SettingsModal } from "@/components/settings-modal"
 import { InviteNotification, GameInvite } from "@/components/invite-notification"
 import { CharacterForSelect } from "@/features/characters/components/character-select-modal"
@@ -62,6 +63,7 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
   const [topTab, setTopTab] = useState("irl")
   const [activeTab, setActiveTab] = useState("games")
   const [friendsOpen, setFriendsOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [devModeEnabled, setDevModeEnabled] = useState(false)
   type LogLevel = 'verbose' | 'errors+' | 'errors' | 'silent'
   const LOG_LEVELS: LogLevel[] = ['verbose', 'errors+', 'errors', 'silent']
@@ -121,56 +123,64 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
           <Link href="/dashboard" className="font-serif text-2xl tracking-wide text-foreground">
             KatabataK
           </Link>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground hidden md:block">
-                Traveler: <span className="text-foreground">{username}</span>
-              </span>
-              <SettingsModal
-                userId={userId}
-                initialProfile={{ username, fullName}}
-                tokenBudget={tokenBudget}
+          <div className="flex items-center">
+            {/* Desktop: full icon row */}
+            <div className="hidden md:flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Traveler: <span className="text-foreground">{username}</span>
+                </span>
+                <SettingsModal
+                  userId={userId}
+                  initialProfile={{ username, fullName}}
+                  tokenBudget={tokenBudget}
+                />
+              </div>
+              <InviteNotification
+                invites={invites}
+                characters={charactersForSelect}
+                friendRequests={friendRequests}
+                onFriendRequestResolved={handleFriendRequestResolved}
               />
+              <button
+                onClick={() => setFriendsOpen(true)}
+                className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Friends"
+              >
+                <Users className="w-5 h-5" />
+              </button>
+              {isDev && (
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={devModeEnabled}
+                    onCheckedChange={toggleDevMode}
+                    id="dev-mode-toggle"
+                  />
+                  <label
+                    htmlFor="dev-mode-toggle"
+                    className="text-xs uppercase tracking-widest text-muted-foreground cursor-pointer select-none"
+                  >
+                    Dev
+                  </label>
+                </div>
+              )}
+              <Button
+                variant="ghost"
+                onClick={handleSignOut}
+                className="text-muted-foreground hover:text-foreground uppercase text-xs tracking-widest"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
             </div>
 
-            <InviteNotification
-              invites={invites}
-              characters={charactersForSelect}
-              friendRequests={friendRequests}
-              onFriendRequestResolved={handleFriendRequestResolved}
-            />
-
+            {/* Mobile: ellipsis button */}
             <button
-              onClick={() => setFriendsOpen(true)}
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Friends"
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Menu"
             >
-              <Users className="w-5 h-5" />
+              <MoreHorizontal className="w-5 h-5" />
             </button>
-
-            {isDev && (
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={devModeEnabled}
-                  onCheckedChange={toggleDevMode}
-                  id="dev-mode-toggle"
-                />
-                <label
-                  htmlFor="dev-mode-toggle"
-                  className="text-xs uppercase tracking-widest text-muted-foreground cursor-pointer select-none"
-                >
-                  Dev
-                </label>
-              </div>
-            )}
-
-            <Button
-              variant="ghost"
-              onClick={handleSignOut}
-              className="text-muted-foreground hover:text-foreground uppercase text-xs tracking-widest"
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
           </div>
         </div>
       </header>
@@ -183,25 +193,91 @@ export function DashboardContent({ games, characters, invites, isDev, userId, us
         />
       )}
 
+      {/* Mobile header menu */}
+      <Dialog open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <DialogContent className="max-w-sm w-[calc(100vw-2rem)] bg-card border-border p-0">
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-border">
+            <DialogTitle className="text-xs uppercase tracking-[0.3em] text-muted-foreground font-sans font-normal">
+              Menu
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto max-h-[70vh]">
+            <div className="px-5 py-3 border-b border-border">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Traveler: <span className="text-foreground">{username}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
+              <SettingsModal
+                userId={userId}
+                initialProfile={{ username, fullName }}
+                tokenBudget={tokenBudget}
+              />
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Settings</span>
+            </div>
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
+              <InviteNotification
+                invites={invites}
+                characters={charactersForSelect}
+                friendRequests={friendRequests}
+                onFriendRequestResolved={handleFriendRequestResolved}
+              />
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Notifications</span>
+            </div>
+            <button
+              onClick={() => { setMobileMenuOpen(false); setFriendsOpen(true) }}
+              className="flex items-center gap-3 w-full px-5 py-3 border-b border-border text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Users className="w-5 h-5" />
+              <span className="text-xs uppercase tracking-widest">Friends</span>
+            </button>
+            {isDev && (
+              <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
+                <Switch
+                  checked={devModeEnabled}
+                  onCheckedChange={toggleDevMode}
+                  id="dev-mode-toggle-mobile"
+                />
+                <label
+                  htmlFor="dev-mode-toggle-mobile"
+                  className="text-xs uppercase tracking-widest text-muted-foreground cursor-pointer select-none"
+                >
+                  Dev Mode
+                </label>
+              </div>
+            )}
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-3 w-full px-5 py-3 text-destructive/70 hover:text-destructive transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+              <span className="text-xs uppercase tracking-widest">Sign Out</span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <main className="px-6 md:px-12 lg:px-20 py-8">
         {/* Top-level IRL / SYNGEM tabs */}
         <Tabs value={topTab} onValueChange={setTopTab}>
-          <TabsList className="bg-secondary mb-8">
-            <TabsTrigger
-              value="irl"
-              className="uppercase tracking-widest text-xs data-[state=active]:bg-card px-6"
-            >
-              <Swords className="w-3.5 h-3.5 mr-2" />
-              IRL
-            </TabsTrigger>
-            <TabsTrigger
-              value="syngem"
-              className="uppercase tracking-widest text-xs data-[state=active]:bg-card px-6"
-            >
-              <Sparkles className="w-3.5 h-3.5 mr-2" />
-              Syngem
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex justify-center mb-10">
+            <TabsList className="bg-transparent border border-border h-auto p-1 gap-1">
+              <TabsTrigger
+                value="irl"
+                className="uppercase tracking-[0.25em] text-sm px-8 py-2.5 h-auto data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border data-[state=active]:border-border/80"
+              >
+                <Swords className="w-4 h-4 mr-2" />
+                IRL
+              </TabsTrigger>
+              <TabsTrigger
+                value="syngem"
+                className="uppercase tracking-[0.25em] text-sm px-8 py-2.5 h-auto data-[state=active]:bg-cyan-950/60 data-[state=active]:text-cyan-300 data-[state=active]:border data-[state=active]:border-cyan-800/60"
+              >
+                <Sparkles className="w-4 h-4 mr-2" />
+                Syngem
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* ── IRL tab ──────────────────────────────────────────────── */}
           <TabsContent value="irl">
